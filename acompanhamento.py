@@ -454,7 +454,7 @@ def main():
 
         st.markdown("---")
 
-        st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
+            st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
                 if 'Media' in df_f.columns and not df_f['Media'].dropna().empty:
                     media_por_classe = df_f.groupby('Classe_Operacional')['Media'].mean().to_dict()
                     ranking_df = df_f.copy()
