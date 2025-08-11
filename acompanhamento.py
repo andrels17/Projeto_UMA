@@ -386,6 +386,7 @@ def main():
 
     df, df_frotas, df_manutencoes = load_data_from_db(DB_PATH)
 
+    # --- INÍCIO DA CORREÇÃO ---
     # Nova lógica de inicialização para a estrutura com nomes e intervalos
     if 'intervalos_por_classe' not in st.session_state:
         st.session_state.intervalos_por_classe = {}
@@ -407,7 +408,7 @@ def main():
                     'servico_3': {'nome': 'Revisao 10k', 'intervalo': 10000},
                     'servico_4': {'nome': 'Revisao 20k', 'intervalo': 20000}
                 }
-
+                
     with st.sidebar:
         st.header("📅 Filtros")
         safra_opts = sorted(list(df["Safra"].dropna().unique())) if "Safra" in df else []
@@ -1024,29 +1025,29 @@ def main():
 
                                     
     with tab_config:
-            st.header("⚙️ Configurar Intervalos de Manutenção por Classe")
-            st.info("As alterações feitas aqui são salvas automaticamente para a sua sessão atual.")
-    
-            for classe, servicos in st.session_state.intervalos_por_classe.items():
-                with st.expander(f"**{classe}**"):
-                    for servico_id, servico_info in servicos.items():
-                        col1, col2 = st.columns(2)
-                        novo_nome = col1.text_input(
-                            label="Nome do Serviço", 
-                            value=servico_info['nome'], 
-                            key=f"{classe}_{servico_id}_nome"
-                        )
-                        novo_intervalo = col2.number_input(
-                            label="Intervalo", 
-                            value=servico_info['intervalo'], 
-                            min_value=0, 
-                            step=100, 
-                            key=f"{classe}_{servico_id}_intervalo"
-                        )
-                        st.session_state.intervalos_por_classe[classe][servico_id]['nome'] = novo_nome
-                        st.session_state.intervalos_por_classe[classe][servico_id]['intervalo'] = novo_intervalo
-
-
+        st.header("⚙️ Configurar Intervalos de Manutenção por Classe")
+        st.info("As alterações feitas aqui são salvas automaticamente para a sua sessão atual.")
+        
+        # ATUALIZADO: Lógica para editar nomes e intervalos
+        for classe, servicos in st.session_state.intervalos_por_classe.items():
+            with st.expander(f"**{classe}**"):
+                for servico_id, servico_info in servicos.items():
+                    col1, col2 = st.columns(2)
+                    novo_nome = col1.text_input(
+                        label="Nome do Serviço", 
+                        value=servico_info['nome'], 
+                        key=f"{classe}_{servico_id}_nome"
+                    )
+                    novo_intervalo = col2.number_input(
+                        label="Intervalo", 
+                        value=servico_info['intervalo'], 
+                        min_value=0, 
+                        step=100, 
+                        key=f"{classe}_{servico_id}_intervalo"
+                    )
+                    st.session_state.intervalos_por_classe[classe][servico_id]['nome'] = novo_nome
+                    st.session_state.intervalos_por_classe[classe][servico_id]['intervalo'] = novo_intervalo
+                    
     with tab_importar:
                 st.header("📤 Importar Novos Abastecimentos de uma Planilha")
                 st.info("Esta funcionalidade permite carregar múltiplos abastecimentos de uma vez a partir de um arquivo Excel (.xlsx).")
