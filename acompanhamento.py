@@ -462,7 +462,7 @@ def main():
             c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
     
             st.markdown("---")
-            st.subheader("Comparativo de Eficiência")
+        st.subheader("Comparativo de Eficiência")
             
             if 'Media' not in df.columns or df['Media'].dropna().empty:
                 st.warning("A coluna 'Media' não foi encontrada ou está vazia nos seus dados. Não é possível gerar o gráfico de eficiência.")
