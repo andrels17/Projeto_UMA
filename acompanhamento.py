@@ -304,25 +304,25 @@ def main():
 # APAGUE O SEU BLOCO DE INICIALIZAÇÃO DE INTERVALOS E SUBSTITUA-O POR ESTE
 
 # Lógica para inicializar e gerir os intervalos por classe na sessão
-if 'intervalos_por_classe' not in st.session_state:
-    st.session_state.intervalos_por_classe = {}
-
-# --- INÍCIO DA CORREÇÃO ---
-# Filtra classes nulas (None) ou vazias antes de criar as configurações
-classes_operacionais = [
-    classe for classe in df_frotas['Classe Operacional'].unique() 
-    if pd.notna(classe) and str(classe).strip() != ''
-]
-# --- FIM DA CORREÇÃO ---
-
-for classe in classes_operacionais:
-    if classe not in st.session_state.intervalos_por_classe:
-        # A função iloc[0] garante que pegamos o tipo de controle mesmo que haja múltiplas linhas para a classe
-        tipo_controle = df_frotas[df_frotas['Classe Operacional'] == classe]['Tipo_Controle'].iloc[0]
-        if tipo_controle == 'HORAS':
-            st.session_state.intervalos_por_classe[classe] = {'Lubrificacao': 250, 'Revisao_1': 100, 'Revisao_2': 300, 'Revisao_3': 500}
-        else: # QUILÔMETROS
-            st.session_state.intervalos_por_classe[classe] = {'Lubrificacao': 5000, 'Revisao_1': 5000, 'Revisao_2': 10000, 'Revisao_3': 20000}
+    if 'intervalos_por_classe' not in st.session_state:
+        st.session_state.intervalos_por_classe = {}
+    
+    # --- INÍCIO DA CORREÇÃO ---
+    # Filtra classes nulas (None) ou vazias antes de criar as configurações
+    classes_operacionais = [
+        classe for classe in df_frotas['Classe Operacional'].unique() 
+        if pd.notna(classe) and str(classe).strip() != ''
+    ]
+    # --- FIM DA CORREÇÃO ---
+    
+    for classe in classes_operacionais:
+        if classe not in st.session_state.intervalos_por_classe:
+            # A função iloc[0] garante que pegamos o tipo de controle mesmo que haja múltiplas linhas para a classe
+            tipo_controle = df_frotas[df_frotas['Classe Operacional'] == classe]['Tipo_Controle'].iloc[0]
+            if tipo_controle == 'HORAS':
+                st.session_state.intervalos_por_classe[classe] = {'Lubrificacao': 250, 'Revisao_1': 100, 'Revisao_2': 300, 'Revisao_3': 500}
+            else: # QUILÔMETROS
+                st.session_state.intervalos_por_classe[classe] = {'Lubrificacao': 5000, 'Revisao_1': 5000, 'Revisao_2': 10000, 'Revisao_3': 20000}
 
     with st.sidebar:
         st.header("📅 Filtros")
