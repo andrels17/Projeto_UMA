@@ -41,6 +41,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
 
 # APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
@@ -76,6 +78,7 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     df["Ano"] = df["Data"].dt.year
     df["AnoMes"] = df["Data"].dt.to_period("M").astype(str)
 
+    # CORREÇÃO DEFINITIVA para a coluna "Media"
     if 'Media' in df.columns:
         if df['Media'].dtype == 'object':
             df['Media'] = df['Media'].str.replace(',', '.', regex=False)
@@ -86,10 +89,8 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
-    # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
+    # CORREÇÃO DEFINITIVA para o "Tipo_Controle"
     def determinar_tipo_controle(row):
-        # Junta a descrição e a classe do equipamento numa única string para verificação
-        # Usa o nome original da coluna "Classe Operacional" (com espaço) da tabela de frotas
         texto_para_verificar = (
             str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
             str(row.get('Classe Operacional', ''))
@@ -102,11 +103,10 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
         else:
             return 'HORAS'
 
-    # Aplica a função diretamente na tabela de frotas para criar a coluna definitiva
     df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
-    # --- FIM DA CORREÇÃO DEFINITIVA ---
     
     return df, df_frotas, df_manutencoes
+    
 def inserir_abastecimento(db_path: str, dados: dict) -> bool:
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
