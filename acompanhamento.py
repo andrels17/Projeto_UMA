@@ -670,7 +670,7 @@ def main():
         # APAGUE O SEU BLOCO "with st.form(...)" E SUBSTITUA-O POR ESTE BLOCO CORRIGIDO
 
     with st.form("form_manutencao", clear_on_submit=True):
-                st.subheader("📝 Registrar Manutenção Realizada")
+            st.subheader("📝 Registrar Manutenção Realizada")
                 equip_label = st.selectbox(
                     "Selecione o Equipamento", 
                     options=df_frotas.sort_values("label")["label"], 
