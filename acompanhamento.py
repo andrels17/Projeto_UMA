@@ -339,25 +339,29 @@ def build_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimentos: pd.Data
     for _, frota_row in _df_frotas.iterrows():
         cod_equip = frota_row['Cod_Equip']
         tipo_controle = frota_row['Tipo_Controle']
-        classe_op = frota_row.get('Classe Operacional')
+        classe_op = frota_row.get('Classe_Operacional')
         hod_hor_atual = latest_readings.get(cod_equip)
 
         if pd.isna(hod_hor_atual) or not classe_op: continue
-
-        # Pega os serviços aplicáveis para ESTA CLASSE ESPECÍFICA
+        
         servicos_aplicaveis = intervalos_por_classe.get(classe_op, {})
-        if not servicos_aplicaveis: continue # Pula se não houver configuração para esta classe
-
+        if not servicos_aplicaveis: continue
+        
         unidade = 'km' if tipo_controle == 'QUILÔMETROS' else 'h'
         alerta_default = ALERTAS_MANUTENCAO.get(tipo_controle, {}).get('default', 500)
-        
         record = {'Cod_Equip': cod_equip, 'Equipamento': frota_row.get('DESCRICAO_EQUIPAMENTO', 'N/A'), 'Leitura_Atual': hod_hor_atual, 'Unidade': unidade, 'Qualquer_Alerta': False}
         
-        for servico, intervalo in servicos_aplicaveis.items():
-            if not intervalo or intervalo <= 0: continue # Ignora intervalos inválidos
-            manutencoes_servico = _df_manutencoes[(_df_manutencoes['Cod_Equip'] == cod_equip) & (_df_manutencoes['Tipo_Servico'] == servico)]
+        # Lógica atualizada para usar a nova estrutura de dicionário com nomes editáveis
+        for servico_id, servico_info in servicos_aplicaveis.items():
+            nome_servico = servico_info.get('nome', servico_id) # Usa o nome editável
+            intervalo = servico_info.get('intervalo', 0)
+
+            if not intervalo or intervalo <= 0: continue
+            
+            manutencoes_servico = _df_manutencoes[(_df_manutencoes['Cod_Equip'] == cod_equip) & (_df_manutencoes['Tipo_Servico'] == nome_servico)]
             ultimo_servico_hod_hor = 0
-            if not manutencoes_servico.empty: ultimo_servico_hod_hor = manutencoes_servico['Hod_Hor_No_Servico'].max()
+            if not manutencoes_servico.empty:
+                ultimo_servico_hod_hor = manutencoes_servico['Hod_Hor_No_Servico'].max()
             
             base_calculo = ultimo_servico_hod_hor if hod_hor_atual >= ultimo_servico_hod_hor else hod_hor_atual
             multiplicador = (hod_hor_atual - base_calculo) // intervalo
@@ -367,15 +371,14 @@ def build_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimentos: pd.Data
             alerta = restante <= alerta_default
             
             if alerta: record['Qualquer_Alerta'] = True
-            record[f'Prox_{servico}'] = prox_servico
-            record[f'Restante_{servico}'] = restante
-            record[f'Alerta_{servico}'] = alerta
+            record[f'Prox_{nome_servico}'] = prox_servico
+            record[f'Restante_{nome_servico}'] = restante
+            record[f'Alerta_{nome_servico}'] = alerta
 
         plan_data.append(record)
         
     if not plan_data: return pd.DataFrame()
     return pd.DataFrame(plan_data)
-
 # ---------------- App principal ----------------
 def main():
     st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
@@ -383,54 +386,84 @@ def main():
 
     df, df_frotas, df_manutencoes = load_data_from_db(DB_PATH)
 
+    # Nova lógica de inicialização para a estrutura com nomes e intervalos
     if 'intervalos_por_classe' not in st.session_state:
         st.session_state.intervalos_por_classe = {}
-    
-    # --- INÍCIO DA CORREÇÃO ---
-    # Filtra classes nulas (None) ou vazias antes de criar as configurações
-    classes_operacionais = [
-        classe for classe in df_frotas['Classe Operacional'].unique() 
-        if pd.notna(classe) and str(classe).strip() != ''
-    ]
-    # --- FIM DA CORREÇÃO ---
-    
+    classes_operacionais = [c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()]
     for classe in classes_operacionais:
         if classe not in st.session_state.intervalos_por_classe:
-            # A função iloc[0] garante que pegamos o tipo de controle mesmo que haja múltiplas linhas para a classe
-            tipo_controle = df_frotas[df_frotas['Classe Operacional'] == classe]['Tipo_Controle'].iloc[0]
+            tipo_controle = df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0]
             if tipo_controle == 'HORAS':
-                st.session_state.intervalos_por_classe[classe] = {'Lubrificacao': 250, 'Revisao_1': 100, 'Revisao_2': 300, 'Revisao_3': 500}
+                st.session_state.intervalos_por_classe[classe] = {
+                    'servico_1': {'nome': 'Lubrificacao', 'intervalo': 250},
+                    'servico_2': {'nome': 'Revisao A', 'intervalo': 100},
+                    'servico_3': {'nome': 'Revisao B', 'intervalo': 300},
+                    'servico_4': {'nome': 'Revisao C', 'intervalo': 500}
+                }
             else: # QUILÔMETROS
-                st.session_state.intervalos_por_classe[classe] = {'Lubrificacao': 5000, 'Revisao_1': 5000, 'Revisao_2': 10000, 'Revisao_3': 20000}
+                st.session_state.intervalos_por_classe[classe] = {
+                    'servico_1': {'nome': 'Lubrificacao', 'intervalo': 5000},
+                    'servico_2': {'nome': 'Revisao 5k', 'intervalo': 5000},
+                    'servico_3': {'nome': 'Revisao 10k', 'intervalo': 10000},
+                    'servico_4': {'nome': 'Revisao 20k', 'intervalo': 20000}
+                }
 
     with st.sidebar:
         st.header("📅 Filtros")
         safra_opts = sorted(list(df["Safra"].dropna().unique())) if "Safra" in df else []
         ano_opts = sorted(list(df["Ano"].dropna().unique())) if "Ano" in df else []
         mes_opts = sorted(list(df["Mes"].dropna().astype(str).unique())) if "Mes" in df else []
-        classe_opts = sorted(list(df["Classe_Operacional"].dropna().unique())) if "Classe_Operacional" in df else []
-
+        classe_opts = sorted(classes_operacionais)
         sel_safras = st.multiselect("Safra", safra_opts, default=safra_opts[-1:] if safra_opts else [])
         sel_anos = st.multiselect("Ano", ano_opts, default=ano_opts[-1:] if ano_opts else [])
         sel_meses = st.multiselect("Mês", mes_opts, default=mes_opts)
         sel_classes = st.multiselect("Classe Operacional", classe_opts, default=classe_opts)
-        
         opts = {"safras": sel_safras or safra_opts, "anos": sel_anos or ano_opts, "meses": sel_meses or mes_opts, "classes_op": sel_classes or classe_opts}
 
     df_f = filtrar_dados(df, opts)
-
     plan_df = build_maintenance_plan(df_frotas, df, df_manutencoes, st.session_state.intervalos_por_classe)
 
-    tabs = [
-            "📊 Análise Geral", 
-            "🛠️ Controle de Manutenção", 
-            "🔎 Consulta Individual", 
-            "⚙️ Gerir Lançamentos", 
-            "⚙️ Gerir Frotas", 
-            "📤 Importar Dados", 
-            "⚙️ Configurações"
-        ]
-    tab_analise, tab_manut, tab_consulta, tab_gerir_lanc, tab_gerir_frotas, tab_importar, tab_config = st.tabs(tabs)
+    tabs = ["📊 Painel de Controle", "Analises de Combustivel" "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações"]
+    tab_painel, tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config = st.tabs(tabs)
+
+    with tab_painel:
+        st.header("Visão Geral da Frota")
+        
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
+        kpi1.metric("Frotas Ativas", total_frotas_ativas)
+        
+        frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
+        kpi2.metric("Frotas com Alerta", frotas_com_alerta)
+
+        df_media_geral = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)]
+        if not df_media_geral.empty:
+            media_por_equip = df_media_geral.groupby('DESCRICAO_EQUIPAMENTO')['Media'].mean().sort_values()
+            if not media_por_equip.empty:
+                kpi3.metric("Frota Mais Eficiente", media_por_equip.index[0], f"{formatar_brasileiro(media_por_equip.iloc[0])}")
+                kpi4.metric("Frota Menos Eficiente", media_por_equip.index[-1], f"{formatar_brasileiro(media_por_equip.iloc[-1])}")
+
+        st.markdown("---")
+
+        st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
+        if 'Media' in df_f.columns and not df_f['Media'].dropna().empty:
+            media_por_classe = df_f.groupby('Classe_Operacional')['Media'].mean().to_dict()
+            ranking_df = df_f.copy()
+            ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
+            ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
+            
+            ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
+            ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
+            
+            def formatar_eficiencia(val):
+                if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
+                if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
+                return f"⚪ {val:+.2f}%".replace('.',',')
+            
+            ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
+            st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])
+        else:
+            st.info("Não há dados de consumo médio para gerar o ranking.")
     with tab_analise:
         st.header("Visão Geral de Consumo")
 
@@ -993,20 +1026,26 @@ def main():
     with tab_config:
             st.header("⚙️ Configurar Intervalos de Manutenção por Classe")
             st.info("As alterações feitas aqui são salvas automaticamente para a sua sessão atual.")
-
+    
             for classe, servicos in st.session_state.intervalos_por_classe.items():
                 with st.expander(f"**{classe}**"):
-                    novos_servicos = {}
-                    for nome_servico, intervalo in servicos.items():
-                        novo_intervalo = st.number_input(
-                            label=f"{nome_servico} (intervalo)",
-                            value=intervalo,
-                            min_value=0,
-                            step=100,
-                            key=f"{classe}_{nome_servico}"
+                    for servico_id, servico_info in servicos.items():
+                        col1, col2 = st.columns(2)
+                        novo_nome = col1.text_input(
+                            label="Nome do Serviço", 
+                            value=servico_info['nome'], 
+                            key=f"{classe}_{servico_id}_nome"
                         )
-                        novos_servicos[nome_servico] = novo_intervalo
-                    st.session_state.intervalos_por_classe[classe] = novos_servicos
+                        novo_intervalo = col2.number_input(
+                            label="Intervalo", 
+                            value=servico_info['intervalo'], 
+                            min_value=0, 
+                            step=100, 
+                            key=f"{classe}_{servico_id}_intervalo"
+                        )
+                        st.session_state.intervalos_por_classe[classe][servico_id]['nome'] = novo_nome
+                        st.session_state.intervalos_por_classe[classe][servico_id]['intervalo'] = novo_intervalo
+
 
     with tab_importar:
                 st.header("📤 Importar Novos Abastecimentos de uma Planilha")
