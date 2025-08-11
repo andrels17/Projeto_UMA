@@ -39,6 +39,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
     df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
     return df
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
@@ -74,27 +76,35 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     df["Ano"] = df["Data"].dt.year
     df["AnoMes"] = df["Data"].dt.to_period("M").astype(str)
 
-    # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
-    # Converte colunas para número, tratando a vírgula decimal brasileira
-    for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
-        if col in df.columns:
-            # Garante que a coluna é do tipo string antes de tentar substituir
-            if df[col].dtype == 'object':
-                df[col] = df[col].str.replace(',', '.', regex=False)
-            # Converte para número, tratando erros
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-    # --- FIM DA CORREÇÃO DEFINITIVA ---
+    if 'Media' in df.columns:
+        if df['Media'].dtype == 'object':
+            df['Media'] = df['Media'].str.replace(',', '.', regex=False)
+        df['Media'] = pd.to_numeric(df['Media'], errors='coerce')
+
+    for col in ["Qtde_Litros", "Hod_Hor_Atual"]:
+        if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
+    # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
     def determinar_tipo_controle(row):
-        texto_para_verificar = (str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + str(row.get('Classe Operacional', ''))).upper()
+        # Junta a descrição e a classe do equipamento numa única string para verificação
+        # Usa o nome original da coluna "Classe Operacional" (com espaço) da tabela de frotas
+        texto_para_verificar = (
+            str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
+            str(row.get('Classe Operacional', ''))
+        ).upper()
+        
         km_keywords = ['CAMINHAO', 'CAMINHÃO', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
+        
         if any(p in texto_para_verificar for p in km_keywords):
             return 'QUILÔMETROS'
         else:
             return 'HORAS'
+
+    # Aplica a função diretamente na tabela de frotas para criar a coluna definitiva
     df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
+    # --- FIM DA CORREÇÃO DEFINITIVA ---
     
     return df, df_frotas, df_manutencoes
 def inserir_abastecimento(db_path: str, dados: dict) -> bool:
