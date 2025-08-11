@@ -516,19 +516,24 @@ def main():
                             lambda x: formatar_brasileiro(x)
                         )
             
+                        # APAGUE AS LINHAS DE CRIAÇÃO E ATUALIZAÇÃO DO GRÁFICO E SUBSTITUA-AS POR ESTE BLOCO
+
+# 1. Cria o gráfico de barras (sem o parâmetro 'width' aqui)
                         fig_comp = px.bar(
                             df_comp, 
                             x='Categoria', 
                             y='Média Consumo', 
-                            text='texto_formatado', # Usa a coluna de texto formatada
-                            title="Eficiência de Consumo",
-                            width=0.4
+                            text='texto_formatado', 
+                            title="Eficiência de Consumo"
                         )
                         
-                        # Remove a formatação complexa daqui
-                        fig_comp.update_traces(textposition='outside')
-                        # --- FIM DA CORREÇÃO DE FORMATAÇÃO ---
+                        # 2. Atualiza os traços (as barras) com a formatação e a nova largura
+                        fig_comp.update_traces(
+                            textposition='outside',
+                            width=0.4  # <-- A CORREÇÃO ESTÁ AQUI: a largura é definida aqui
+                        )
                         
+                        # 3. Atualiza o layout geral (altura, etc.)
                         fig_comp.update_layout(height=400)
                         st.plotly_chart(fig_comp, use_container_width=True)
                 else:
