@@ -39,10 +39,9 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
     df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
     return df
 
-# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
-
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Carrega todos os dados necessários do DB."""
     if not os.path.exists(db_path):
         st.error(f"Arquivo de banco de dados '{db_path}' não encontrado.")
         st.stop()
@@ -50,37 +49,44 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
         with sqlite3.connect(db_path, check_same_thread=False) as conn:
             df_abast = pd.read_sql_query("SELECT rowid, * FROM abastecimentos", conn)
             df_frotas = pd.read_sql_query("SELECT * FROM frotas", conn)
-            # A CORREÇÃO FUNDAMENTAL E DEFINITIVA ESTÁ AQUI:
             df_manutencoes = pd.read_sql_query("SELECT rowid, * FROM manutencoes", conn)
     except Exception as e:
         if "no such table: manutencoes" in str(e):
-            st.error("A tabela 'manutencoes' não foi encontrada. Por favor, execute o comando SQL para criá-la e reinicie o app.")
+            st.error("A tabela 'manutencoes' não foi encontrada. Por favor, execute o comando SQL para criá-la.")
             st.stop()
         else:
             st.error(f"Erro ao ler o banco de dados: {e}")
             st.stop()
-
+    
     df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
     df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip"}, errors='ignore')
-    
+
     df = pd.merge(df_abast, df_frotas, on="Cod_Equip", how="left")
-    
+
     if 'Classe Operacional_x' in df.columns:
         df['Classe_Operacional'] = np.where(df['Classe Operacional_x'].notna(), df['Classe Operacional_x'], df['Classe Operacional_y'])
         df.drop(columns=['Classe Operacional_x', 'Classe Operacional_y'], inplace=True)
     elif 'Classe Operacional' in df.columns:
         df.rename(columns={'Classe Operacional': 'Classe_Operacional'}, inplace=True)
-        
+
     df["Data"] = pd.to_datetime(df["Data"], errors='coerce')
     df.dropna(subset=["Data"], inplace=True)
     df["Ano"] = df["Data"].dt.year
     df["AnoMes"] = df["Data"].dt.to_period("M").astype(str)
-    
+
+    # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
+    # Converte colunas para número, tratando a vírgula decimal brasileira
     for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
-        if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
+        if col in df.columns:
+            # Garante que a coluna é do tipo string antes de tentar substituir
+            if df[col].dtype == 'object':
+                df[col] = df[col].str.replace(',', '.', regex=False)
+            # Converte para número, tratando erros
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    # --- FIM DA CORREÇÃO DEFINITIVA ---
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
-    
+
     def determinar_tipo_controle(row):
         texto_para_verificar = (str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + str(row.get('Classe Operacional', ''))).upper()
         km_keywords = ['CAMINHAO', 'CAMINHÃO', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
@@ -89,7 +95,7 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
         else:
             return 'HORAS'
     df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
-
+    
     return df, df_frotas, df_manutencoes
 def inserir_abastecimento(db_path: str, dados: dict) -> bool:
     try:
@@ -412,11 +418,6 @@ def main():
                 st.plotly_chart(fig_media_classe, use_container_width=True)
             else:
                 st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
-
-
-# APAGUE O CONTEÚDO DA SUA "with tab_consulta:" E SUBSTITUA-O POR ESTE BLOCO
-
-    # APAGUE O CONTEÚDO DA SUA "with tab_consulta:" E SUBSTITUA-O POR ESTE BLOCO
     
     with tab_consulta:
         st.header("🔎 Ficha Individual do Equipamento")
@@ -443,21 +444,6 @@ def main():
     
             st.markdown("---")
             st.subheader("Comparativo de Eficiência")
-
-            # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
-            st.warning("MODO DE DIAGNÓSTICO ATIVADO PARA 'COMPARATIVO DE EFICIÊNCIA'")
-            
-            st.write("Abaixo estão as informações sobre os dados usados para este gráfico:")
-            
-            if 'Media' in consumo_eq.columns:
-                st.write("Estatísticas da coluna 'Media' para o **veículo selecionado** (`consumo_eq`):")
-                st.write(consumo_eq['Media'].describe())
-                st.write("Amostra de 15 registos da coluna 'Media' para este veículo:")
-                st.dataframe(consumo_eq[['Data', 'Media']].head(15))
-            else:
-                st.error("A coluna 'Media' não foi encontrada na tabela do veículo selecionado (`consumo_eq`).")
-            
-            st.markdown("---")
             
             if 'Media' not in df.columns or df['Media'].dropna().empty:
                 st.warning("A coluna 'Media' não foi encontrada ou está vazia nos seus dados. Não é possível gerar o gráfico de eficiência.")
