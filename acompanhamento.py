@@ -507,23 +507,7 @@ def main():
                 st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display]])
             else:
                 st.info("Nenhum registo de abastecimento para este equipamento.")
-            
-            st.subheader("Histórico de Manutenções Realizadas")
-            historico_manut_display = df_manutencoes[df_manutencoes['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
-            if not historico_manut_display.empty:
-                st.dataframe(historico_manut_display[['Data', 'Tipo_Servico', 'Hod_Hor_No_Servico']])
-            else:
-                st.info("Nenhum registro de manutenção para este equipamento.")
-
-            # Seção de Histórico de Abastecimentos
-            st.subheader("Histórico de Abastecimentos")
-            historico_abast_display = consumo_eq.sort_values("Data", ascending=False)
-            if not historico_abast_display.empty:
-                colunas_abast = ["Data", "Qtde_Litros", "Hod_Hor_Atual"]
-                st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display]])
-            else:
-                st.info("Nenhum registro de abastecimento para este equipamento.")
-            
+                        
     with tab_manut:
         st.header("🛠️ Controle Inteligente de Manutenção")
         
