@@ -43,6 +43,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
 
 # APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
