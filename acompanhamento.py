@@ -726,7 +726,6 @@ def main():
             "Selecione a ação:",
             ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento", "Cadastrar/Editar Frota"),
             horizontal=True
-        )
         st.markdown("---")
             )
             if acao == "Adicionar Abastecimento":
