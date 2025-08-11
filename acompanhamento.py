@@ -42,6 +42,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
 
 # APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
@@ -80,22 +82,29 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
         if col in df.columns:
             if df[col].dtype == 'object':
-                series = df[col].astype(str)
-                series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False)
+                series = df[col].astype(str).str.replace(',', '.', regex=False).str.replace('-', '', regex=False)
                 df[col] = pd.to_numeric(series, errors='coerce')
             else:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
-    # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
+    # --- INÍCIO DA CORREÇÃO DEFINITIVA (com base na sua análise) ---
+    
+    # 1. Cria um mapa da Classe Operacional mais completa a partir da tabela unificada 'df'
+    #    Isto garante que usamos a informação tanto da tabela de frotas como da de abastecimentos
+    classe_map = df.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
+    
+    # 2. Atualiza a tabela 'df_frotas' com esta informação mais completa
+    df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map)
+
     def determinar_tipo_controle(row):
+        # Agora esta função usa a Classe Operacional corrigida
         texto_para_verificar = (
             str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
-            str(row.get('Classe Operacional', ''))
+            str(row.get('Classe_Operacional', ''))
         ).upper()
         
-        # CORREÇÃO: Usando a raiz da palavra "CAMINH" para apanhar "CAMINHÃO" e "CAMINHÕES"
         km_keywords = ['CAMINH', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
         
         if any(p in texto_para_verificar for p in km_keywords):
@@ -103,6 +112,7 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
         else:
             return 'HORAS'
 
+    # 3. Aplica a função de determinação do tipo, agora com os dados corretos
     df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
     # --- FIM DA CORREÇÃO DEFINITIVA ---
     
