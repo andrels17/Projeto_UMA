@@ -422,6 +422,7 @@ def main():
     df_f = filtrar_dados(df, opts)
     plan_df = build_maintenance_plan(df_frotas, df, df_manutencoes, st.session_state.intervalos_por_classe)
 
+    # --- DEFINIÇÃO CORRETA DAS ABAS ---
     tabs = ["📊 Painel de Controlo", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações"]
     tab_painel, tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config = st.tabs(tabs)
 
