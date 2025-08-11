@@ -7,7 +7,8 @@ import os
 import plotly.express as px
 
 # ---------------- Configurações Globais ----------------
-DB_PATH = "frotas_data.db"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
 
 ALERTAS_MANUTENCAO = {
     'HORAS': { 'default': 20 },
