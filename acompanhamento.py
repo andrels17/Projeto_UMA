@@ -921,41 +921,40 @@ def main():
             if acao_frota == "Cadastrar Nova Frota":
                 st.subheader("➕ Cadastrar Nova Frota")
                 with st.form("form_nova_frota", clear_on_submit=True):
-                       st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
-                                
-                                # Campos do formulário
-                                cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
-                                descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
-                                placa = st.text_input("Placa (deixe em branco se não aplicável)")
-                                classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
-                                ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
-                                
-                                submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
-                                
-                                if submitted_frota:
-                                    # Validação
-                                    if not all([cod_equip, descricao, classe_op]):
-                                        st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
-                                    elif cod_equip in df_frotas['Cod_Equip'].values:
-                                        st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
-                                    else:
-                                        # Prepara os dados para inserção
-                                        dados_frota = {
-                                            'cod_equip': cod_equip,
-                                            'descricao': descricao,
-                                            'placa': placa if placa else None, # Salva None se o campo estiver vazio
-                                            'classe_op': classe_op,
-                                            'ativo': ativo
-                                        }
-                                        
-                                        if inserir_frota(DB_PATH, dados_frota):
-                                            st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
-                                            st.cache_data.clear()
-                                            st.rerun()
+                           st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
+                                    
+                                    # Campos do formulário
+                                    cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
+                                    descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
+                                    placa = st.text_input("Placa (deixe em branco se não aplicável)")
+                                    classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
+                                    ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
+                                    
+                                    submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
+                                    
+                                    if submitted_frota:
+                                        # Validação
+                                        if not all([cod_equip, descricao, classe_op]):
+                                            st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
+                                        elif cod_equip in df_frotas['Cod_Equip'].values:
+                                            st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
+                                        else:
+                                            # Prepara os dados para inserção
+                                            dados_frota = {
+                                                'cod_equip': cod_equip,
+                                                'descricao': descricao,
+                                                'placa': placa if placa else None, # Salva None se o campo estiver vazio
+                                                'classe_op': classe_op,
+                                                'ativo': ativo
+                                            }
+                                            
+                                            if inserir_frota(DB_PATH, dados_frota):
+                                                st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
+                                                st.cache_data.clear()
+                                                st.rerun()
         
             elif acao_frota == "Editar Frota Existente":
                 st.subheader("✏️ Editar Frota Existente")
-                
                 equip_para_editar_label = st.selectbox(
                     "Selecione o equipamento que deseja editar",
                     options=df_frotas.sort_values("label")["label"],
