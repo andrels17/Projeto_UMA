@@ -243,6 +243,74 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
         st.error(f"Erro ao atualizar manutenção: {e}")
         return False
 
+def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tuple[int, int, str]:
+    """Lê uma planilha, verifica por duplicados, e insere os novos dados."""
+    try:
+        df_novo = pd.read_excel(arquivo_carregado)
+        
+        # Mapeamento das colunas (ajuste se necessário)
+        mapa_colunas = {
+            "Cód. Equip.": "Cód. Equip.",
+            "Data": "Data",
+            "Qtde Litros": "Qtde Litros",
+            "Hod. Hor. Atual": "Hod. Hor. Atual",
+            "Safra": "Safra",
+            "Mês": "Mês",
+            "Classe Operacional": "Classe Operacional"
+        }
+        df_novo = df_novo.rename(columns=mapa_colunas)
+
+        colunas_necessarias = list(mapa_colunas.values())
+        colunas_faltando = [col for col in colunas_necessarias if col not in df_novo.columns]
+        if colunas_faltando:
+            return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
+
+        # --- INÍCIO DA LÓGICA ANTI-DUPLICAÇÃO ---
+
+        # 1. Carrega os dados existentes do banco de dados
+        conn = sqlite3.connect(db_path)
+        df_existente = pd.read_sql_query("SELECT * FROM abastecimentos", conn)
+        
+        # 2. Padroniza a coluna de data em ambos os DataFrames para comparação
+        df_novo['Data'] = pd.to_datetime(df_novo['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_existente['Data'] = pd.to_datetime(df_existente['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        # 3. Cria uma "chave primária" temporária para identificar registos únicos
+        # Um abastecimento é único pela combinação de Equipamento, Data e Quantidade
+        df_novo['chave_unica'] = df_novo['Cód. Equip.'].astype(str) + '_' + df_novo['Data'] + '_' + df_novo['Qtde Litros'].astype(str)
+        df_existente['chave_unica'] = df_existente['Cód. Equip.'].astype(str) + '_' + df_existente['Data'] + '_' + df_existente['Qtde Litros'].astype(str)
+
+        # 4. Filtra o DataFrame novo, mantendo apenas as linhas cuja chave única NÃO existe no DB
+        df_para_inserir = df_novo[~df_novo['chave_unica'].isin(df_existente['chave_unica'])]
+        
+        num_duplicados = len(df_novo) - len(df_para_inserir)
+
+        if df_para_inserir.empty:
+            return 0, num_duplicados, "Nenhum registo novo para importar. Todos os registos da planilha já existem na base de dados."
+        
+        # --- FIM DA LÓGICA ANTI-DUPLICAÇÃO ---
+
+        # Seleciona e reordena as colunas para a inserção
+        df_para_inserir_final = df_para_inserir[colunas_necessarias]
+        registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+        
+        cursor = conn.cursor()
+        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_necessarias)}) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        cursor.executemany(sql, registros)
+        
+        conn.commit()
+        num_inseridos = cursor.rowcount
+        conn.close()
+        
+        mensagem_sucesso = f"{num_inseridos} registos novos foram importados com sucesso."
+        if num_duplicados > 0:
+            mensagem_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
+            
+        return num_inseridos, num_duplicados, mensagem_sucesso
+
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação: {e}"
+
 @st.cache_data
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
     # Assegura que a coluna 'Mes' é tratada como string para o filtro funcionar
@@ -353,8 +421,8 @@ def main():
 
     plan_df = build_maintenance_plan(df_frotas, df, df_manutencoes, st.session_state.intervalos_por_classe)
 
-    tabs = ["📊 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações"]
-    tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config = st.tabs(tabs)
+    tabs = ["📊 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações", "📤 Importar Dados"]
+    tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config, tab_importar = st.tabs(tabs)
 
     with tab_analise:
         st.header("Visão Geral de Consumo")
@@ -826,10 +894,6 @@ def main():
                                         st.cache_data.clear()
                                         st.rerun()
 
-# APAGUE O CONTEÚDO DE "if tipo_edicao == 'Manutenção':" E SUBSTITUA-O POR ESTE BLOCO FINAL
-
-# APAGUE O CONTEÚDO DE "if tipo_edicao == 'Manutenção':" E SUBSTITUA-O POR ESTE BLOCO FINAL
-
                         if tipo_edicao == "Manutenção":
                             st.subheader("Editar Lançamento de Manutenção")
                             
@@ -846,10 +910,7 @@ def main():
                                             df_manut_edit['Hod_Hor_No_Servico'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
                                         )
 
-                            # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
-                            # Método alternativo e mais robusto para criar o dicionário, evitando o erro
                             map_label_to_rowid = dict(zip(df_manut_edit['label_edit'], df_manut_edit['rowid']))
-                            # --- FIM DA CORREÇÃO DEFINITIVA ---
                             
                             label_selecionado = st.selectbox("Selecione a manutenção para editar", options=df_manut_edit['label_edit'], key="manut_edit_select")
                             
@@ -906,6 +967,38 @@ def main():
                         )
                         novos_servicos[nome_servico] = novo_intervalo
                     st.session_state.intervalos_por_classe[classe] = novos_servicos
+
+        with tab_importar:
+                st.header("📤 Importar Novos Abastecimentos de uma Planilha")
+                st.info("Esta funcionalidade permite carregar múltiplos abastecimentos de uma vez a partir de um arquivo Excel (.xlsx).")
+                st.warning("**Atenção:** Certifique-se de que a sua planilha contém as seguintes colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`.")
+        
+                arquivo_carregado = st.file_uploader(
+                    "Selecione a sua planilha de abastecimentos",
+                    type=['xlsx']
+                )
+        
+                if arquivo_carregado is not None:
+                    st.markdown("---")
+                    st.write("**Pré-visualização dos dados a serem importados:**")
+                    
+                    try:
+                        df_preview = pd.read_excel(arquivo_carregado)
+                        st.dataframe(df_preview.head())
+        
+                        if st.button("Confirmar e Inserir Dados no Banco de Dados", type="primary"):
+                            with st.spinner("Importando dados... por favor, aguarde."):
+                                num_inseridos, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
+                            
+                            if num_inseridos > 0:
+                                st.success(f"**Sucesso!** {num_inseridos} registos foram importados. O dashboard será atualizado.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(mensagem)
+                    except Exception as e:
+                        st.error(f"Não foi possível ler a planilha. Verifique se o arquivo está no formato correto. Detalhes do erro: {e}")
+
                     
 if __name__ == "__main__":
     main()
