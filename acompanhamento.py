@@ -41,6 +41,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
 
 # APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
@@ -76,16 +78,16 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     df["Ano"] = df["Data"].dt.year
     df["AnoMes"] = df["Data"].dt.to_period("M").astype(str)
 
-    # --- A CORREÇÃO DEFINITIVA ESTÁ AQUI ---
-    # Converte colunas para número, tratando a vírgula decimal brasileira
+    # --- INÍCIO DA CORREÇÃO DEFINITIVA (com base na análise do seu BD) ---
     for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
         if col in df.columns:
-            # Garante que a coluna é do tipo string antes de tentar substituir
-            if df[col].dtype == 'object':
-                df[col] = df[col].str.replace(',', '.', regex=False)
-            # Converte para número, tratando erros
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-    # --- FIM DA CORREÇÃO ---
+            # 1. Converte a coluna para texto para podermos manipular
+            series = df[col].astype(str)
+            # 2. Substitui a vírgula por ponto E remove hífens ou outros caracteres não numéricos
+            series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False)
+            # 3. Converte para número, transformando qualquer erro que sobre em nulo (NaN)
+            df[col] = pd.to_numeric(series, errors='coerce')
+    # --- FIM DA CORREÇÃO DEFINITIVA ---
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
