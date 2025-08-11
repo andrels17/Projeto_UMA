@@ -39,6 +39,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
     df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
     return df
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
@@ -74,18 +76,19 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     df["Ano"] = df["Data"].dt.year
     df["AnoMes"] = df["Data"].dt.to_period("M").astype(str)
 
-    # CORREÇÃO DEFINITIVA para a coluna "Media"
-    if 'Media' in df.columns:
-        if df['Media'].dtype == 'object':
-            df['Media'] = df['Media'].str.replace(',', '.', regex=False)
-        df['Media'] = pd.to_numeric(df['Media'], errors='coerce')
-
-    for col in ["Qtde_Litros", "Hod_Hor_Atual"]:
-        if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
+    # --- A CORREÇÃO DEFINITIVA ESTÁ AQUI ---
+    # Converte colunas para número, tratando a vírgula decimal brasileira
+    for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+        if col in df.columns:
+            # Garante que a coluna é do tipo string antes de tentar substituir
+            if df[col].dtype == 'object':
+                df[col] = df[col].str.replace(',', '.', regex=False)
+            # Converte para número, tratando erros
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    # --- FIM DA CORREÇÃO ---
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
-    # CORREÇÃO DEFINITIVA para o "Tipo_Controle"
     def determinar_tipo_controle(row):
         texto_para_verificar = (
             str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
