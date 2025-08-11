@@ -345,7 +345,7 @@ def main():
 
     with tab_analise:
     
-        # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
+     # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
         st.warning("MODO DE DIAGNÓSTICO ATIVADO")
         st.header("Por favor, envie um print desta tela inteira para o assistente.")
     
@@ -362,6 +362,7 @@ def main():
             st.write(df_f['Media'].describe())
         else:
             st.error("ERRO CRÍTICO: A coluna 'Media' não existe nos dados filtrados.")
+
 
         
         st.header("Visão Geral de Consumo")
