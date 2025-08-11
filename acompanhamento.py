@@ -344,6 +344,26 @@ def main():
 # APAGUE O CONTEÚDO DA SUA "with tab_principal:" E SUBSTITUA-O PELO BLOCO ABAIXO
 
     with tab_analise:
+    
+        # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
+        st.warning("MODO DE DIAGNÓSTICO ATIVADO")
+        st.header("Por favor, envie um print desta tela inteira para o assistente.")
+    
+        st.subheader("1. Verificação dos dados filtrados (`df_f`)")
+        st.write("Esta é a tabela de dados que a 'Análise Geral' recebe após os filtros da barra lateral.")
+        st.dataframe(df_f)
+    
+        st.subheader("2. Detalhes da Coluna 'Media'")
+        if 'Media' in df_f.columns:
+            st.write("Amostra de valores da coluna 'Media' onde ela NÃO é nula:")
+            st.dataframe(df_f[df_f['Media'].notna()][['Classe_Operacional', 'Media']])
+            
+            st.write("Estatísticas da coluna 'Media':")
+            st.write(df_f['Media'].describe())
+        else:
+            st.error("ERRO CRÍTICO: A coluna 'Media' não existe nos dados filtrados.")
+
+        
         st.header("Visão Geral de Consumo")
 
         # Primeiro, verifica se há dados filtrados para evitar erros
