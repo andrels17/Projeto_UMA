@@ -728,8 +728,7 @@ def main():
             horizontal=True,
             key="acao_principal"
             )
-        st.markdown("---")
-            )
+        
             if acao == "Adicionar Abastecimento":
                 st.subheader("➕ Adicionar Novo Abastecimento")
                 with st.form("form_abastecimento", clear_on_submit=True):
