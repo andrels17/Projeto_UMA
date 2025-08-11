@@ -534,7 +534,7 @@ def main():
                         )
                         
                         # 3. Atualiza o layout geral (altura, etc.)
-                        fig_comp.update_layout(height=300)
+                        fig_comp.update_layout(height=500)
                         st.plotly_chart(fig_comp, use_container_width=True)
                 else:
                     col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
