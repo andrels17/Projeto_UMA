@@ -450,20 +450,16 @@ def main():
             pass
         else:
             st.info("Não há dados de consumo médio para gerar o ranking.")
-     with tab_analise:
-            st.header("📈 Análise Gráfica de Consumo")
+    with tab_analise:
+        st.header("📈 Análise Gráfica de Consumo")
 
         if not df_f.empty:
-            # Bloco para exibir as métricas (KPIs)
             if 'Media' in df_f.columns:
                 k1, k2 = st.columns(2)
                 k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
                 k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
             else:
-                k1 = st.columns(1)[0] # Usa st.columns para manter o layout consistente
                 k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
-
-            # CORREÇÃO: Bloco para exibir os gráficos, agora com a indentação correta
             st.markdown("---")
             c1, c2 = st.columns(2)
 
