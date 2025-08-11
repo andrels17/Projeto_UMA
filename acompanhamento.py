@@ -469,10 +469,11 @@ def main():
                 media_equip_selecionado = consumo_real_eq['Media'].mean()
                 
                 classe_selecionada = dados_eq.get('Classe_Operacional')
-                media_da_classe = np.nan # Inicia como nulo
+                media_da_classe = np.nan
                 if classe_selecionada:
                     consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
                     media_da_classe = consumo_classe['Media'].mean()
+
                 if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
                     df_comp = pd.DataFrame({
                         'Categoria': [dados_eq.get('DESCRICAO_EQUIPAMENTO'), f"Média da Classe ({classe_selecionada})"],
@@ -484,10 +485,10 @@ def main():
                 else:
                     st.info("Não foi possível gerar o comparativo.")
                     if pd.isna(media_equip_selecionado):
-                        st.warning(f"O equipamento '{dados_eq.get('DESCRICAO_EQUIPAMENTO')}' não possui registos de consumo médio válidos (maiores que zero).")
+                        st.warning(f"O equipamento '{dados_eq.get('DESCRICAO_EQUIPAMENTO')}' não possui registos de consumo médio válidos.")
                     if pd.isna(media_da_classe):
                         st.warning(f"A classe '{classe_selecionada}' não possui registos de consumo médio válidos para comparação.")
-    
+                        
             st.markdown("---")
             
             st.subheader("Histórico de Manutenções Realizadas")
