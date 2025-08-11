@@ -424,7 +424,7 @@ def main():
     df_f = filtrar_dados(df, opts)
     plan_df = build_maintenance_plan(df_frotas, df, df_manutencoes, st.session_state.intervalos_por_classe)
 
-    tabs = ["📊 Painel de Controle", "Analises de Combustivel" "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações"]
+    tabs = ["📊 Painel de Controle", "Visão Geral de Consumo" "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações"]
     tab_painel, tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config = st.tabs(tabs)
 
     with tab_painel:
