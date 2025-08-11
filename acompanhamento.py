@@ -723,9 +723,10 @@ def main():
     with tab_gerir:
         st.header("⚙️ Gerir Lançamentos e Frotas")
         acao = st.radio(
-            "Selecione a ação:",
-            ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento", "Cadastrar/Editar Frota"),
+            "Selecione a ação que deseja realizar:",
+            ("Adicionar Lançamento", "Editar Lançamento", "Excluir Lançamento", "Cadastrar Nova Frota") # <--- FALTA UMA VÍRGULA AQUI
             horizontal=True
+        )
         st.markdown("---")
             )
             if acao == "Adicionar Abastecimento":
