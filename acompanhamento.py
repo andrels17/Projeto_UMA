@@ -462,37 +462,37 @@ def main():
             c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
     
             st.markdown("---")
-        st.subheader("Comparativo de Eficiência")
-            
-            if 'Media' not in df.columns or df['Media'].dropna().empty:
-                st.warning("A coluna 'Media' não foi encontrada ou está vazia nos seus dados. Não é possível gerar o gráfico de eficiência.")
-            else:
-                consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
-                media_equip_selecionado = consumo_real_eq['Media'].mean()
+            st.subheader("Comparativo de Eficiência")
                 
-                classe_selecionada = dados_eq.get('Classe_Operacional')
-                media_da_classe = np.nan
-                if classe_selecionada:
-                    consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
-                    media_da_classe = consumo_classe['Media'].mean()
-
-                if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
-                    df_comp = pd.DataFrame({
-                        'Categoria': [dados_eq.get('DESCRICAO_EQUIPAMENTO'), f"Média da Classe ({classe_selecionada})"],
-                        'Média Consumo': [media_equip_selecionado, media_da_classe]
-                    })
-                    fig_comp = px.bar(df_comp, x='Categoria', y='Média Consumo', text='Média Consumo', title="Eficiência de Consumo")
-                    fig_comp.update_traces(texttemplate='%{text:,.2f}'.replace(",", "X").replace(".", ",").replace("X", "."), textposition='outside')
-                    st.plotly_chart(fig_comp, use_container_width=True)
+                if 'Media' not in df.columns or df['Media'].dropna().empty:
+                    st.warning("A coluna 'Media' não foi encontrada ou está vazia nos seus dados. Não é possível gerar o gráfico de eficiência.")
                 else:
-                    st.info("Não foi possível gerar o comparativo.")
-                    if pd.isna(media_equip_selecionado):
-                        st.warning(f"O equipamento '{dados_eq.get('DESCRICAO_EQUIPAMENTO')}' não possui registos de consumo médio válidos.")
-                    if pd.isna(media_da_classe):
-                        st.warning(f"A classe '{classe_selecionada}' não possui registos de consumo médio válidos para comparação.")
-                        
-            st.markdown("---")
-            
+                    consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
+                    media_equip_selecionado = consumo_real_eq['Media'].mean()
+                    
+                    classe_selecionada = dados_eq.get('Classe_Operacional')
+                    media_da_classe = np.nan
+                    if classe_selecionada:
+                        consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
+                        media_da_classe = consumo_classe['Media'].mean()
+    
+                    if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
+                        df_comp = pd.DataFrame({
+                            'Categoria': [dados_eq.get('DESCRICAO_EQUIPAMENTO'), f"Média da Classe ({classe_selecionada})"],
+                            'Média Consumo': [media_equip_selecionado, media_da_classe]
+                        })
+                        fig_comp = px.bar(df_comp, x='Categoria', y='Média Consumo', text='Média Consumo', title="Eficiência de Consumo")
+                        fig_comp.update_traces(texttemplate='%{text:,.2f}'.replace(",", "X").replace(".", ",").replace("X", "."), textposition='outside')
+                        st.plotly_chart(fig_comp, use_container_width=True)
+                    else:
+                        st.info("Não foi possível gerar o comparativo.")
+                        if pd.isna(media_equip_selecionado):
+                            st.warning(f"O equipamento '{dados_eq.get('DESCRICAO_EQUIPAMENTO')}' não possui registos de consumo médio válidos.")
+                        if pd.isna(media_da_classe):
+                            st.warning(f"A classe '{classe_selecionada}' não possui registos de consumo médio válidos para comparação.")
+                            
+                st.markdown("---")
+                
             st.subheader("Histórico de Manutenções Realizadas")
             historico_manut_display = df_manutencoes[df_manutencoes['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
             if not historico_manut_display.empty:
