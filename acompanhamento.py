@@ -720,13 +720,14 @@ def main():
                             st.rerun()
                     else:
                         st.warning("Não foi possível registrar. Verifique se esta classe de equipamento tem serviços configurados na aba 'Configurações'.")
-    with tab_gerir_lanc:
-            st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
-            acao = st.radio(
-                "Selecione a ação que deseja realizar:",
-                ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento"),
-                horizontal=True,
-                key="acao_lancamentos"
+    with tab_gerir:
+        st.header("⚙️ Gerir Lançamentos e Frotas")
+        acao = st.radio(
+            "Selecione a ação:",
+            ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento", "Cadastrar/Editar Frota"),
+            horizontal=True
+        )
+        st.markdown("---")
             )
             if acao == "Adicionar Abastecimento":
                 st.subheader("➕ Adicionar Novo Abastecimento")
