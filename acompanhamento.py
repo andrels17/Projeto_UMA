@@ -40,6 +40,8 @@ def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
     df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
     return df
 
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
+
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Carrega todos os dados necessários do DB."""
@@ -75,26 +77,26 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     df["Ano"] = df["Data"].dt.year
     df["AnoMes"] = df["Data"].dt.to_period("M").astype(str)
 
-    # --- INÍCIO DA CORREÇÃO DEFINITIVA (com base na análise do seu BD) ---
     for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
         if col in df.columns:
-            # 1. Converte a coluna para texto para podermos manipular
-            series = df[col].astype(str)
-            # 2. Substitui a vírgula por ponto E remove hífens ou outros caracteres não numéricos
-            series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False)
-            # 3. Converte para número, transformando qualquer erro que sobre em nulo (NaN)
-            df[col] = pd.to_numeric(series, errors='coerce')
-    # --- FIM DA CORREÇÃO DEFINITIVA ---
+            if df[col].dtype == 'object':
+                series = df[col].astype(str)
+                series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False)
+                df[col] = pd.to_numeric(series, errors='coerce')
+            else:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
+    # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
     def determinar_tipo_controle(row):
         texto_para_verificar = (
             str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
             str(row.get('Classe Operacional', ''))
         ).upper()
         
-        km_keywords = ['CAMINHAO', 'CAMINHÃO', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
+        # CORREÇÃO: Usando a raiz da palavra "CAMINH" para apanhar "CAMINHÃO" e "CAMINHÕES"
+        km_keywords = ['CAMINH', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
         
         if any(p in texto_para_verificar for p in km_keywords):
             return 'QUILÔMETROS'
@@ -102,6 +104,7 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
             return 'HORAS'
 
     df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
+    # --- FIM DA CORREÇÃO DEFINITIVA ---
     
     return df, df_frotas, df_manutencoes
     
