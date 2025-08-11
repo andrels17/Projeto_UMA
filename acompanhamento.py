@@ -449,80 +449,80 @@ def main():
                 st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
     
     with tab_consulta:
-    st.header("🔎 Ficha Individual do Equipamento")
-    equip_label = st.selectbox(
-        "Selecione o Equipamento", 
-        options=df_frotas.sort_values("Cod_Equip")["label"], 
-        key="consulta_equip"
-    )
-
-    if equip_label:
-        cod_sel = int(equip_label.split(" - ")[0])
-        dados_eq = df_frotas.query("Cod_Equip == @cod_sel").iloc[0]
-        consumo_eq = df.query("Cod_Equip == @cod_sel")
-        
-        st.subheader(f"{dados_eq.get('DESCRICAO_EQUIPAMENTO','–')} ({dados_eq.get('PLACA','–')})")
-        
-        ultimo_registro = consumo_eq.dropna(subset=['Hod_Hor_Atual']).sort_values("Data", ascending=False).iloc[0] if not consumo_eq.dropna(subset=['Hod_Hor_Atual']).empty else None
-        valor_atual_display = formatar_brasileiro_int(ultimo_registro['Hod_Hor_Atual']) if ultimo_registro is not None else "–"
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Status", dados_eq.get("ATIVO", "–"))
-        c2.metric("Placa", dados_eq.get("PLACA", "–"))
-        c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
-
-        st.markdown("---")
-        st.subheader("Comparativo de Eficiência")
-        
-        # --- INÍCIO DAS MELHORIAS ---
-        
-        col_grafico, col_alerta = st.columns([2, 1]) # Divide a área em duas colunas
-
-        if 'Media' not in df.columns or df['Media'].dropna().empty:
-            col_grafico.warning("A coluna 'Media' não foi encontrada ou está vazia.")
-        else:
-            consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
-            media_equip_selecionado = consumo_real_eq['Media'].mean()
+        st.header("🔎 Ficha Individual do Equipamento")
+        equip_label = st.selectbox(
+            "Selecione o Equipamento", 
+            options=df_frotas.sort_values("Cod_Equip")["label"], 
+            key="consulta_equip"
+        )
+    
+        if equip_label:
+            cod_sel = int(equip_label.split(" - ")[0])
+            dados_eq = df_frotas.query("Cod_Equip == @cod_sel").iloc[0]
+            consumo_eq = df.query("Cod_Equip == @cod_sel")
             
-            classe_selecionada = dados_eq.get('Classe_Operacional')
-            media_da_classe = np.nan
-            if classe_selecionada:
-                consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
-                media_da_classe = consumo_classe['Media'].mean()
-
-            if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
-                # 1. Lógica para o Alerta de Eficiência
-                with col_alerta:
-                    st.write("") # Espaçamento
-                    st.write("") # Espaçamento
-                    if media_equip_selecionado <= media_da_classe * 1.05: # 5% de tolerância
-                        st.success(f"**EFICIENTE!** O consumo está dentro ou abaixo da média da sua classe.")
-                    else:
-                        st.error(f"**ALERTA!** O consumo está acima da média da sua classe.")
-                    
-                    st.metric(label=f"Média do Equipamento", value=formatar_brasileiro(media_equip_selecionado))
-                    st.metric(label=f"Média da Classe", value=formatar_brasileiro(media_da_classe))
-
-                # 2. Gráfico com tamanho e formatação ajustados
-                with col_grafico:
-                    df_comp = pd.DataFrame({
-                        'Categoria': [dados_eq.get('DESCRICAO_EQUIPAMENTO'), f"Média da Classe ({classe_selecionada})"],
-                        'Média Consumo': [media_equip_selecionado, media_da_classe]
-                    })
-                    fig_comp = px.bar(df_comp, x='Categoria', y='Média Consumo', text='Média Consumo', title="Eficiência de Consumo")
-                    
-                    # Formata os números para o padrão brasileiro com 2 casas decimais
-                    fig_comp.update_traces(texttemplate='%{text:,.2f}'.replace(",", "X").replace(".", ",").replace("X", "."), textposition='outside')
-                    
-                    # Diminui a altura do gráfico
-                    fig_comp.update_layout(height=400)
-                    st.plotly_chart(fig_comp, use_container_width=True)
+            st.subheader(f"{dados_eq.get('DESCRICAO_EQUIPAMENTO','–')} ({dados_eq.get('PLACA','–')})")
+            
+            ultimo_registro = consumo_eq.dropna(subset=['Hod_Hor_Atual']).sort_values("Data", ascending=False).iloc[0] if not consumo_eq.dropna(subset=['Hod_Hor_Atual']).empty else None
+            valor_atual_display = formatar_brasileiro_int(ultimo_registro['Hod_Hor_Atual']) if ultimo_registro is not None else "–"
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Status", dados_eq.get("ATIVO", "–"))
+            c2.metric("Placa", dados_eq.get("PLACA", "–"))
+            c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
+    
+            st.markdown("---")
+            st.subheader("Comparativo de Eficiência")
+            
+            # --- INÍCIO DAS MELHORIAS ---
+            
+            col_grafico, col_alerta = st.columns([2, 1]) # Divide a área em duas colunas
+    
+            if 'Media' not in df.columns or df['Media'].dropna().empty:
+                col_grafico.warning("A coluna 'Media' não foi encontrada ou está vazia.")
             else:
-                col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
-        
-        # --- FIM DAS MELHORIAS ---
-        
-        st.markdown("---")
+                consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
+                media_equip_selecionado = consumo_real_eq['Media'].mean()
+                
+                classe_selecionada = dados_eq.get('Classe_Operacional')
+                media_da_classe = np.nan
+                if classe_selecionada:
+                    consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
+                    media_da_classe = consumo_classe['Media'].mean()
+    
+                if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
+                    # 1. Lógica para o Alerta de Eficiência
+                    with col_alerta:
+                        st.write("") # Espaçamento
+                        st.write("") # Espaçamento
+                        if media_equip_selecionado <= media_da_classe * 1.05: # 5% de tolerância
+                            st.success(f"**EFICIENTE!** O consumo está dentro ou abaixo da média da sua classe.")
+                        else:
+                            st.error(f"**ALERTA!** O consumo está acima da média da sua classe.")
+                        
+                        st.metric(label=f"Média do Equipamento", value=formatar_brasileiro(media_equip_selecionado))
+                        st.metric(label=f"Média da Classe", value=formatar_brasileiro(media_da_classe))
+    
+                    # 2. Gráfico com tamanho e formatação ajustados
+                    with col_grafico:
+                        df_comp = pd.DataFrame({
+                            'Categoria': [dados_eq.get('DESCRICAO_EQUIPAMENTO'), f"Média da Classe ({classe_selecionada})"],
+                            'Média Consumo': [media_equip_selecionado, media_da_classe]
+                        })
+                        fig_comp = px.bar(df_comp, x='Categoria', y='Média Consumo', text='Média Consumo', title="Eficiência de Consumo")
+                        
+                        # Formata os números para o padrão brasileiro com 2 casas decimais
+                        fig_comp.update_traces(texttemplate='%{text:,.2f}'.replace(",", "X").replace(".", ",").replace("X", "."), textposition='outside')
+                        
+                        # Diminui a altura do gráfico
+                        fig_comp.update_layout(height=400)
+                        st.plotly_chart(fig_comp, use_container_width=True)
+                else:
+                    col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
+            
+            # --- FIM DAS MELHORIAS ---
+            
+            st.markdown("---")
             
             st.subheader("Histórico de Manutenções Realizadas")
             historico_manut_display = df_manutencoes[df_manutencoes['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
