@@ -112,9 +112,7 @@ def load_data_from_db(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
         else:
             return 'HORAS'
 
-    # 3. Aplica a função de determinação do tipo, agora com os dados corretos
     df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
-    # --- FIM DA CORREÇÃO DEFINITIVA ---
     
     return df, df_frotas, df_manutencoes
     
@@ -145,7 +143,6 @@ def inserir_abastecimento(db_path: str, dados: dict) -> bool:
         st.error(f"Erro ao inserir dados no banco de dados: {e}")
         return False
 
-# NOVA FUNÇÃO para excluir um abastecimento
 def excluir_abastecimento(db_path: str, rowid: int) -> bool:
     """Exclui um registro de abastecimento do banco de dados usando seu rowid."""
     try:
@@ -181,7 +178,6 @@ def inserir_frota(db_path: str, dados: dict) -> bool:
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         cursor = conn.cursor()
-        # Nomes das colunas devem corresponder exatamente ao seu .db
         sql = """
             INSERT INTO frotas (
                 COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA, 
@@ -203,7 +199,6 @@ def inserir_frota(db_path: str, dados: dict) -> bool:
         st.error(f"Erro no banco de dados: {e}")
         return False
     
-# COLE ESTE BLOCO DE CÓDIGO NO LOCAL INDICADO
 
 def editar_abastecimento(db_path: str, rowid: int, dados: dict) -> bool:
     """Atualiza um registro de abastecimento existente."""
@@ -264,33 +259,22 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
         colunas_faltando = [col for col in colunas_necessarias if col not in df_novo.columns]
         if colunas_faltando:
             return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
-
-        # --- INÍCIO DA LÓGICA ANTI-DUPLICAÇÃO ---
-
-        # 1. Carrega os dados existentes do banco de dados
         conn = sqlite3.connect(db_path)
         df_existente = pd.read_sql_query("SELECT * FROM abastecimentos", conn)
         
-        # 2. Padroniza a coluna de data em ambos os DataFrames para comparação
         df_novo['Data'] = pd.to_datetime(df_novo['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
         df_existente['Data'] = pd.to_datetime(df_existente['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
 
-        # 3. Cria uma "chave primária" temporária para identificar registos únicos
-        # Um abastecimento é único pela combinação de Equipamento, Data e Quantidade
         df_novo['chave_unica'] = df_novo['Cód. Equip.'].astype(str) + '_' + df_novo['Data'] + '_' + df_novo['Qtde Litros'].astype(str)
         df_existente['chave_unica'] = df_existente['Cód. Equip.'].astype(str) + '_' + df_existente['Data'] + '_' + df_existente['Qtde Litros'].astype(str)
 
-        # 4. Filtra o DataFrame novo, mantendo apenas as linhas cuja chave única NÃO existe no DB
         df_para_inserir = df_novo[~df_novo['chave_unica'].isin(df_existente['chave_unica'])]
         
         num_duplicados = len(df_novo) - len(df_para_inserir)
 
         if df_para_inserir.empty:
             return 0, num_duplicados, "Nenhum registo novo para importar. Todos os registos da planilha já existem na base de dados."
-        
-        # --- FIM DA LÓGICA ANTI-DUPLICAÇÃO ---
 
-        # Seleciona e reordena as colunas para a inserção
         df_para_inserir_final = df_para_inserir[colunas_necessarias]
         registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
         
@@ -310,6 +294,25 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
 
     except Exception as e:
         return 0, 0, f"Ocorreu um erro inesperado durante a importação: {e}"
+
+def editar_frota(db_path: str, cod_equip: int, dados: dict) -> bool:
+    """Atualiza um registro de frota existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE frotas SET
+                DESCRICAO_EQUIPAMENTO = ?, PLACA = ?, "Classe Operacional" = ?, ATIVO = ?
+            WHERE COD_EQUIPAMENTO = ?
+        """
+        valores = (dados['descricao'], dados['placa'], dados['classe_op'], dados['ativo'], cod_equip)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar frota: {e}")
+        return False
 
 @st.cache_data
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
@@ -380,9 +383,6 @@ def main():
 
     df, df_frotas, df_manutencoes = load_data_from_db(DB_PATH)
 
-# APAGUE O SEU BLOCO DE INICIALIZAÇÃO DE INTERVALOS E SUBSTITUA-O POR ESTE
-
-# Lógica para inicializar e gerir os intervalos por classe na sessão
     if 'intervalos_por_classe' not in st.session_state:
         st.session_state.intervalos_por_classe = {}
     
@@ -421,13 +421,19 @@ def main():
 
     plan_df = build_maintenance_plan(df_frotas, df, df_manutencoes, st.session_state.intervalos_por_classe)
 
-    tabs = ["📊 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações", "📤 Importar Dados"]
-    tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config, tab_importar = st.tabs(tabs)
-
+    tabs = [
+            "📊 Análise Geral", 
+            "🛠️ Controle de Manutenção", 
+            "🔎 Consulta Individual", 
+            "⚙️ Gerir Lançamentos", 
+            "⚙️ Gerir Frotas", 
+            "📤 Importar Dados", 
+            "⚙️ Configurações"
+        ]
+    tab_analise, tab_manut, tab_consulta, tab_gerir_lanc, tab_gerir_frotas, tab_importar, tab_config = st.tabs(tabs)
     with tab_analise:
         st.header("Visão Geral de Consumo")
 
-        # Primeiro, verifica se há dados filtrados para evitar erros
         if not df_f.empty:
             # Bloco para exibir as métricas (KPIs)
             if 'Media' in df_f.columns:
@@ -472,25 +478,16 @@ def main():
             st.markdown("---")
             st.subheader("Média de Consumo por Classe Operacional")
 
-            # Filtra dados para garantir que a média seja calculada apenas com valores válidos
             df_media = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)].copy()
 
-            # --- INÍCIO DA CORREÇÃO ---
-            # Lista das classes a serem excluídas do gráfico
             classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
 
-            # Filtra o DataFrame para remover essas classes (comparando em maiúsculas para garantir)
             df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
-            # --- FIM DA CORREÇÃO ---
-
 
             if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
-                # Calcula a média de consumo por classe e ordena
                 media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
                 
                 df_media_grafico = media_por_classe.reset_index()
-                
-                # Formata o texto do rótulo para o padrão brasileiro
                 df_media_grafico['texto_formatado'] = df_media_grafico['Media'].apply(
                     lambda x: formatar_brasileiro(x)
                 )
@@ -583,10 +580,7 @@ def main():
                         df_comp['texto_formatado'] = df_comp['Média Consumo'].apply(
                             lambda x: formatar_brasileiro(x)
                         )
-            
-                        # APAGUE AS LINHAS DE CRIAÇÃO E ATUALIZAÇÃO DO GRÁFICO E SUBSTITUA-AS POR ESTE BLOCO
 
-# 1. Cria o gráfico de barras (sem o parâmetro 'width' aqui)
                         fig_comp = px.bar(
                             df_comp, 
                             x='Categoria', 
@@ -594,22 +588,18 @@ def main():
                             text='texto_formatado', 
                             title="Eficiência de Consumo"
                         )
-                        
-                        # 2. Atualiza os traços (as barras) com a formatação e a nova largura
+
                         fig_comp.update_traces(
                             textposition='outside',
-                            width=0.4  # <-- A CORREÇÃO ESTÁ AQUI: a largura é definida aqui
+                            width=0.4  
                         )
-                        
-                        # 3. Atualiza o layout geral (altura, etc.)
+
                         fig_comp.update_layout(height=500)
                         st.plotly_chart(fig_comp, use_container_width=True)
                 else:
                     col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
                     
             st.markdown("---")
-            
-            # --- FIM DAS MELHORIAS ---
             
             st.markdown("---")
             
@@ -679,7 +669,7 @@ def main():
 
         # APAGUE O SEU BLOCO "with st.form(...)" E SUBSTITUA-O POR ESTE BLOCO CORRIGIDO
 
-        with st.form("form_manutencao", clear_on_submit=True):
+    with st.form("form_manutencao", clear_on_submit=True):
             st.subheader("📝 Registrar Manutenção Realizada")
             equip_label = st.selectbox(
                 "Selecione o Equipamento", 
@@ -714,15 +704,14 @@ def main():
                         st.rerun()
                 else:
                     st.warning("Não foi possível registrar. Verifique se esta classe de equipamento tem serviços configurados na aba 'Configurações'.")
-        with tab_gerir:
-            st.header("⚙️ Gerir Lançamentos e Frotas")
-            
+    with tab_gerir_lanc:
+            st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
             acao = st.radio(
                 "Selecione a ação que deseja realizar:",
-                ("Adicionar Lançamento", "Editar Lançamento", "Excluir Lançamento", "Cadastrar Nova Frota"),
-                horizontal=True
+                ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento"),
+                horizontal=True,
+                key="acao_lancamentos"
             )
-        
             if acao == "Adicionar Lançamento":
         
                 st.subheader("➕ Adicionar Novo Abastecimento")
@@ -756,41 +745,6 @@ def main():
                                 st.success("Abastecimento salvo com sucesso!")
                                 st.cache_data.clear()
                                 st.rerun()
-
-            elif acao == "Cadastrar Nova Frota":
-                    st.subheader("➕ Cadastrar Nova Frota")
-                    with st.form("form_nova_frota", clear_on_submit=True):
-                            st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
-                            
-                            # Campos do formulário
-                            cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
-                            descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
-                            placa = st.text_input("Placa (deixe em branco se não aplicável)")
-                            classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
-                            ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
-                            
-                            submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
-                            
-                            if submitted_frota:
-                                # Validação
-                                if not all([cod_equip, descricao, classe_op]):
-                                    st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
-                                elif cod_equip in df_frotas['Cod_Equip'].values:
-                                    st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
-                                else:
-                                    # Prepara os dados para inserção
-                                    dados_frota = {
-                                        'cod_equip': cod_equip,
-                                        'descricao': descricao,
-                                        'placa': placa if placa else None, # Salva None se o campo estiver vazio
-                                        'classe_op': classe_op,
-                                        'ativo': ativo
-                                    }
-                                    
-                                    if inserir_frota(DB_PATH, dados_frota):
-                                        st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
-                                        st.cache_data.clear()
-                                        st.rerun()
 
             elif acao == "Excluir Lançamento":
                         st.subheader("🗑️ Excluir um Lançamento")
@@ -949,8 +903,61 @@ def main():
                                                 st.success("Manutenção atualizada com sucesso!")
                                                 st.cache_data.clear()
                                                 st.rerun()
+
+    with tab_gerir_frotas:
+            st.header("⚙️ Gerir Frotas")
+            acao_frota = st.radio(
+                "Selecione a ação que deseja realizar:",
+                ("Cadastrar Nova Frota", "Editar Frota Existente"),
+                horizontal=True,
+                key="acao_frotas"
+            )
+    
+            if acao_frota == "Cadastrar Nova Frota":
+                st.subheader("➕ Cadastrar Nova Frota")
+                with st.form("form_nova_frota", clear_on_submit=True):
+                    # ... (seu formulário de cadastrar frota aqui) ...
+                    pass
+    
+            elif acao_frota == "Editar Frota Existente":
+                st.subheader("✏️ Editar Frota Existente")
+                
+                equip_para_editar_label = st.selectbox(
+                    "Selecione o equipamento que deseja editar",
+                    options=df_frotas.sort_values("label")["label"],
+                    key="frota_edit_select"
+                )
+    
+                if equip_para_editar_label:
+                    cod_equip_edit = int(equip_para_editar_label.split(" - ")[0])
+                    dados_atuais = df_frotas[df_frotas['Cod_Equip'] == cod_equip_edit].iloc[0]
+    
+                    with st.form("form_edit_frota"):
+                        st.write(f"**Editando:** {dados_atuais['DESCRICAO_EQUIPAMENTO']} (Cód: {dados_atuais['Cod_Equip']})")
+    
+                        nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
+                        nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
+                        nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe Operacional'])
+                        
+                        status_options = ["ATIVO", "INATIVO"]
+                        index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
+                        novo_status = st.selectbox("Status", options=status_options, index=index_status)
+    
+                        submitted = st.form_submit_button("Salvar Alterações na Frota")
+                        if submitted:
+                            dados_editados = {
+                                'descricao': nova_descricao,
+                                'placa': nova_placa,
+                                'classe_op': nova_classe_op,
+                                'ativo': novo_status
+                            }
+                            if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
+                                st.success("Dados da frota atualizados com sucesso!")
+                                st.cache_data.clear()
+                                st.rerun()
+
                                     
-        with tab_config:
+    with tab_config:
             st.header("⚙️ Configurar Intervalos de Manutenção por Classe")
             st.info("As alterações feitas aqui são salvas automaticamente para a sua sessão atual.")
 
@@ -968,7 +975,7 @@ def main():
                         novos_servicos[nome_servico] = novo_intervalo
                     st.session_state.intervalos_por_classe[classe] = novos_servicos
 
-        with tab_importar:
+    with tab_importar:
                 st.header("📤 Importar Novos Abastecimentos de uma Planilha")
                 st.info("Esta funcionalidade permite carregar múltiplos abastecimentos de uma vez a partir de um arquivo Excel (.xlsx).")
                 st.warning("**Atenção:** Certifique-se de que a sua planilha contém as seguintes colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`.")
