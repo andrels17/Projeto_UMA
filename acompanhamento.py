@@ -669,41 +669,41 @@ def main():
 
         # APAGUE O SEU BLOCO "with st.form(...)" E SUBSTITUA-O POR ESTE BLOCO CORRIGIDO
 
-        with st.form("form_manutencao", clear_on_submit=True):
-                st.subheader("📝 Registrar Manutenção Realizada")
-                equip_label = st.selectbox(
-                    "Selecione o Equipamento", 
-                    options=df_frotas.sort_values("label")["label"], 
-                    key="manut_equip"
-                )
-                
-                # --- INÍCIO DA CORREÇÃO ---
-                servicos_disponiveis = []
-                classe_selecionada = ""
-                if equip_label:
-                    # Encontra a classe operacional do equipamento selecionado
-                    classe_selecionada = df_frotas.loc[df_frotas['label'] == equip_label, 'Classe Operacional'].iloc[0]
-                    # Busca os serviços configurados para ESSA classe na sessão
-                    if classe_selecionada in st.session_state.intervalos_por_classe:
-                        servicos_disponiveis = list(st.session_state.intervalos_por_classe[classe_selecionada].keys())
-                # --- FIM DA CORREÇÃO ---
-    
-                tipo_servico = st.selectbox("Tipo de Serviço Realizado", options=servicos_disponiveis)
-                data_manutencao = st.date_input("Data da Manutenção")
-                hod_hor_servico = st.number_input("Leitura do Hodômetro/Horímetro no Serviço", min_value=0.01, format="%.2f")
-    
-                submitted_manut = st.form_submit_button("Salvar Manutenção")
-    
-                if submitted_manut:
-                    if tipo_servico:
-                        cod_equip = int(equip_label.split(" - ")[0])
-                        dados_manut = {'cod_equip': cod_equip, 'data': data_manutencao.strftime("%Y-%m-%d"), 'tipo_servico': tipo_servico, 'hod_hor_servico': hod_hor_servico}
-                        if inserir_manutencao(DB_PATH, dados_manut):
-                            st.success("Manutenção registrada com sucesso!")
-                            st.cache_data.clear()
-                            st.rerun()
-                    else:
-                        st.warning("Não foi possível registrar. Verifique se esta classe de equipamento tem serviços configurados na aba 'Configurações'.")
+    with st.form("form_manutencao", clear_on_submit=True):
+            st.subheader("📝 Registrar Manutenção Realizada")
+            equip_label = st.selectbox(
+                "Selecione o Equipamento", 
+                options=df_frotas.sort_values("label")["label"], 
+                key="manut_equip"
+            )
+            
+            # --- INÍCIO DA CORREÇÃO ---
+            servicos_disponiveis = []
+            classe_selecionada = ""
+            if equip_label:
+                # Encontra a classe operacional do equipamento selecionado
+                classe_selecionada = df_frotas.loc[df_frotas['label'] == equip_label, 'Classe Operacional'].iloc[0]
+                # Busca os serviços configurados para ESSA classe na sessão
+                if classe_selecionada in st.session_state.intervalos_por_classe:
+                    servicos_disponiveis = list(st.session_state.intervalos_por_classe[classe_selecionada].keys())
+            # --- FIM DA CORREÇÃO ---
+
+            tipo_servico = st.selectbox("Tipo de Serviço Realizado", options=servicos_disponiveis)
+            data_manutencao = st.date_input("Data da Manutenção")
+            hod_hor_servico = st.number_input("Leitura do Hodômetro/Horímetro no Serviço", min_value=0.01, format="%.2f")
+
+            submitted_manut = st.form_submit_button("Salvar Manutenção")
+
+            if submitted_manut:
+                if tipo_servico:
+                    cod_equip = int(equip_label.split(" - ")[0])
+                    dados_manut = {'cod_equip': cod_equip, 'data': data_manutencao.strftime("%Y-%m-%d"), 'tipo_servico': tipo_servico, 'hod_hor_servico': hod_hor_servico}
+                    if inserir_manutencao(DB_PATH, dados_manut):
+                        st.success("Manutenção registrada com sucesso!")
+                        st.cache_data.clear()
+                        st.rerun()
+                else:
+                    st.warning("Não foi possível registrar. Verifique se esta classe de equipamento tem serviços configurados na aba 'Configurações'.")
     with tab_gerir_lanc:
             st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
             acao = st.radio(
@@ -712,53 +712,53 @@ def main():
                 horizontal=True,
                 key="acao_lancamentos"
             )
-                if acao == "Adicionar Lançamento":
-            
-                        st.subheader("➕ Adicionar Novo Abastecimento")
-                        with st.form("form_abastecimento", clear_on_submit=True):
-                            equip_selecionado_label = st.selectbox("Selecione o Equipamento", options=df_frotas.sort_values("label")["label"])
-                            data_abastecimento = st.date_input("Data do Abastecimento")
-                            qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
-                            hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
-                            safra = st.text_input("Safra (Ex: 2023/2024)")
+            if acao == "Adicionar Lançamento":
         
-                            submitted = st.form_submit_button("Salvar Abastecimento")
-        
-                            if submitted:
-                                if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
-                                    st.warning("Por favor, preencha todos os campos.")
-                                else:
-                                    cod_equip = int(equip_selecionado_label.split(" - ")[0])
-                                    classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe Operacional'].iloc[0]
-        
-                                    dados_novos = {
-                                        'cod_equip': cod_equip,
-                                        'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
-                                        'qtde_litros': qtde_litros,
-                                        'hod_hor_atual': hod_hor_atual,
-                                        'safra': safra,
-                                        'mes': data_abastecimento.month,
-                                        'classe_operacional': classe_op
-                                    }
-        
-                                    if inserir_abastecimento(DB_PATH, dados_novos):
-                                        st.success("Abastecimento salvo com sucesso!")
-                                        st.cache_data.clear()
-                                        st.rerun()
-    
-                elif acao == "Excluir Lançamento":
-                            st.subheader("🗑️ Excluir um Lançamento")
-                            
-                            # Criar uma lista de abastecimentos para seleção
-                            # Usamos o `df` original que contém todos os dados, incluindo o 'rowid'
-                            df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
-                            df_para_excluir['label_exclusao'] = (
-                                df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
-                                df_para_excluir['Cod_Equip'].astype(str) + " - " +
-                                df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
-                                df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
-                            )
+                st.subheader("➕ Adicionar Novo Abastecimento")
+                with st.form("form_abastecimento", clear_on_submit=True):
+                    equip_selecionado_label = st.selectbox("Selecione o Equipamento", options=df_frotas.sort_values("label")["label"])
+                    data_abastecimento = st.date_input("Data do Abastecimento")
+                    qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
+                    hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
+                    safra = st.text_input("Safra (Ex: 2023/2024)")
+
+                    submitted = st.form_submit_button("Salvar Abastecimento")
+
+                    if submitted:
+                        if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
+                            st.warning("Por favor, preencha todos os campos.")
+                        else:
+                            cod_equip = int(equip_selecionado_label.split(" - ")[0])
+                            classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe Operacional'].iloc[0]
+
+                            dados_novos = {
+                                'cod_equip': cod_equip,
+                                'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
+                                'qtde_litros': qtde_litros,
+                                'hod_hor_atual': hod_hor_atual,
+                                'safra': safra,
+                                'mes': data_abastecimento.month,
+                                'classe_operacional': classe_op
+                            }
+
+                            if inserir_abastecimento(DB_PATH, dados_novos):
+                                st.success("Abastecimento salvo com sucesso!")
+                                st.cache_data.clear()
+                                st.rerun()
+
+            elif acao == "Excluir Lançamento":
+                        st.subheader("🗑️ Excluir um Lançamento")
+                        
+                        # Criar uma lista de abastecimentos para seleção
+                        # Usamos o `df` original que contém todos os dados, incluindo o 'rowid'
+                        df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
+                        df_para_excluir['label_exclusao'] = (
+                            df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                            df_para_excluir['Cod_Equip'].astype(str) + " - " +
+                            df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                            df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
+                            df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
+                        )
 
                         # Adiciona um mapeamento de label para rowid para encontrar o registro certo
                         map_label_to_rowid = pd.Series(df_para_excluir.rowid.values, index=df_para_excluir.label_exclusao).to_dict()
