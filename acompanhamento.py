@@ -712,38 +712,46 @@ def main():
                 horizontal=True,
                 key="acao_lancamentos"
             )
-            if acao == "Adicionar Lançamento":
-                    st.subheader("➕ Adicionar Novo Abastecimento")
-                    with st.form("form_abastecimento", clear_on_submit=True):
-                        equip_selecionado_label = st.selectbox("Selecione o Equipamento", options=df_frotas.sort_values("label")["label"])
-                        data_abastecimento = st.date_input("Data do Abastecimento")
-                        qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
-                        hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
-                        safra = st.text_input("Safra (Ex: 2023/2024)")
-    
-                        submitted = st.form_submit_button("Salvar Abastecimento")
-    
-                        if submitted:
-                            if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
-                                st.warning("Por favor, preencha todos os campos.")
-                            else:
-                                cod_equip = int(equip_selecionado_label.split(" - ")[0])
-                                classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe Operacional'].iloc[0]
-    
-                                dados_novos = {
-                                    'cod_equip': cod_equip,
-                                    'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
-                                    'qtde_litros': qtde_litros,
-                                    'hod_hor_atual': hod_hor_atual,
-                                    'safra': safra,
-                                    'mes': data_abastecimento.month,
-                                    'classe_operacional': classe_op
-                                }
-    
-                                if inserir_abastecimento(DB_PATH, dados_novos):
-                                    st.success("Abastecimento salvo com sucesso!")
-                                    st.cache_data.clear()
-                                    st.rerun()
+            if acao == "Adicionar Abastecimento":
+                st.subheader("➕ Adicionar Novo Abastecimento")
+                with st.form("form_abastecimento", clear_on_submit=True):
+                    equip_selecionado_label = st.selectbox(
+                        "Selecione o Equipamento", 
+                        options=df_frotas.sort_values("label")["label"],
+                        key="add_abast_equip"
+                    )
+                    data_abastecimento = st.date_input("Data do Abastecimento")
+                    qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
+                    hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
+                    safra = st.text_input("Safra (Ex: 2023/2024)")
+            
+                    submitted = st.form_submit_button("Salvar Abastecimento")
+            
+                    if submitted:
+                        if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
+                            st.warning("Por favor, preencha todos os campos.")
+                        else:
+                            cod_equip = int(equip_selecionado_label.split(" - ")[0])
+                            
+                            # --- INÍCIO DA CORREÇÃO ---
+                            # Usa o nome da coluna padronizado ('Classe_Operacional' com underscore)
+                            classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe_Operacional'].iloc[0]
+                            # --- FIM DA CORREÇÃO ---
+            
+                            dados_novos = {
+                                'cod_equip': cod_equip,
+                                'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
+                                'qtde_litros': qtde_litros,
+                                'hod_hor_atual': hod_hor_atual,
+                                'safra': safra,
+                                'mes': data_abastecimento.month,
+                                'classe_operacional': classe_op
+                            }
+            
+                            if inserir_abastecimento(DB_PATH, dados_novos):
+                                st.success("Abastecimento salvo com sucesso!")
+                                st.cache_data.clear()
+                                st.rerun()
 
             elif acao == "Excluir Lançamento":
                         st.subheader("🗑️ Excluir um Lançamento")
