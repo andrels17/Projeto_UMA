@@ -443,24 +443,33 @@ def main():
     
             st.markdown("---")
             st.subheader("Comparativo de Eficiência")
+
+            # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
+            st.warning("MODO DE DIAGNÓSTICO ATIVADO PARA 'COMPARATIVO DE EFICIÊNCIA'")
             
-            # --- INÍCIO DA CORREÇÃO ---
-            # 1. Verifica se a coluna 'Media' existe e tem dados
+            st.write("Abaixo estão as informações sobre os dados usados para este gráfico:")
+            
+            if 'Media' in consumo_eq.columns:
+                st.write("Estatísticas da coluna 'Media' para o **veículo selecionado** (`consumo_eq`):")
+                st.write(consumo_eq['Media'].describe())
+                st.write("Amostra de 15 registos da coluna 'Media' para este veículo:")
+                st.dataframe(consumo_eq[['Data', 'Media']].head(15))
+            else:
+                st.error("A coluna 'Media' não foi encontrada na tabela do veículo selecionado (`consumo_eq`).")
+            
+            st.markdown("---")
+            
             if 'Media' not in df.columns or df['Media'].dropna().empty:
                 st.warning("A coluna 'Media' não foi encontrada ou está vazia nos seus dados. Não é possível gerar o gráfico de eficiência.")
             else:
-                # 2. Calcula a média do equipamento selecionado
                 consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
                 media_equip_selecionado = consumo_real_eq['Media'].mean()
                 
-                # 3. Calcula a média da classe do equipamento
                 classe_selecionada = dados_eq.get('Classe_Operacional')
                 media_da_classe = np.nan # Inicia como nulo
                 if classe_selecionada:
                     consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
                     media_da_classe = consumo_classe['Media'].mean()
-    
-                # 4. Verifica se ambos os cálculos foram bem-sucedidos antes de desenhar o gráfico
                 if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
                     df_comp = pd.DataFrame({
                         'Categoria': [dados_eq.get('DESCRICAO_EQUIPAMENTO'), f"Média da Classe ({classe_selecionada})"],
@@ -470,13 +479,11 @@ def main():
                     fig_comp.update_traces(texttemplate='%{text:,.2f}'.replace(",", "X").replace(".", ",").replace("X", "."), textposition='outside')
                     st.plotly_chart(fig_comp, use_container_width=True)
                 else:
-                    # 5. Se falhar, mostra mensagens de erro mais específicas
                     st.info("Não foi possível gerar o comparativo.")
                     if pd.isna(media_equip_selecionado):
                         st.warning(f"O equipamento '{dados_eq.get('DESCRICAO_EQUIPAMENTO')}' não possui registos de consumo médio válidos (maiores que zero).")
                     if pd.isna(media_da_classe):
                         st.warning(f"A classe '{classe_selecionada}' não possui registos de consumo médio válidos para comparação.")
-            # --- FIM DA CORREÇÃO ---
     
             st.markdown("---")
             
