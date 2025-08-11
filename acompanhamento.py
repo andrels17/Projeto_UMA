@@ -521,7 +521,8 @@ def main():
                             x='Categoria', 
                             y='Média Consumo', 
                             text='texto_formatado', # Usa a coluna de texto formatada
-                            title="Eficiência de Consumo"
+                            title="Eficiência de Consumo",
+                            width=0.4
                         )
                         
                         # Remove a formatação complexa daqui
