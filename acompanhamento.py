@@ -341,18 +341,15 @@ def main():
     tabs = ["📊 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "⚙️ Gerir Lançamentos", "⚙️ Configurações"]
     tab_analise, tab_manut, tab_consulta, tab_gerir, tab_config = st.tabs(tabs)
 
-# APAGUE O CONTEÚDO DA SUA "with tab_principal:" E SUBSTITUA-O PELO BLOCO ABAIXO
-
     with tab_analise:
-    
-     # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
+        # --- INÍCIO DO BLOCO DE DIAGNÓSTICO ---
         st.warning("MODO DE DIAGNÓSTICO ATIVADO")
         st.header("Por favor, envie um print desta tela inteira para o assistente.")
-    
+
         st.subheader("1. Verificação dos dados filtrados (`df_f`)")
         st.write("Esta é a tabela de dados que a 'Análise Geral' recebe após os filtros da barra lateral.")
         st.dataframe(df_f)
-    
+
         st.subheader("2. Detalhes da Coluna 'Media'")
         if 'Media' in df_f.columns:
             st.write("Amostra de valores da coluna 'Media' onde ela NÃO é nula:")
@@ -362,6 +359,12 @@ def main():
             st.write(df_f['Media'].describe())
         else:
             st.error("ERRO CRÍTICO: A coluna 'Media' não existe nos dados filtrados.")
+
+        st.stop() # Interrompe o resto do app para focar no diagnóstico
+        # --- FIM DO BLOCO DE DIAGNÓSTICO ---
+
+        # O resto do seu código da aba de análise continua aqui...
+        # ...
 
 
         
