@@ -670,13 +670,10 @@ def main():
                 ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
                 
                 # Exibe a nova coluna "Equipamento" formatada
-                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])
-            else:
-                st.info("Não há dados de consumo médio para gerar o ranking.")
-                            
+                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
                             # NOVO: Botão de Exportação para o Ranking
-                            csv_ranking = para_csv(ranking)
-                            st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
+                csv_ranking = para_csv(ranking)
+                st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
             else:
                     st.info("Não há dados de consumo médio para gerar o ranking.")
                     
