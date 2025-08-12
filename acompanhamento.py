@@ -482,15 +482,19 @@ def main():
         st.session_state.username = ""
 
     if not st.session_state.authenticated:
-
         _ , col_central, _ = st.columns([1, 1.5, 1])
     
-        with col_central: 
+        with col_central:
             
             if os.path.exists("logo.png"):
-                st.image("logo.png")
-
-            st.title("Bem vindo ao Controle do PCMA")
+                # --- INÍCIO DA CORREÇÃO ---
+                # Cria 3 sub-colunas dentro da coluna central
+                _, logo_col, _ = st.columns([1, 2, 1])
+                with logo_col:
+                    st.image("logo.png")
+                # --- FIM DA CORREÇÃO ---
+            
+            st.title("Bem vindo ao Aplicativo de Controle do PCMA")
 
             username = st.text_input("Usuário", key="login_user")
             password = st.text_input("Senha", type="password", key="login_pass")
