@@ -491,6 +491,7 @@ def main():
             if role:
                 st.session_state.authenticated = True
                 st.session_state.role = role
+                st.session_state.username = username # Preenche o username após o login
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos.")
@@ -528,9 +529,11 @@ def main():
                     }
                     
         with st.sidebar:
-            st.write(f"Bem-vindo, **{st.session_state.username}**!")
+            st.write(f"Bem-vindo, **{st.session_state.username}**!") # Agora esta linha funciona
             if st.button("Sair"):
                 st.session_state.authenticated = False
+                st.session_state.username = "" # Limpa o username ao sair
+                st.session_state.role = None
                 st.rerun()
             st.markdown("---")
 
