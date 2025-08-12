@@ -625,13 +625,13 @@ def main():
                     cod_mais_eficiente = media_por_equip.index[0][0]
                     media_mais_eficiente = media_por_equip.iloc[0]
                     # Exibe o CÓDIGO no KPI
-                    kpi3.metric("Frota Mais Eficiente", f"Cód: {cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
+                    kpi3.metric("Frota Mais Eficiente", f"Frota: {cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
             
                     # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
                     cod_menos_eficiente = media_por_equip.index[-1][0]
                     media_menos_eficiente = media_por_equip.iloc[-1]
                     # Exibe o CÓDIGO no KPI
-                    kpi4.metric("Frota Menos Eficiente", f"Cód: {cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
+                    kpi4.metric("Frota Menos Eficiente", f"Frota: {cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
 
             st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
             if 'Media' in df_f.columns and not df_f['Media'].dropna().empty:
