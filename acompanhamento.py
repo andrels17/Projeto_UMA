@@ -490,7 +490,7 @@ def main():
             if os.path.exists("logo.png"):
                 st.image("logo.png")
 
-            st.title("Bem vindo ao Aplicativo de Controle do PCMA")
+            st.title("Bem vindo ao Controle do PCMA")
 
             username = st.text_input("Usuário", key="login_user")
             password = st.text_input("Senha", type="password", key="login_pass")
