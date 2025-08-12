@@ -482,19 +482,28 @@ def main():
         st.session_state.username = ""
 
     if not st.session_state.authenticated:
-        st.title("Login - Dashboard de Frotas")
-        username = st.text_input("Usuário")
-        password = st.text_input("Login", type="password")
-        
-        if st.button("Entrar"):
-            role = check_login_db(username, password) # <-- CORREÇÃO APLICADA
-            if role:
-                st.session_state.authenticated = True
-                st.session_state.role = role
-                st.session_state.username = username # Preenche o username após o login
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos.")
+
+        _ , col_central, _ = st.columns([1, 1.5, 1])
+    
+        with col_central: 
+            
+            if os.path.exists("logo.png"):
+                st.image("logo.png")
+
+            st.title("Bem vindo ao Aplicativo de Controle do PCMA")
+
+            username = st.text_input("Usuário", key="login_user")
+            password = st.text_input("Senha", type="password", key="login_pass")
+
+            if st.button("Entrar", use_container_width=True):
+                role = check_login_db(username, password)
+                if role:
+                    st.session_state.authenticated = True
+                    st.session_state.role = role
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("Usuário ou Senha incorretos.")
     else:
     
         st.title("📊 Dashboard de Frotas e Abastecimentos")
