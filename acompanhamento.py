@@ -605,18 +605,33 @@ def main():
             st.header("Visão Geral da Frota")
             
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            
+            # KPI 1: Frotas Ativas
             total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
             kpi1.metric("Frotas Ativas", total_frotas_ativas)
             
+            # KPI 2: Frotas com Alerta
             frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
             kpi2.metric("Frotas com Alerta", frotas_com_alerta)
-
+            
+            # KPIs 3 e 4: Frotas Mais e Menos Eficientes
             df_media_geral = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)]
             if not df_media_geral.empty:
-                media_por_equip = df_media_geral.groupby('DESCRICAO_EQUIPAMENTO')['Media'].mean().sort_values()
+                # Agrupa por Código e Descrição para ter acesso a ambos
+                media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
+                
                 if not media_por_equip.empty:
-                    kpi3.metric("Frota Mais Eficiente", media_por_equip.index[0], f"{formatar_brasileiro(media_por_equip.iloc[0])}")
-                    kpi4.metric("Frota Menos Eficiente", media_por_equip.index[-1], f"{formatar_brasileiro(media_por_equip.iloc[-1])}")
+                    # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
+                    cod_mais_eficiente = media_por_equip.index[0][0]
+                    media_mais_eficiente = media_por_equip.iloc[0]
+                    # Exibe o CÓDIGO no KPI
+                    kpi3.metric("Frota Mais Eficiente", f"Cód: {cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
+            
+                    # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
+                    cod_menos_eficiente = media_por_equip.index[-1][0]
+                    media_menos_eficiente = media_por_equip.iloc[-1]
+                    # Exibe o CÓDIGO no KPI
+                    kpi4.metric("Frota Menos Eficiente", f"Cód: {cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
 
             st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
             if 'Media' in df_f.columns and not df_f['Media'].dropna().empty:
