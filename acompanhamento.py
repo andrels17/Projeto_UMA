@@ -2613,7 +2613,6 @@ def main():
                             )
                             if success:
                                 st.success(message)
-                                # Invalidar cache para atualizar contadores
                                 force_cache_clear()
                             else:
                                 st.error(message)
