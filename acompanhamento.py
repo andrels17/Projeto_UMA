@@ -174,6 +174,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
+            st.info("Coluna de tipo de combustível criada com valor padrão 'Diesel S500'")
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -1341,7 +1342,11 @@ def main():
         auto_restore_backup_on_startup()
         
         # Adicionar coluna de tipo de combustível se não existir
-        add_tipo_combustivel_column()
+        success, message = add_tipo_combustivel_column()
+        if success:
+            st.info(f"Status da coluna de combustível: {message}")
+        else:
+            st.warning(f"Aviso: {message}")
         
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
@@ -1638,12 +1643,18 @@ def main():
             
             # Criar DataFrame com informações de combustível
             df_consumo_combustivel = df_f.copy()
-            df_consumo_combustivel = df_consumo_combustivel.merge(
-                df_frotas[['Cod_Equip', 'tipo_combustivel']], 
-                on='Cod_Equip', 
-                how='left'
-            )
-            df_consumo_combustivel['tipo_combustivel'] = df_consumo_combustivel['tipo_combustivel'].fillna('Diesel S500')
+            
+            # Verificar se a coluna tipo_combustivel existe em df_frotas
+            if 'tipo_combustivel' in df_frotas.columns:
+                df_consumo_combustivel = df_consumo_combustivel.merge(
+                    df_frotas[['Cod_Equip', 'tipo_combustivel']], 
+                    on='Cod_Equip', 
+                    how='left'
+                )
+                df_consumo_combustivel['tipo_combustivel'] = df_consumo_combustivel['tipo_combustivel'].fillna('Diesel S500')
+            else:
+                # Se a coluna não existe, criar com valor padrão
+                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
             
             col_grafico1, col_grafico2 = st.columns(2)
             
@@ -1657,46 +1668,60 @@ def main():
                 ]
                 
                 if not df_consumo_classe_macro.empty:
-                    consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
-                    
-                    # Criar gráfico de pizza
-                    fig_pizza_classe = px.pie(
-                        consumo_por_classe_macro, 
-                        values='Qtde_Litros', 
-                        names='Classe_Operacional',
-                        title="Proporção de Consumo por Classe",
-                        hole=0.3
-                    )
-                    fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_pizza_classe.update_layout(height=400)
-                    st.plotly_chart(fig_pizza_classe, use_container_width=True)
-                    
-                    # Mostrar totais
-                    st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
-                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
+                    try:
+                        consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                        
+                        # Criar gráfico de pizza
+                        fig_pizza_classe = px.pie(
+                            consumo_por_classe_macro, 
+                            values='Qtde_Litros', 
+                            names='Classe_Operacional',
+                            title="Proporção de Consumo por Classe",
+                            hole=0.3
+                        )
+                        fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_pizza_classe.update_layout(height=400)
+                        st.plotly_chart(fig_pizza_classe, use_container_width=True)
+                        
+                        # Mostrar totais
+                        st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
+                        st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
+                    except Exception as e:
+                        st.error(f"Erro ao criar gráfico de classe: {e}")
+                        st.info("Verificando dados disponíveis...")
+                        st.write(f"Colunas disponíveis: {list(df_consumo_classe_macro.columns)}")
+                        st.write(f"Primeiras linhas: {df_consumo_classe_macro.head()}")
                 else:
                     st.warning("Não há dados suficientes para análise por classe.")
             
             with col_grafico2:
                 st.subheader("⛽ Consumo por Tipo de Combustível")
-                if not df_consumo_combustivel.empty:
-                    consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
-                    
-                    # Criar gráfico de pizza
-                    fig_pizza_combustivel = px.pie(
-                        consumo_por_combustivel, 
-                        values='Qtde_Litros', 
-                        names='tipo_combustivel',
-                        title="Proporção de Consumo por Combustível",
-                        hole=0.3
-                    )
-                    fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_pizza_combustivel.update_layout(height=400)
-                    st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
-                    
-                    # Mostrar totais
-                    st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
-                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
+                    try:
+                        consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                        
+                        # Criar gráfico de pizza
+                        fig_pizza_combustivel = px.pie(
+                            consumo_por_combustivel, 
+                            values='Qtde_Litros', 
+                            names='tipo_combustivel',
+                            title="Proporção de Consumo por Combustível",
+                            hole=0.3
+                        )
+                        fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_pizza_combustivel.update_layout(height=400)
+                        st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                        
+                        # Mostrar totais
+                        st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                        st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                    except Exception as e:
+                        st.error(f"Erro ao criar gráfico de combustível: {e}")
+                        st.info("Usando dados padrão para análise de combustível")
+                        # Criar dados padrão se houver erro
+                        df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                        consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
+                        st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
                 else:
                     st.warning("Não há dados suficientes para análise por combustível.")
             
@@ -1712,11 +1737,15 @@ def main():
                 
                 # Selecionar classe
                 classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
-                classe_selecionada = st.selectbox(
-                    "Selecione a Classe:",
-                    options=classes_disponiveis,
-                    key="classe_combustivel"
-                )
+                
+                if not classes_disponiveis:
+                    st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
+                else:
+                    classe_selecionada = st.selectbox(
+                        "Selecione a Classe:",
+                        options=classes_disponiveis,
+                        key="classe_combustivel"
+                    )
                 
                 # Selecionar tipo de combustível
                 tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
@@ -1743,24 +1772,34 @@ def main():
                 
                 # Selecionar frota
                 frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-                frotas_disponiveis['label_combustivel'] = (
-                    frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
-                    frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
-                    " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
-                )
                 
-                frota_selecionada = st.selectbox(
-                    "Selecione a Frota:",
-                    options=frotas_disponiveis['label_combustivel'].tolist(),
-                    key="frota_combustivel"
-                )
+                if frotas_disponiveis.empty:
+                    st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
+                else:
+                    frotas_disponiveis['label_combustivel'] = (
+                        frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
+                        frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
+                        " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
+                    )
+                    
+                    frota_selecionada = st.selectbox(
+                        "Selecione a Frota:",
+                        options=frotas_disponiveis['label_combustivel'].tolist(),
+                        key="frota_combustivel"
+                    )
                 
                 if frota_selecionada:
                     # Obter código da frota selecionada
                     cod_equip_frota = int(frota_selecionada.split(" - ")[0])
-                    combustivel_atual = frotas_disponiveis[
-                        frotas_disponiveis['Cod_Equip'] == cod_equip_frota
-                    ]['tipo_combustivel'].iloc[0]
+                    
+                    # Verificar se a coluna tipo_combustivel existe
+                    if 'tipo_combustivel' in frotas_disponiveis.columns:
+                        combustivel_atual = frotas_disponiveis[
+                            frotas_disponiveis['Cod_Equip'] == cod_equip_frota
+                        ]['tipo_combustivel'].iloc[0]
+                        combustivel_atual = combustivel_atual if pd.notna(combustivel_atual) else 'Diesel S500'
+                    else:
+                        combustivel_atual = 'Diesel S500'
                     
                     st.info(f"**Combustível atual:** {combustivel_atual}")
                     
