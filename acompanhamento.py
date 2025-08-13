@@ -816,7 +816,7 @@ def main():
         if os.path.exists("logo.png"):
             col_logo, col_title = st.columns([1, 6])
             with col_logo:
-                st.image("logo.png", width=56)
+                st.image("logo.png", width=72)
             with col_title:
                 st.title("📊 Dashboard de Frotas e Abastecimentos")
         else:
