@@ -2045,11 +2045,11 @@ def main():
                     regra_del = st.selectbox("Selecione a Regra para excluir", regras_df['id_regra'])
                     if st.button("Excluir Regra"):
                         ok, msg = delete_checklist_rule(regra_del)
-                    if ok:
-                        st.success(str(msg))
-                    else:
-                        st.error(str(msg))
-                    rerun_keep_tab("✅ Gerir Checklists")
+                        if ok:
+                            st.success(str(msg))
+                        else:
+                            st.error(str(msg))
+                        rerun_keep_tab("✅ Gerir Checklists")
 
             with col_itens:
                 st.subheader("📝 Itens de Checklist")
