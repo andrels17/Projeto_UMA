@@ -872,13 +872,32 @@ def main():
 
         if st.session_state.role == 'admin':
             tabs_para_mostrar = abas_visualizacao + abas_admin
-            abas = st.tabs(tabs_para_mostrar)
+            active_idx = st.session_state.get('active_tab_index', 0)
+            active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
+            try:
+                abas = st.tabs(tabs_para_mostrar, default_index=active_idx)
+            except TypeError:
+                abas = st.tabs(tabs_para_mostrar)
             (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
             tab_gerir_lanc, tab_gerir_frotas, tab_importar, tab_config, tab_saude, 
             tab_gerir_users, tab_gerir_checklists) = abas
         else:
             tabs_para_mostrar = abas_visualizacao
-            tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar)
+            active_idx = st.session_state.get('active_tab_index', 0)
+            active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
+            try:
+                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar, default_index=active_idx)
+            except TypeError:
+                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar)
+
+        def rerun_keep_tab(tab_title: str, clear_cache: bool = True):
+            if clear_cache:
+                st.cache_data.clear()
+            try:
+                st.session_state['active_tab_index'] = tabs_para_mostrar.index(tab_title)
+            except Exception:
+                pass
+            st.rerun()
                 
         with tab_painel:
             st.header("Visão Geral da Frota")
@@ -1332,8 +1351,7 @@ def main():
                         cod_equip = int(equip_label.split(" - ")[0])
                         add_component_service(cod_equip, componente_servico, data_servico.strftime("%Y-%m-%d"), hod_hor_servico, observacoes)
                         st.success(f"Manutenção do componente '{componente_servico}' para '{equip_label}' registrada com sucesso!")
-                        st.cache_data.clear()
-                        st.rerun()
+                        rerun_keep_tab("🛠️ Controle de Manutenção")
                     else:
                         st.warning("Por favor, selecione um equipamento e um componente.")
                                     
@@ -1377,7 +1395,11 @@ def main():
 
                     if regra_aplica_hoje:
                         checklists_para_hoje = True
-                        with st.expander(f"**{regra['titulo_checklist']}** - Turno: {regra['turno']}"):
+                        exp_open_key = st.session_state.get('open_expander_checklists')
+                        with st.expander(
+                            f"**{regra['titulo_checklist']}** - Turno: {regra['turno']}",
+                            expanded=(exp_open_key == f"regra_{regra['id_regra']}"
+                        ) ):
                             veiculos_da_classe = frotas_a_verificar[frotas_a_verificar['Classe_Operacional'] == regra['classe_operacional']]
                             itens_checklist = get_checklist_items(regra['id_regra'])
 
@@ -1416,8 +1438,8 @@ def main():
                                                 status_geral = "Com Problema" if "Com Problema" in status_itens.values() else "OK"
                                                 save_checklist_history(veiculo['Cod_Equip'], regra['titulo_checklist'], hoje.strftime('%Y-%m-%d'), regra['turno'], status_geral)
                                                 st.success("Checklist salvo com sucesso!")
-                                                st.cache_data.clear()
-                                                st.rerun()
+                                                st.session_state['open_expander_checklists'] = f"regra_{regra['id_regra']}"
+                                                rerun_keep_tab("✅ Checklists Diários")
                 
                 if not checklists_para_hoje:
                     st.info("Nenhum checklist agendado para hoje.")
@@ -1471,8 +1493,7 @@ def main():
                     
                                     if inserir_abastecimento(DB_PATH, dados_novos):
                                         st.success("Abastecimento salvo com sucesso!")
-                                        st.cache_data.clear()
-                                        st.rerun()
+                                        rerun_keep_tab("⚙️ Gerir Lançamentos")
         
                     elif acao == "Excluir Lançamento":
                                 st.subheader("🗑️ Excluir um Lançamento")
@@ -1506,8 +1527,7 @@ def main():
                                     if st.button("Confirmar Exclusão", type="primary"):
                                         if excluir_abastecimento(DB_PATH, rowid_para_excluir):
                                             st.success("Registro excluído com sucesso!")
-                                            st.cache_data.clear()
-                                            st.rerun()
+                                            rerun_keep_tab("⚙️ Gerir Lançamentos")
                                             
                     elif acao == "Editar Lançamento":
                                 st.subheader("✏️ Editar um Lançamento")
@@ -1571,8 +1591,7 @@ def main():
                                             }
                                             if editar_abastecimento(DB_PATH, rowid_selecionado, dados_editados):
                                                 st.success("Abastecimento atualizado com sucesso!")
-                                                st.cache_data.clear()
-                                                st.rerun()
+                                                rerun_keep_tab("⚙️ Gerir Lançamentos")
 
                                 if tipo_edicao == "Manutenção":
                                     st.subheader("Editar Lançamento de Manutenção")
@@ -1659,8 +1678,7 @@ def main():
                                                     }
                                                     if editar_manutencao(DB_PATH, rowid_selecionado, dados_editados):
                                                         st.success("Manutenção atualizada com sucesso!")
-                                                        st.cache_data.clear()
-                                                        st.rerun()
+                                                        rerun_keep_tab("⚙️ Gerir Lançamentos")
 
 
         with tab_gerir_frotas:
@@ -1704,8 +1722,7 @@ def main():
                                         
                                         if inserir_frota(DB_PATH, dados_frota):
                                             st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
-                                            st.cache_data.clear()
-                                            st.rerun()
+                                            rerun_keep_tab("⚙️ Gerir Frotas")
             
                 elif acao_frota == "Editar Frota Existente":
                     st.subheader("✏️ Editar Frota Existente")
@@ -1740,8 +1757,7 @@ def main():
                                 }
                                 if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
                                     st.success("Dados da frota atualizados com sucesso!")
-                                    st.cache_data.clear()
-                                    st.rerun()
+                                    rerun_keep_tab("⚙️ Gerir Frotas")
                     
 
         # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
@@ -1750,7 +1766,8 @@ def main():
             st.header("⚙️ Configurar Manutenções e Checklists")
             
             # --- Gestão de Componentes ---
-            with st.expander("Configurar Componentes de Manutenção por Classe"):
+            exp_comp_open = st.session_state.get('open_expander_config_componentes', False)
+            with st.expander("Configurar Componentes de Manutenção por Classe", expanded=bool(exp_comp_open)):
                 classes_operacionais = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
                 df_comp_regras = get_component_rules() # Busca os dados mais recentes
 
@@ -1766,8 +1783,7 @@ def main():
                             col2.write(f"{regra['intervalo_padrao']} { 'km' if df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h' }")
                             if col3.button("Remover", key=f"del_comp_{regra['id_regra']}"):
                                 delete_component_rule(regra['id_regra'])
-                                st.cache_data.clear()
-                                st.rerun()
+                                rerun_keep_tab("⚙️ Configurações")
 
                         with st.form(f"form_add_{classe}", clear_on_submit=True):
                             st.write("**Adicionar Novo Componente**")
@@ -1775,12 +1791,13 @@ def main():
                             novo_comp_intervalo = st.number_input("Intervalo", min_value=1, step=50, key=f"int_{classe}")
                             if st.form_submit_button("Adicionar Componente"):
                                 add_component_rule(classe, novo_comp_nome, novo_comp_intervalo)
-                                st.cache_data.clear()
-                                st.rerun()
+                                st.session_state['open_expander_config_componentes'] = True
+                                rerun_keep_tab("⚙️ Configurações")
                         st.markdown("---")
 
             # --- Gestão de Checklists ---
-            with st.expander("Configurar Checklists Diários", expanded=True):
+            exp_chk_open = st.session_state.get('open_expander_config_checklists', True)
+            with st.expander("Configurar Checklists Diários", expanded=bool(exp_chk_open)):
                 st.subheader("Modelos de Checklist Existentes")
                 regras_checklist = get_checklist_rules()
                 if not regras_checklist.empty:
@@ -1811,8 +1828,8 @@ def main():
                                 for item in itens_lista:
                                     add_checklist_item(rule_id, item)
                                 st.success("Novo modelo de checklist criado com sucesso!")
-                                st.cache_data.clear()
-                                st.rerun()
+                                st.session_state['open_expander_config_checklists'] = True
+                                rerun_keep_tab("⚙️ Configurações")
                         else:
                             st.warning("Por favor, preencha todos os campos obrigatórios.")
                         
@@ -1843,8 +1860,7 @@ def main():
                                     if num_duplicados > 0:
                                         msg_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
                                     st.success(msg_sucesso + " O dashboard será atualizado.")
-                                    st.cache_data.clear()
-                                    st.rerun()
+                                    rerun_keep_tab("📤 Importar Dados")
                                 else:
                                     st.error(mensagem)
                         except Exception as e:
@@ -1911,7 +1927,7 @@ def main():
                                     success, message = add_user(novo_user, nova_pass, novo_role)
                                     if success:
                                         st.success(message)
-                                        st.rerun()
+                                        rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
                                     else:
                                         st.error(message)
                         
@@ -1934,7 +1950,7 @@ def main():
                                         success, message = update_user(user_data['id'], novo_username, novo_role_edit)
                                         if success:
                                             st.success(message)
-                                            st.rerun()
+                                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
                                         else:
                                             st.error(message)
 
@@ -1952,7 +1968,7 @@ def main():
                                         success, message = delete_user(user_id_remover)
                                         if success:
                                             st.success(message)
-                                            st.rerun()
+                                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
                                         else:
                                             st.error(message)
         with tab_gerir_checklists:
@@ -1986,19 +2002,17 @@ def main():
                             st.success(str(msg))
                         else:
                             st.error(str(msg))
-                        st.cache_data.clear()
-                        st.rerun()
+                        rerun_keep_tab("✅ Gerir Checklists")
 
                 if not regras_df.empty:
                     regra_del = st.selectbox("Selecione a Regra para excluir", regras_df['id_regra'])
                     if st.button("Excluir Regra"):
                         ok, msg = delete_checklist_rule(regra_del)
-                        if ok:
-                            st.success(str(msg))
-                        else:
-                            st.error(str(msg))
-                        st.cache_data.clear()
-                        st.rerun()
+                    if ok:
+                        st.success(str(msg))
+                    else:
+                        st.error(str(msg))
+                    rerun_keep_tab("✅ Gerir Checklists")
 
             with col_itens:
                 st.subheader("📝 Itens de Checklist")
@@ -2027,8 +2041,7 @@ def main():
                                 st.success(str(msg))
                             else:
                                 st.error(str(msg))
-                            st.cache_data.clear()
-                            st.rerun()
+                            rerun_keep_tab("✅ Gerir Checklists")
 
                     if not itens_df.empty:
                         item_del = st.selectbox("Selecione o Item para excluir", itens_df['id_item'])
@@ -2038,8 +2051,7 @@ def main():
                                 st.success(str(msg))
                             else:
                                 st.error(str(msg))
-                            st.cache_data.clear()
-                            st.rerun()
+                            rerun_keep_tab("✅ Gerir Checklists")
 
                     
 if __name__ == "__main__":
