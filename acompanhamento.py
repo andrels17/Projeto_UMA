@@ -175,6 +175,15 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
             st.info("Coluna de tipo de combustível criada com valor padrão 'Diesel S500'")
+        
+        # Garantir que a coluna existe e tem valores válidos
+        if 'tipo_combustivel' in df_frotas.columns:
+            # Preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
+            st.info(f"Coluna tipo_combustivel verificada. Valores únicos: {df_frotas['tipo_combustivel'].unique()}")
+        else:
+            st.error("Erro: Coluna tipo_combustivel não foi criada corretamente")
+            df_frotas['tipo_combustivel'] = 'Diesel S500'
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -1646,15 +1655,61 @@ def main():
             
             # Verificar se a coluna tipo_combustivel existe em df_frotas
             if 'tipo_combustivel' in df_frotas.columns:
-                df_consumo_combustivel = df_consumo_combustivel.merge(
-                    df_frotas[['Cod_Equip', 'tipo_combustivel']], 
-                    on='Cod_Equip', 
-                    how='left'
-                )
-                df_consumo_combustivel['tipo_combustivel'] = df_consumo_combustivel['tipo_combustivel'].fillna('Diesel S500')
+                try:
+                    # Criar uma cópia segura dos dados de frotas
+                    frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
+                    frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
+                    
+                    df_consumo_combustivel = df_consumo_combustivel.merge(
+                        frotas_combustivel, 
+                        on='Cod_Equip', 
+                        how='left'
+                    )
+                    
+                    # Verificar se a coluna foi criada no merge
+                    if 'tipo_combustivel' in df_consumo_combustivel.columns:
+                        df_consumo_combustivel['tipo_combustivel'] = df_consumo_combustivel['tipo_combustivel'].fillna('Diesel S500')
+                        st.info(f"Merge realizado com sucesso. Colunas: {list(df_consumo_combustivel.columns)}")
+                    else:
+                        # Se o merge não criou a coluna, criar manualmente
+                        df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                        st.warning("Merge não criou a coluna. Criando manualmente.")
+                except Exception as e:
+                    st.warning(f"Erro no merge: {e}. Criando coluna com valor padrão.")
+                    df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
             else:
                 # Se a coluna não existe, criar com valor padrão
                 df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                st.info("Coluna tipo_combustivel não encontrada em df_frotas. Criando com valor padrão.")
+            
+            # Garantir que a coluna tipo_combustivel existe
+            if 'tipo_combustivel' not in df_consumo_combustivel.columns:
+                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                st.info("Coluna de tipo de combustível criada com valor padrão 'Diesel S500'")
+            
+            # Verificação final - garantir que a coluna existe
+            if 'tipo_combustivel' not in df_consumo_combustivel.columns:
+                st.error("Erro crítico: Coluna tipo_combustivel não pode ser criada")
+                st.stop()
+            else:
+                st.success(f"Coluna tipo_combustivel criada com sucesso. Total de registros: {len(df_consumo_combustivel)}")
+                st.info(f"Colunas disponíveis: {list(df_consumo_combustivel.columns)}")
+                st.info(f"Primeiras linhas: {df_consumo_combustivel[['Cod_Equip', 'tipo_combustivel']].head()}")
+            
+            # Debug: mostrar informações sobre o DataFrame
+            st.info(f"DataFrame df_consumo_combustivel criado com {len(df_consumo_combustivel)} registros")
+            st.info(f"Colunas do DataFrame: {list(df_consumo_combustivel.columns)}")
+            
+            # Verificação adicional de segurança
+            try:
+                # Tentar acessar a coluna para verificar se está funcionando
+                teste_coluna = df_consumo_combustivel['tipo_combustivel'].iloc[0] if len(df_consumo_combustivel) > 0 else 'Diesel S500'
+                st.success(f"✅ Coluna tipo_combustivel acessível. Primeiro valor: {teste_coluna}")
+            except Exception as e:
+                st.error(f"❌ Erro ao acessar coluna tipo_combustivel: {e}")
+                # Criar a coluna novamente se houver erro
+                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                st.success("✅ Coluna recriada com sucesso")
             
             col_grafico1, col_grafico2 = st.columns(2)
             
