@@ -1726,8 +1726,8 @@ def main():
                                             df_comp_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
                                             df_comp_para_excluir['Cod_Equip'].astype(str) + " - " +
                                             df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                            df_comp_para_excluir['Componente'] + " | " +
-                                            df_comp_para_excluir['Acao'].fillna('N/A')
+                                            df_comp_para_excluir['nome_componente'] + " | " +
+                                            df_comp_para_excluir['Observacoes'].fillna('N/A')
                                         )
                                         
                                         map_label_to_rowid = pd.Series(df_comp_para_excluir.rowid.values, index=df_comp_para_excluir.label_exclusao).to_dict()
@@ -1743,7 +1743,7 @@ def main():
                                             st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
                                             
                                             registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir]
-                                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Componente', 'Acao']])
+                                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'nome_componente', 'Observacoes']])
             
                                             if st.button("Confirmar Exclusão", type="primary"):
                                                 if excluir_manutencao_componente(DB_PATH, rowid_para_excluir):
