@@ -799,6 +799,17 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
             
+            # Debug: verificar todos os registros na tabela
+            cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
+            all_records = cursor.fetchall()
+            
+            # Debug: verificar se há registros com valores similares
+            cursor.execute(
+                "SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico WHERE Cod_Equip = ?", 
+                (cod_equip,)
+            )
+            similar_records = cursor.fetchall()
+            
             # Primeiro, vamos verificar se o registro existe e obter o rowid
             cursor.execute(
                 "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
@@ -807,7 +818,23 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             result = cursor.fetchone()
             
             if result is None:
-                return False, "Registro não encontrado para exclusão"
+                # Debug: retornar informações sobre o que foi encontrado
+                debug_info = f"""
+                Registro não encontrado para exclusão.
+                
+                Valores procurados:
+                - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+                - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
+                - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
+                - Turno: {turno} (tipo: {type(turno)})
+                
+                Registros similares encontrados (mesmo Cod_Equip):
+                {similar_records}
+                
+                Todos os registros na tabela:
+                {all_records}
+                """
+                return False, debug_info
             
             rowid = result[0]
             
