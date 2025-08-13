@@ -132,7 +132,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
             df_comp_historico = pd.read_sql_query("SELECT rowid, * FROM componentes_historico", conn)
             df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
             df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
-            df_checklist_historico = pd.read_sql_query("SELECT * FROM checklist_historico", conn)
+            df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
 
         # --- Início do Processamento Integrado ---
         
@@ -799,21 +799,20 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
             
-            # Primeiro, vamos verificar se o registro existe
+            # Primeiro, vamos verificar se o registro existe e obter o rowid
             cursor.execute(
-                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
                 (cod_equip, titulo_checklist, data_preenchimento, turno)
             )
-            count = cursor.fetchone()[0]
+            result = cursor.fetchone()
             
-            if count == 0:
+            if result is None:
                 return False, "Registro não encontrado para exclusão"
             
-            # Agora vamos excluir
-            cursor.execute(
-                "DELETE FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
-                (cod_equip, titulo_checklist, data_preenchimento, turno)
-            )
+            rowid = result[0]
+            
+            # Agora vamos excluir usando rowid
+            cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
             conn.commit()
             
             # Verificar se foi realmente excluído
@@ -1768,11 +1767,16 @@ def main():
                                                 # Obter os dados do registro selecionado
                                                 registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir].iloc[0]
                                                 
+                                                # Converter a data para string se for Timestamp
+                                                data_str = str(registro_detalhes['Data'])
+                                                if hasattr(registro_detalhes['Data'], 'strftime'):
+                                                    data_str = registro_detalhes['Data'].strftime('%Y-%m-%d')
+                                                
                                                 if excluir_manutencao_componente(
                                                     DB_PATH, 
                                                     registro_detalhes['Cod_Equip'],
                                                     registro_detalhes['nome_componente'],
-                                                    registro_detalhes['Data'],
+                                                    data_str,
                                                     registro_detalhes['Hod_Hor_No_Servico']
                                                 ):
                                                     st.success("Manutenção de componente excluída com sucesso!")
@@ -2441,6 +2445,13 @@ def main():
                         
                         # Botão de confirmação
                         if st.button("🗑️ Confirmar Exclusão", type="primary"):
+                            # Debug: mostrar os valores que serão usados
+                            st.write(f"**Debug:** Tentando excluir checklist com:")
+                            st.write(f"- Cod_Equip: {checklist_detalhes['Cod_Equip']}")
+                            st.write(f"- Título: {checklist_detalhes['titulo_checklist']}")
+                            st.write(f"- Data: {checklist_detalhes['data_preenchimento']}")
+                            st.write(f"- Turno: {checklist_detalhes['turno']}")
+                            
                             success, message = delete_checklist_history(
                                 checklist_detalhes['Cod_Equip'],
                                 checklist_detalhes['titulo_checklist'],
