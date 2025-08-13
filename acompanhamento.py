@@ -736,6 +736,18 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
         st.error(f"Erro ao salvar histórico de checklist: {e}")
 
 
+def delete_checklist_history(historico_id):
+    """Remove um registro do histórico de checklists."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_historico WHERE id = ?", (historico_id,))
+            conn.commit()
+            return True, "Checklist excluído com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao excluir checklist: {e}"
+
+
 def main():
     st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
     # Garante tema dark coerente mesmo sem config.toml
@@ -816,7 +828,7 @@ def main():
         if os.path.exists("logo.png"):
             col_logo, col_title = st.columns([1, 6])
             with col_logo:
-                st.image("logo.png", width=140)
+                st.image("logo.png", width=72)
             with col_title:
                 st.title("📊 Dashboard de Frotas e Abastecimentos")
         else:
@@ -2023,85 +2035,159 @@ def main():
                                             st.error(message)
         with tab_gerir_checklists:
             st.header("✅ Gerir Checklists")
-            col_regras, col_itens = st.columns(2)
-            with col_regras:
+            
+            # Criar abas para organizar melhor as funcionalidades
+            tab_config, tab_historico = st.tabs(["⚙️ Configuração", "🗑️ Histórico"])
+            
+            with tab_config:
+                col_regras, col_itens = st.columns(2)
+                with col_regras:
 
-                st.subheader("📋 Regras de Checklist")
-                regras_df = get_checklist_rules()
-                if not regras_df.empty:
-                    st.dataframe(regras_df)
-                else:
-                    st.info("Nenhuma regra cadastrada.")
-
-                with st.form("form_add_regra", clear_on_submit=True):
-                    id_regra_edit = st.selectbox(
-                        "Editar Regra (ou deixe em branco para criar nova)",
-                        options=[""] + (regras_df['id_regra'].astype(str).tolist() if not regras_df.empty else [""])
-                    )
-                    classe_op = st.text_input("Classe Operacional")
-                    titulo = st.text_input("Título do Checklist")
-                    frequencia = st.selectbox("Frequência", ["Diário", "Dias Pares", "Dias Ímpares"])
-                    turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noite"]) 
-
-                    if st.form_submit_button("Salvar Regra"):
-                        if id_regra_edit:
-                            ok, msg = edit_checklist_rule(int(id_regra_edit), classe_op, titulo, turno, frequencia)
-                        else:
-                            ok, msg = add_checklist_rule(classe_op, titulo, turno, frequencia)
-                        if ok:
-                            st.success(str(msg))
-                        else:
-                            st.error(str(msg))
-                        rerun_keep_tab("✅ Gerir Checklists")
-
-                if not regras_df.empty:
-                    regra_del = st.selectbox("Selecione a Regra para excluir", regras_df['id_regra'])
-                    if st.button("Excluir Regra"):
-                        ok, msg = delete_checklist_rule(regra_del)
-                        if ok:
-                            st.success(str(msg))
-                        else:
-                            st.error(str(msg))
-                        rerun_keep_tab("✅ Gerir Checklists")
-
-            with col_itens:
-                st.subheader("📝 Itens de Checklist")
-                if regras_df.empty:
-                    st.warning("Cadastre pelo menos uma regra para poder adicionar itens.")
-                else:
-                    regra_sel = st.selectbox("Selecione uma Regra para gerenciar itens", regras_df['id_regra'])
-                    itens_df = get_checklist_items(regra_sel)
-                    if not itens_df.empty:
-                        st.dataframe(itens_df)
+                    st.subheader("📋 Regras de Checklist")
+                    regras_df = get_checklist_rules()
+                    if not regras_df.empty:
+                        st.dataframe(regras_df)
                     else:
-                        st.info("Nenhum item para esta regra.")
+                        st.info("Nenhuma regra cadastrada.")
 
-                    with st.form("form_add_item", clear_on_submit=True):
-                        id_item_edit = st.selectbox(
-                            "Editar Item (ou deixe em branco para criar novo)",
-                            options=[""] + itens_df['id_item'].astype(str).tolist() if not itens_df.empty else [""]
+                    with st.form("form_add_regra", clear_on_submit=True):
+                        id_regra_edit = st.selectbox(
+                            "Editar Regra (ou deixe em branco para criar nova)",
+                            options=[""] + (regras_df['id_regra'].astype(str).tolist() if not regras_df.empty else [""])
                         )
-                        nome_item = st.text_input("Nome do Item")
-                        if st.form_submit_button("Salvar Item"):
-                            if id_item_edit:
-                                ok, msg = edit_checklist_item(int(id_item_edit), nome_item)
+                        classe_op = st.text_input("Classe Operacional")
+                        titulo = st.text_input("Título do Checklist")
+                        frequencia = st.selectbox("Frequência", ["Diário", "Dias Pares", "Dias Ímpares"])
+                        turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noite"]) 
+
+                        if st.form_submit_button("Salvar Regra"):
+                            if id_regra_edit:
+                                ok, msg = edit_checklist_rule(int(id_regra_edit), classe_op, titulo, turno, frequencia)
                             else:
-                                ok, msg = add_checklist_item(regra_sel, nome_item)
+                                ok, msg = add_checklist_rule(classe_op, titulo, turno, frequencia)
                             if ok:
                                 st.success(str(msg))
                             else:
                                 st.error(str(msg))
                             rerun_keep_tab("✅ Gerir Checklists")
 
-                    if not itens_df.empty:
-                        item_del = st.selectbox("Selecione o Item para excluir", itens_df['id_item'])
-                        if st.button("Excluir Item"):
-                            ok, msg = delete_checklist_item(item_del)
+                    if not regras_df.empty:
+                        regra_del = st.selectbox("Selecione a Regra para excluir", regras_df['id_regra'])
+                        if st.button("Excluir Regra"):
+                            ok, msg = delete_checklist_rule(regra_del)
                             if ok:
                                 st.success(str(msg))
                             else:
                                 st.error(str(msg))
                             rerun_keep_tab("✅ Gerir Checklists")
+
+                with col_itens:
+                    st.subheader("📝 Itens de Checklist")
+                    if regras_df.empty:
+                        st.warning("Cadastre pelo menos uma regra para poder adicionar itens.")
+                    else:
+                        regra_sel = st.selectbox("Selecione uma Regra para gerenciar itens", regras_df['id_regra'])
+                        itens_df = get_checklist_items(regra_sel)
+                        if not itens_df.empty:
+                            st.dataframe(itens_df)
+                        else:
+                            st.info("Nenhum item para esta regra.")
+
+                        with st.form("form_add_item", clear_on_submit=True):
+                            id_item_edit = st.selectbox(
+                                "Editar Item (ou deixe em branco para criar novo)",
+                                options=[""] + itens_df['id_item'].astype(str).tolist() if not itens_df.empty else [""]
+                            )
+                            nome_item = st.text_input("Nome do Item")
+                            if st.form_submit_button("Salvar Item"):
+                                if id_item_edit:
+                                    ok, msg = edit_checklist_item(int(id_item_edit), nome_item)
+                                else:
+                                    ok, msg = add_checklist_item(regra_sel, nome_item)
+                                if ok:
+                                    st.success(str(msg))
+                                else:
+                                    st.error(str(msg))
+                                rerun_keep_tab("✅ Gerir Checklists")
+
+                        if not itens_df.empty:
+                            item_del = st.selectbox("Selecione o Item para excluir", itens_df['id_item'])
+                            if st.button("Excluir Item"):
+                                ok, msg = delete_checklist_item(item_del)
+                                if ok:
+                                    st.success(str(msg))
+                                else:
+                                    st.error(str(msg))
+                                rerun_keep_tab("✅ Gerir Checklists")
+            
+            with tab_historico:
+                st.subheader("🗑️ Excluir Checklists Lançados")
+                st.info("Esta seção permite excluir checklists que já foram preenchidos e salvos no histórico.")
+                
+                # Carregar dados do histórico
+                df_historico = df_checklist_historico.copy()
+                
+                if df_historico.empty:
+                    st.warning("Nenhum checklist foi preenchido ainda.")
+                else:
+                    # Adicionar informações do equipamento ao histórico
+                    df_historico = df_historico.merge(
+                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO']], 
+                        on='Cod_Equip', 
+                        how='left'
+                    )
+                    
+                    # Criar labels para seleção
+                    df_historico['label_exclusao'] = (
+                        df_historico['data_preenchimento'] + " | " +
+                        df_historico['Cod_Equip'].astype(str) + " - " +
+                        df_historico['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                        df_historico['titulo_checklist'] + " | " +
+                        df_historico['turno'] + " | " +
+                        "Status: " + df_historico['status_geral']
+                    )
+                    
+                    # Ordenar por data mais recente
+                    df_historico = df_historico.sort_values(by='data_preenchimento', ascending=False)
+                    
+                    # Mapear labels para IDs
+                    map_label_to_id = pd.Series(
+                        df_historico['id'].values, 
+                        index=df_historico['label_exclusao']
+                    ).to_dict()
+                    
+                    # Seleção do checklist para excluir
+                    checklist_selecionado = st.selectbox(
+                        "Selecione o checklist para excluir:",
+                        options=df_historico['label_exclusao'],
+                        key="checklist_exclusao"
+                    )
+                    
+                    if checklist_selecionado:
+                        historico_id = map_label_to_id[checklist_selecionado]
+                        
+                        # Mostrar detalhes do checklist selecionado
+                        st.warning("**Atenção:** Você está prestes a excluir o seguinte checklist. Esta ação não pode ser desfeita.")
+                        
+                        checklist_detalhes = df_historico[df_historico['id'] == historico_id].iloc[0]
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Data:** {checklist_detalhes['data_preenchimento']}")
+                            st.write(f"**Equipamento:** {checklist_detalhes['Cod_Equip']} - {checklist_detalhes['DESCRICAO_EQUIPAMENTO']}")
+                        with col2:
+                            st.write(f"**Título:** {checklist_detalhes['titulo_checklist']}")
+                            st.write(f"**Turno:** {checklist_detalhes['turno']}")
+                            st.write(f"**Status:** {checklist_detalhes['status_geral']}")
+                        
+                        # Botão de confirmação
+                        if st.button("🗑️ Confirmar Exclusão", type="primary"):
+                            success, message = delete_checklist_history(historico_id)
+                            if success:
+                                st.success(message)
+                                rerun_keep_tab("✅ Gerir Checklists")
+                            else:
+                                st.error(message)
 
                     
 if __name__ == "__main__":
