@@ -309,13 +309,21 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
             count_after = cursor.fetchone()[0]
             
             if count_after == 0:
+                # Forçar sincronização do banco
+                cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                cursor.execute("PRAGMA synchronous=FULL")
+                conn.commit()
+                
                 st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s))")
+                conn.close()
                 return True
             else:
                 st.error("Erro: Registro ainda existe após exclusão")
+                conn.close()
                 return False
         else:
             st.error("Nenhum registro foi excluído")
+            conn.close()
             return False
             
     except Exception as e:
@@ -868,99 +876,113 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
 def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
     """Remove um registro do histórico de checklists usando uma combinação única de campos."""
     try:
-        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
-            cursor = conn.cursor()
-            
-            # Converter tipos de dados para garantir compatibilidade
-            cod_equip = int(cod_equip)  # Converter numpy.int64 para int
-            titulo_checklist = str(titulo_checklist)
-            data_preenchimento = str(data_preenchimento)
-            turno = str(turno)
-            
-            # Debug: verificar todos os registros na tabela
-            cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
-            all_records = cursor.fetchall()
-            
-            # Debug: verificar se há registros com valores similares
+        # Primeira tentativa: usar conexão direta
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)  # Converter numpy.int64 para int
+        titulo_checklist = str(titulo_checklist)
+        data_preenchimento = str(data_preenchimento)
+        turno = str(turno)
+        
+        # Debug: verificar todos os registros na tabela ANTES da exclusão
+        cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
+        all_records_before = cursor.fetchall()
+        
+        # Tentar encontrar o registro com diferentes abordagens
+        rowid = None
+        
+        # Primeira tentativa: busca exata
+        cursor.execute(
+            "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+            (cod_equip, titulo_checklist, data_preenchimento, turno)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            rowid = result[0]
+        else:
+            # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
             cursor.execute(
-                "SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico WHERE Cod_Equip = ?", 
-                (cod_equip,)
-            )
-            similar_records = cursor.fetchall()
-            
-            # Tentar encontrar o registro com diferentes abordagens
-            rowid = None
-            
-            # Primeira tentativa: busca exata
-            cursor.execute(
-                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
-                (cod_equip, titulo_checklist, data_preenchimento, turno)
+                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, turno)
             )
             result = cursor.fetchone()
             
             if result:
                 rowid = result[0]
             else:
-                # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
+                # Terceira tentativa: buscar apenas por Cod_Equip e título
                 cursor.execute(
-                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
-                    (cod_equip, titulo_checklist, turno)
+                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
+                    (cod_equip, titulo_checklist)
                 )
                 result = cursor.fetchone()
                 
                 if result:
                     rowid = result[0]
-                else:
-                    # Terceira tentativa: buscar apenas por Cod_Equip e título
-                    cursor.execute(
-                        "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
-                        (cod_equip, titulo_checklist)
-                    )
-                    result = cursor.fetchone()
-                    
-                    if result:
-                        rowid = result[0]
+        
+        if rowid is None:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
             
-            if rowid is None:
-                # Debug: retornar informações sobre o que foi encontrado
-                debug_info = f"""
-                Registro não encontrado para exclusão.
-                
-                Valores procurados (após conversão):
-                - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
-                - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
-                - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
-                - Turno: {turno} (tipo: {type(turno)})
-                
-                Registros similares encontrados (mesmo Cod_Equip):
-                {similar_records}
-                
-                Todos os registros na tabela:
-                {all_records}
-                """
-                return False, debug_info
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
+            - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
+            - Turno: {turno} (tipo: {type(turno)})
             
-            # Agora vamos excluir usando rowid
-            cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
+            Todos os registros na tabela ANTES da exclusão:
+            {all_records_before}
+            """
+            conn.close()
+            return False, debug_info
+        
+        # Agora vamos excluir usando rowid
+        cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
+            count_after = cursor.fetchone()[0]
             
-            # Forçar commit imediato
-            conn.commit()
+            # Verificar também se o registro ainda existe pelos outros campos
+            cursor.execute(
+                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, data_preenchimento, turno)
+            )
+            count_by_fields = cursor.fetchone()[0]
             
-            # Verificar se foi realmente excluído
-            rows_deleted = cursor.rowcount
-            if rows_deleted > 0:
-                # Verificar novamente se o registro foi realmente excluído
-                cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
-                count_after = cursor.fetchone()[0]
-                
-                if count_after == 0:
-                    return True, f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s))"
-                else:
-                    return False, "Erro: Registro ainda existe após exclusão"
+            if count_after == 0 and count_by_fields == 0:
+                 # Verificar o total de registros na tabela
+                 cursor.execute("SELECT COUNT(*) FROM checklist_historico")
+                 total_after = cursor.fetchone()[0]
+                 
+                 # Forçar sincronização do banco
+                 cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                 cursor.execute("PRAGMA synchronous=FULL")
+                 conn.commit()
+                 
+                 success_msg = f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s)). Total na tabela: {total_after}"
+                 conn.close()
+                 return True, success_msg
             else:
-                return False, "Nenhum registro foi excluído"
+                conn.close()
+                return False, f"Erro: Registro ainda existe após exclusão. Count by rowid: {count_after}, Count by fields: {count_by_fields}"
+        else:
+            conn.close()
+            return False, "Nenhum registro foi excluído"
                 
     except Exception as e:
+        if 'conn' in locals():
+            conn.close()
         return False, f"Erro ao excluir checklist: {e}"
 
 
@@ -977,6 +999,34 @@ def force_cache_clear():
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao limpar cache: {e}")
+
+
+def force_database_sync():
+    """Força a sincronização do banco de dados com o disco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Forçar commit
+        conn.commit()
+        
+        # Executar PRAGMA para forçar sincronização
+        cursor.execute("PRAGMA wal_checkpoint(FULL)")
+        cursor.execute("PRAGMA synchronous=FULL")
+        cursor.execute("PRAGMA journal_mode=DELETE")
+        
+        # Forçar commit novamente
+        conn.commit()
+        
+        # Verificar se o banco está em modo WAL
+        cursor.execute("PRAGMA journal_mode")
+        journal_mode = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return True, f"Banco sincronizado. Modo journal: {journal_mode}"
+    except Exception as e:
+        return False, f"Erro ao sincronizar banco: {e}"
 
 
 def main():
@@ -2605,6 +2655,11 @@ def main():
                             st.write(f"- Data: {checklist_detalhes['data_preenchimento']}")
                             st.write(f"- Turno: {checklist_detalhes['turno']}")
                             
+                            # Verificar status do banco antes da exclusão
+                            sync_success, sync_msg = force_database_sync()
+                            if sync_success:
+                                st.info(f"Status do banco: {sync_msg}")
+                            
                             success, message = delete_checklist_history(
                                 checklist_detalhes['Cod_Equip'],
                                 checklist_detalhes['titulo_checklist'],
@@ -2613,6 +2668,7 @@ def main():
                             )
                             if success:
                                 st.success(message)
+                                # Invalidar cache para atualizar contadores
                                 force_cache_clear()
                             else:
                                 st.error(message)
