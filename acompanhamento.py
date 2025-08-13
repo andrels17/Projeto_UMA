@@ -810,14 +810,40 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             )
             similar_records = cursor.fetchall()
             
-            # Primeiro, vamos verificar se o registro existe e obter o rowid
+            # Tentar encontrar o registro com diferentes abordagens
+            rowid = None
+            
+            # Primeira tentativa: busca exata
             cursor.execute(
                 "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
                 (cod_equip, titulo_checklist, data_preenchimento, turno)
             )
             result = cursor.fetchone()
             
-            if result is None:
+            if result:
+                rowid = result[0]
+            else:
+                # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
+                cursor.execute(
+                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
+                    (cod_equip, titulo_checklist, turno)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    rowid = result[0]
+                else:
+                    # Terceira tentativa: buscar apenas por Cod_Equip e título
+                    cursor.execute(
+                        "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
+                        (cod_equip, titulo_checklist)
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        rowid = result[0]
+            
+            if rowid is None:
                 # Debug: retornar informações sobre o que foi encontrado
                 debug_info = f"""
                 Registro não encontrado para exclusão.
@@ -835,8 +861,6 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
                 {all_records}
                 """
                 return False, debug_info
-            
-            rowid = result[0]
             
             # Agora vamos excluir usando rowid
             cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
