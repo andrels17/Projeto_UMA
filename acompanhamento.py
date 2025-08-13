@@ -129,7 +129,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
             df_frotas = pd.read_sql_query("SELECT * FROM frotas", conn)
             df_manutencoes = pd.read_sql_query("SELECT rowid, * FROM manutencoes", conn)
             df_comp_regras = pd.read_sql_query("SELECT * FROM componentes_regras", conn)
-            df_comp_historico = pd.read_sql_query("SELECT * FROM componentes_historico", conn)
+            df_comp_historico = pd.read_sql_query("SELECT rowid, * FROM componentes_historico", conn)
             df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
             df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
             df_checklist_historico = pd.read_sql_query("SELECT * FROM checklist_historico", conn)
@@ -355,7 +355,7 @@ def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
         cursor = conn.cursor()
         sql = """
             UPDATE componentes_historico 
-            SET Cod_Equip = ?, Componente = ?, Acao = ?, Data = ?, Hod_Hor_No_Servico = ?
+            SET Cod_Equip = ?, nome_componente = ?, Observacoes = ?, Data = ?, Hod_Hor_No_Servico = ?
             WHERE rowid = ?
         """
         valores = (
@@ -1932,8 +1932,8 @@ def main():
                                             df_comp_edit['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
                                             df_comp_edit['Cod_Equip'].astype(str) + " - " +
                                             df_comp_edit['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                            df_comp_edit['Componente'] + " | " +
-                                            df_comp_edit['Acao'].fillna('N/A')
+                                            df_comp_edit['nome_componente'] + " | " +
+                                            df_comp_edit['Observacoes'].fillna('N/A')
                                         )
 
                                         # Cria o dicionário de label -> rowid
@@ -1962,8 +1962,8 @@ def main():
                                                     index_equip_atual = lista_labels_frotas.index(equip_atual)
 
                                                     novo_equip_label = st.selectbox("Equipamento", options=lista_labels_frotas, index=index_equip_atual)
-                                                    novo_componente = st.text_input("Componente", value=dados_atuais['Componente'])
-                                                    nova_acao = st.text_input("Ação", value=dados_atuais.get('Acao', ''))
+                                                    novo_componente = st.text_input("Componente", value=dados_atuais['nome_componente'])
+                                                    nova_acao = st.text_input("Observações", value=dados_atuais.get('Observacoes', ''))
                                                     nova_data = st.date_input("Data", value=pd.to_datetime(dados_atuais['Data']).date())
                                                     novo_hod = st.number_input("Hod./Hor. no Serviço", value=float(dados_atuais.get('Hod_Hor_No_Servico', 0)), format="%.2f")
 
