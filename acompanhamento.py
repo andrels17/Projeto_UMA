@@ -294,12 +294,26 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
             "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
             (cod_equip, nome_componente, data, hod_hor)
         )
+        
+        # Forçar commit imediato
         conn.commit()
         
         # Verificar se foi realmente excluído
         rows_deleted = cursor.rowcount
         if rows_deleted > 0:
-            return True
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute(
+                "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+                (cod_equip, nome_componente, data, hod_hor)
+            )
+            count_after = cursor.fetchone()[0]
+            
+            if count_after == 0:
+                st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s))")
+                return True
+            else:
+                st.error("Erro: Registro ainda existe após exclusão")
+                return False
         else:
             st.error("Nenhum registro foi excluído")
             return False
@@ -307,6 +321,9 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
     except Exception as e:
         st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
         return False
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 
 def excluir_manutencao(db_path: str, rowid: int) -> bool:
@@ -925,17 +942,41 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             
             # Agora vamos excluir usando rowid
             cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
+            
+            # Forçar commit imediato
             conn.commit()
             
             # Verificar se foi realmente excluído
             rows_deleted = cursor.rowcount
             if rows_deleted > 0:
-                return True, f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s))"
+                # Verificar novamente se o registro foi realmente excluído
+                cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
+                count_after = cursor.fetchone()[0]
+                
+                if count_after == 0:
+                    return True, f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s))"
+                else:
+                    return False, "Erro: Registro ainda existe após exclusão"
             else:
                 return False, "Nenhum registro foi excluído"
                 
     except Exception as e:
         return False, f"Erro ao excluir checklist: {e}"
+
+
+def force_cache_clear():
+    """Força a limpeza completa de todos os caches."""
+    try:
+        # Limpar cache de dados
+        st.cache_data.clear()
+        
+        # Limpar cache de recursos
+        st.cache_resource.clear()
+        
+        # Forçar rerun da aplicação
+        st.rerun()
+    except Exception as e:
+        st.error(f"Erro ao limpar cache: {e}")
 
 
 def main():
@@ -1893,7 +1934,7 @@ def main():
                                                 ):
                                                     st.success("Manutenção de componente excluída com sucesso!")
                                                     # Invalidar cache para atualizar contadores
-                                                    st.cache_data.clear()
+                                                    force_cache_clear()
                                                     rerun_keep_tab("⚙️ Gerir Lançamentos")
                                             
                     elif acao == "Editar Lançamento":
@@ -2573,8 +2614,7 @@ def main():
                             if success:
                                 st.success(message)
                                 # Invalidar cache para atualizar contadores
-                                st.cache_data.clear()
-                                rerun_keep_tab("✅ Gerir Checklists")
+                                force_cache_clear()
                             else:
                                 st.error(message)
 
