@@ -1780,104 +1780,7 @@ def main():
                 else:
                     st.warning("Não há dados suficientes para análise por combustível.")
             
-            # FERRAMENTAS PARA GERENCIAR TIPOS DE COMBUSTÍVEL
-            st.markdown("---")
-            st.subheader("⚙️ Gerenciar Tipos de Combustível")
-            
-            col_ferramenta1, col_ferramenta2 = st.columns(2)
-            
-            with col_ferramenta1:
-                st.subheader("🔄 Aplicar Combustível a uma Classe")
-                st.write("Define o tipo de combustível para todas as frotas de uma classe específica.")
-                
-                # Selecionar classe
-                classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
-                
-                if not classes_disponiveis:
-                    st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
-                else:
-                    classe_selecionada = st.selectbox(
-                        "Selecione a Classe:",
-                        options=classes_disponiveis,
-                        key="classe_combustivel"
-                    )
-                
-                # Selecionar tipo de combustível
-                tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                tipo_combustivel_classe = st.selectbox(
-                    "Tipo de Combustível:",
-                    options=tipos_combustivel,
-                    key="tipo_combustivel_classe"
-                )
-                
-                if st.button("🔄 Aplicar à Classe", type="primary"):
-                    with st.spinner("Aplicando tipo de combustível à classe..."):
-                        success, message = update_classe_combustivel(classe_selecionada, tipo_combustivel_classe)
-                        if success:
-                            st.success(message)
-                            # Limpar cache para atualizar dados
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.error(message)
-            
-            with col_ferramenta2:
-                st.subheader("✏️ Editar Combustível de uma Frota Específica")
-                st.write("Define o tipo de combustível para uma frota específica.")
-                
-                # Selecionar frota
-                frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-                
-                if frotas_disponiveis.empty:
-                    st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
-                else:
-                    frotas_disponiveis['label_combustivel'] = (
-                        frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
-                        frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
-                        " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
-                    )
-                    
-                    frota_selecionada = st.selectbox(
-                        "Selecione a Frota:",
-                        options=frotas_disponiveis['label_combustivel'].tolist(),
-                        key="frota_combustivel"
-                    )
-                
-                if frota_selecionada:
-                    # Obter código da frota selecionada
-                    cod_equip_frota = int(frota_selecionada.split(" - ")[0])
-                    
-                    # Verificar se a coluna tipo_combustivel existe
-                    if 'tipo_combustivel' in frotas_disponiveis.columns:
-                        combustivel_atual = frotas_disponiveis[
-                            frotas_disponiveis['Cod_Equip'] == cod_equip_frota
-                        ]['tipo_combustivel'].iloc[0]
-                        combustivel_atual = combustivel_atual if pd.notna(combustivel_atual) else 'Diesel S500'
-                    else:
-                        combustivel_atual = 'Diesel S500'
-                    
-                    st.info(f"**Combustível atual:** {combustivel_atual}")
-                    
-                    # Selecionar novo tipo de combustível
-                    novo_tipo_combustivel = st.selectbox(
-                        "Novo Tipo de Combustível:",
-                        options=tipos_combustivel,
-                        index=tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0,
-                        key="novo_tipo_combustivel"
-                    )
-                    
-                    if st.button("✏️ Atualizar Frota", type="secondary"):
-                        with st.spinner("Atualizando tipo de combustível..."):
-                            success, message = update_frota_combustivel(cod_equip_frota, novo_tipo_combustivel)
-                            if success:
-                                st.success(message)
-                                # Limpar cache para atualizar dados
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error(message)
-        
-        with tab_consulta:
+                    with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
             equip_label = st.selectbox(
                 "Selecione o Equipamento", 
@@ -2690,95 +2593,247 @@ def main():
 
 
         with tab_gerir_frotas:
-                st.header("⚙️ Gerir Frotas")
-                acao_frota = st.radio(
-                    "Selecione a ação que deseja realizar:",
-                    ("Cadastrar Nova Frota", "Editar Frota Existente"),
-                    horizontal=True,
-                    key="acao_frotas"
-                )
-        
-                if acao_frota == "Cadastrar Nova Frota":
-                        st.subheader("➕ Cadastrar Nova Frota")
-                        with st.form("form_nova_frota", clear_on_submit=True):
-                                st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
-                                
-                                # Campos do formulário
-                                cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
-                                descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
-                                placa = st.text_input("Placa (deixe em branco se não aplicável)")
-                                classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
-                                ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
-                                
-                                # Campo de tipo de combustível
-                                tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                                tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=0)
-                                
-                                submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
-                                
-                                if submitted_frota:
-                                    # Validação
-                                    if not all([cod_equip, descricao, classe_op]):
-                                        st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
-                                    elif cod_equip in df_frotas['Cod_Equip'].values:
-                                        st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
-                                    else:
-                                        # Prepara os dados para inserção
-                                        dados_frota = {
-                                            'cod_equip': cod_equip,
-                                            'descricao': descricao,
-                                            'placa': placa if placa else None, # Salva None se o campo estiver vazio
-                                            'classe_op': classe_op,
-                                            'ativo': ativo,
-                                            'tipo_combustivel': tipo_combustivel
-                                        }
-                                        
-                                        if inserir_frota(DB_PATH, dados_frota):
-                                            st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
-                                            rerun_keep_tab("⚙️ Gerir Frotas")
-            
-                elif acao_frota == "Editar Frota Existente":
-                    st.subheader("✏️ Editar Frota Existente")
-                    equip_para_editar_label = st.selectbox(
-                        "Selecione o equipamento que deseja editar",
-                        options=df_frotas.sort_values("label")["label"],
-                        key="frota_edit_select"
-                    )
-        
-                    if equip_para_editar_label:
-                        cod_equip_edit = int(equip_para_editar_label.split(" - ")[0])
-                        dados_atuais = df_frotas[df_frotas['Cod_Equip'] == cod_equip_edit].iloc[0]
-        
-                        with st.form("form_edit_frota"):
-                            st.write(f"**Editando:** {dados_atuais['DESCRICAO_EQUIPAMENTO']} (Cód: {dados_atuais['Cod_Equip']})")
-        
-                            nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
-                            nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
-                            nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
-                            
-                            # Campo de tipo de combustível
-                            tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                            combustivel_atual = dados_atuais.get('tipo_combustivel', 'Diesel S500')
-                            index_combustivel = tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0
-                            novo_tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=index_combustivel)
-                            
-                            status_options = ["ATIVO", "INATIVO"]
-                            index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
-                            novo_status = st.selectbox("Status", options=status_options, index=index_status)
-        
-                            submitted = st.form_submit_button("Salvar Alterações na Frota")
-                            if submitted:
-                                dados_editados = {
-                                    'descricao': nova_descricao,
-                                    'placa': nova_placa,
-                                    'classe_op': nova_classe_op,
-                                    'ativo': novo_status,
-                                    'tipo_combustivel': novo_tipo_combustivel
-                                }
-                                if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
-                                    st.success("Dados da frota atualizados com sucesso!")
-                                    rerun_keep_tab("⚙️ Gerir Frotas")
+            st.header("⚙️ Gerir Frotas")
+            acao_frota = st.radio(
+                "Selecione a ação que deseja realizar:",
+                ("Cadastrar Nova Frota", "Editar Frota Existente"),
+                horizontal=True,
+                key="acao_frotas"
+            )
+    
+            if acao_frota == "Cadastrar Nova Frota":
+                st.subheader("➕ Cadastrar Nova Frota")
+                with st.form("form_nova_frota", clear_on_submit=True):
+                    st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
                     
+                    # Campos do formulário
+                    cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
+                    descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
+                    placa = st.text_input("Placa (deixe em branco se não aplicável)")
+                    classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
+                    ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
+                    
+                    # Campo de tipo de combustível
+                    tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                    tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=0)
+                    
+                    submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
+                    
+                    if submitted_frota:
+                        # Validação
+                        if not all([cod_equip, descricao, classe_op]):
+                            st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
+                        elif cod_equip in df_frotas['Cod_Equip'].values:
+                            st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
+                        else:
+                            # Prepara os dados para inserção
+                            dados_frota = {
+                                'cod_equip': cod_equip,
+                                'descricao': descricao,
+                                'placa': placa if placa else None, # Salva None se o campo estiver vazio
+                                'classe_op': classe_op,
+                                'ativo': ativo,
+                                'tipo_combustivel': tipo_combustivel
+                            }
+                            
+                            if inserir_frota(DB_PATH, dados_frota):
+                                st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
+                                rerun_keep_tab("⚙️ Gerir Frotas")
+        
+            elif acao_frota == "Editar Frota Existente":
+                st.subheader("✏️ Editar Frota Existente")
+                equip_para_editar_label = st.selectbox(
+                    "Selecione o equipamento que deseja editar",
+                    options=df_frotas.sort_values("label")["label"],
+                    key="frota_edit_select"
+                )
+    
+                if equip_para_editar_label:
+                    cod_equip_edit = int(equip_para_editar_label.split(" - ")[0])
+                    dados_atuais = df_frotas[df_frotas['Cod_Equip'] == cod_equip_edit].iloc[0]
+    
+                    with st.form("form_edit_frota"):
+                        st.write(f"**Editando:** {dados_atuais['DESCRICAO_EQUIPAMENTO']} (Cód: {dados_atuais['Cod_Equip']})")
+    
+                        nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
+                        nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
+                        nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
+                        
+                        # Campo de tipo de combustível
+                        tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                        combustivel_atual = dados_atuais.get('tipo_combustivel', 'Diesel S500')
+                        index_combustivel = tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0
+                        novo_tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=index_combustivel)
+                        
+                        status_options = ["ATIVO", "INATIVO"]
+                        index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
+                        novo_status = st.selectbox("Status", options=status_options, index=index_status)
+    
+                        submitted = st.form_submit_button("Salvar Alterações na Frota")
+                        if submitted:
+                            dados_editados = {
+                                'descricao': nova_descricao,
+                                'placa': nova_placa,
+                                'classe_op': nova_classe_op,
+                                'ativo': novo_status,
+                                'tipo_combustivel': novo_tipo_combustivel
+                            }
+                            if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
+                                st.success("Dados da frota atualizados com sucesso!")
+                                rerun_keep_tab("⚙️ Gerir Frotas")
+        
+                                  # NOVA SEÇÃO: Gerenciar Tipos de Combustível
+             st.markdown("---")
+             st.subheader("⛽ Gerenciar Tipos de Combustível")
+             st.info("Esta seção permite gerenciar os tipos de combustível das frotas de forma eficiente. Acesso restrito a administradores.")
+             
+             # Criar abas para organizar as funcionalidades
+             tab_combustivel_classe, tab_combustivel_frota = st.tabs(["🔄 Por Classe", "✏️ Por Frota"])
+             
+             with tab_combustivel_classe:
+                 st.subheader("🔄 Aplicar Combustível a uma Classe Inteira")
+                 st.write("Define o tipo de combustível para todas as frotas de uma classe específica. Útil para padronização em massa.")
+                 
+                 # Selecionar classe
+                 classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
+                 
+                 if not classes_disponiveis:
+                     st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
+                 else:
+                     classe_selecionada = st.selectbox(
+                         "Selecione a Classe:",
+                         options=classes_disponiveis,
+                         key="classe_combustivel_admin"
+                     )
+                     
+                     # Mostrar informações sobre a classe selecionada
+                     if classe_selecionada:
+                         frotas_da_classe = df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]
+                         st.info(f"**Classe selecionada:** {classe_selecionada}")
+                         st.info(f"**Total de frotas:** {len(frotas_da_classe)}")
+                         st.info(f"**Frotas ativas:** {len(frotas_da_classe[frotas_da_classe['ATIVO'] == 'ATIVO'])}")
+                         
+                         # Mostrar tipos de combustível atuais
+                         if 'tipo_combustivel' in frotas_da_classe.columns:
+                             combustiveis_atuais = frotas_da_classe['tipo_combustivel'].value_counts()
+                             st.write("**Tipos de combustível atuais na classe:**")
+                             for combustivel, count in combustiveis_atuais.items():
+                                 st.write(f"- {combustivel}: {count} frotas")
+                         
+                         # Selecionar novo tipo de combustível
+                         tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                         tipo_combustivel_classe = st.selectbox(
+                             "Novo Tipo de Combustível:",
+                             options=tipos_combustivel,
+                             key="tipo_combustivel_classe_admin"
+                         )
+                         
+                         if st.button("🔄 Aplicar à Classe Inteira", type="primary", use_container_width=True):
+                             with st.spinner("Aplicando tipo de combustível à classe..."):
+                                 success, message = update_classe_combustivel(classe_selecionada, tipo_combustivel_classe)
+                                 if success:
+                                     st.success(message)
+                                     # Limpar cache para atualizar dados
+                                     st.cache_data.clear()
+                                     st.rerun()
+                                 else:
+                                     st.error(message)
+             
+             with tab_combustivel_frota:
+                 st.subheader("✏️ Editar Combustível de uma Frota Específica")
+                 st.write("Define o tipo de combustível para uma frota específica. Útil para casos especiais ou exceções.")
+                 
+                 # Selecionar frota
+                 frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
+                 
+                 if frotas_disponiveis.empty:
+                     st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
+                 else:
+                     frotas_disponiveis['label_combustivel'] = (
+                         frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
+                         frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
+                         " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
+                     )
+                     
+                     frota_selecionada = st.selectbox(
+                         "Selecione a Frota:",
+                         options=frotas_disponiveis['label_combustivel'].tolist(),
+                         key="frota_combustivel_admin"
+                     )
+                     
+                     if frota_selecionada:
+                         # Obter código da frota selecionada
+                         cod_equip_frota = int(frota_selecionada.split(" - ")[0])
+                         
+                         # Obter dados da frota
+                         dados_frota = frotas_disponiveis[frotas_disponiveis['Cod_Equip'] == cod_equip_frota].iloc[0]
+                         
+                         # Mostrar informações da frota
+                         col_info1, col_info2 = st.columns(2)
+                         with col_info1:
+                             st.write(f"**Código:** {dados_frota['Cod_Equip']}")
+                             st.write(f"**Descrição:** {dados_frota['DESCRICAO_EQUIPAMENTO']}")
+                         with col_info2:
+                             st.write(f"**Placa:** {dados_frota['PLACA']}")
+                             st.write(f"**Classe:** {dados_frota['Classe_Operacional']}")
+                         
+                         # Verificar combustível atual
+                         if 'tipo_combustivel' in dados_frota:
+                             combustivel_atual = dados_frota['tipo_combustivel']
+                             combustivel_atual = combustivel_atual if pd.notna(combustivel_atual) else 'Diesel S500'
+                         else:
+                             combustivel_atual = 'Diesel S500'
+                         
+                         st.info(f"**Combustível atual:** {combustivel_atual}")
+                         
+                         # Selecionar novo tipo de combustível
+                         tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                         novo_tipo_combustivel = st.selectbox(
+                             "Novo Tipo de Combustível:",
+                             options=tipos_combustivel,
+                             index=tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0,
+                             key="novo_tipo_combustivel_admin"
+                         )
+                         
+                         if st.button("✏️ Atualizar Frota", type="secondary", use_container_width=True):
+                             with st.spinner("Atualizando tipo de combustível..."):
+                                 success, message = update_frota_combustivel(cod_equip_frota, novo_tipo_combustivel)
+                                 if success:
+                                     st.success(message)
+                                     # Limpar cache para atualizar dados
+                                     st.cache_data.clear()
+                                     st.rerun()
+                                 else:
+                                     st.error(message)
+             
+             # Resumo dos tipos de combustível
+             st.markdown("---")
+             st.subheader("📊 Resumo dos Tipos de Combustível")
+             
+             if 'tipo_combustivel' in df_frotas.columns:
+                 # Estatísticas gerais
+                 col_stats1, col_stats2, col_stats3 = st.columns(3)
+                 
+                 with col_stats1:
+                     total_frotas = len(df_frotas)
+                     st.metric("Total de Frotas", total_frotas)
+                 
+                 with col_stats2:
+                     frotas_com_combustivel = df_frotas['tipo_combustivel'].notna().sum()
+                     st.metric("Frotas com Combustível", frotas_com_combustivel)
+                 
+                 with col_stats3:
+                     tipos_unicos = df_frotas['tipo_combustivel'].nunique()
+                     st.metric("Tipos de Combustível", tipos_unicos)
+                 
+                 # Distribuição por tipo de combustível
+                 st.write("**Distribuição por Tipo de Combustível:**")
+                 combustivel_dist = df_frotas['tipo_combustivel'].value_counts()
+                 for combustivel, count in combustivel_dist.items():
+                     percentual = (count / total_frotas) * 100
+                     st.write(f"- **{combustivel}:** {count} frotas ({percentual:.1f}%)")
+             else:
+                 st.warning("Coluna de tipo de combustível não encontrada. Execute a aplicação para criar automaticamente.")
 
         # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
 
