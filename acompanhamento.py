@@ -244,12 +244,67 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         cursor = conn.cursor()
-        sql = "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?"
-        cursor.execute(sql, (cod_equip, nome_componente, data, hod_hor))
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)
+        nome_componente = str(nome_componente)
+        data = str(data)
+        hod_hor = float(hod_hor)
+        
+        # Debug: verificar todos os registros na tabela
+        cursor.execute("SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico")
+        all_records = cursor.fetchall()
+        
+        # Debug: verificar se há registros com valores similares
+        cursor.execute(
+            "SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico WHERE Cod_Equip = ?", 
+            (cod_equip,)
+        )
+        similar_records = cursor.fetchall()
+        
+        # Primeiro, vamos verificar se o registro existe
+        cursor.execute(
+            "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Nome Componente: {nome_componente} (tipo: {type(nome_componente)})
+            - Data: {data} (tipo: {type(data)})
+            - Hod_Hor: {hod_hor} (tipo: {type(hod_hor)})
+            
+            Registros similares encontrados (mesmo Cod_Equip):
+            {similar_records}
+            
+            Todos os registros na tabela:
+            {all_records}
+            """
+            st.error(debug_info)
+            return False
+        
+        # Agora vamos excluir
+        cursor.execute(
+            "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
         conn.commit()
-        conn.close()
-        return True
-    except sqlite3.Error as e:
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            return True
+        else:
+            st.error("Nenhum registro foi excluído")
+            return False
+            
+    except Exception as e:
         st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
         return False
 
