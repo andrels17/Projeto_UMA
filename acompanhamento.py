@@ -238,6 +238,36 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
         st.error(f"Erro ao excluir dados do banco de dados: {e}")
         return False
 
+
+def excluir_manutencao_componente(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de manutenção de componente do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = "DELETE FROM componentes_historico WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
+        return False
+
+
+def excluir_manutencao(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de manutenção do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = "DELETE FROM manutencoes WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir manutenção do banco de dados: {e}")
+        return False
+
 def inserir_manutencao(db_path: str, dados: dict) -> bool:
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -315,6 +345,33 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
         return True
     except sqlite3.Error as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
+        return False
+
+
+def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
+    """Edita um registro de manutenção de componente existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE componentes_historico 
+            SET Cod_Equip = ?, Componente = ?, Acao = ?, Data = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['componente'],
+            dados['acao'],
+            dados['data'],
+            dados['hod_hor_servico'],
+            rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao editar manutenção de componente no banco de dados: {e}")
         return False
 
 def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tuple[int, int, str]:
@@ -1562,41 +1619,142 @@ def main():
         
                     elif acao == "Excluir Lançamento":
                                 st.subheader("🗑️ Excluir um Lançamento")
-        
-                                df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
-                                df_para_excluir['label_exclusao'] = (
-                                    df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
-                                    df_para_excluir['Cod_Equip'].astype(str) + " - " +
-                                    df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                    df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
-                                    df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
-                                )
-        
-                                # Adiciona um mapeamento de label para rowid para encontrar o registro certo
-                                map_label_to_rowid = pd.Series(df_para_excluir.rowid.values, index=df_para_excluir.label_exclusao).to_dict()
-        
-                                registro_selecionado_label = st.selectbox(
-                                    "Selecione o abastecimento a ser excluído (mais recentes primeiro)",
-                                    options=df_para_excluir['label_exclusao']
-                                )
                                 
-                                if registro_selecionado_label:
-                                    rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
-                                    
-                                    st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
-                                    
-                                    # Mostra os detalhes do registro selecionado
-                                    registro_detalhes = df[df['rowid'] == rowid_para_excluir]
-                                    st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Qtde_Litros', 'Hod_Hor_Atual']])
+                                tipo_exclusao = st.radio("O que deseja excluir?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="delete_choice")
+                                
+                                if tipo_exclusao == "Abastecimento":
+                                    df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
+                                    df_para_excluir['label_exclusao'] = (
+                                        df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                                        df_para_excluir['Cod_Equip'].astype(str) + " - " +
+                                        df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                                        df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
+                                        df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
+                                    )
         
-                                    if st.button("Confirmar Exclusão", type="primary"):
-                                        if excluir_abastecimento(DB_PATH, rowid_para_excluir):
-                                            st.success("Registro excluído com sucesso!")
-                                            rerun_keep_tab("⚙️ Gerir Lançamentos")
+                                    # Adiciona um mapeamento de label para rowid para encontrar o registro certo
+                                    map_label_to_rowid = pd.Series(df_para_excluir.rowid.values, index=df_para_excluir.label_exclusao).to_dict()
+        
+                                    registro_selecionado_label = st.selectbox(
+                                        "Selecione o abastecimento a ser excluído (mais recentes primeiro)",
+                                        options=df_para_excluir['label_exclusao']
+                                    )
+                                    
+                                    if registro_selecionado_label:
+                                        rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
+                                        
+                                        st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
+                                        
+                                        # Mostra os detalhes do registro selecionado
+                                        registro_detalhes = df[df['rowid'] == rowid_para_excluir]
+                                        st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Qtde_Litros', 'Hod_Hor_Atual']])
+        
+                                        if st.button("Confirmar Exclusão", type="primary"):
+                                            if excluir_abastecimento(DB_PATH, rowid_para_excluir):
+                                                st.success("Registro excluído com sucesso!")
+                                                # Invalidar cache para atualizar contadores
+                                                st.cache_data.clear()
+                                                rerun_keep_tab("⚙️ Gerir Lançamentos")
+                                
+                                elif tipo_exclusao == "Manutenção":
+                                    st.subheader("🗑️ Excluir Manutenção")
+                                    
+                                    # Garantir que df_manutencoes tenha rowid
+                                    if 'rowid' not in df_manutencoes.columns:
+                                        df_manutencoes = df_manutencoes.reset_index().rename(columns={'index': 'rowid'})
+                                    
+                                    df_manut_para_excluir = df_manutencoes.copy()
+                                    df_manut_para_excluir['Data'] = pd.to_datetime(df_manut_para_excluir['Data'], errors='coerce')
+                                    df_manut_para_excluir = df_manut_para_excluir.sort_values(by="Data", ascending=False)
+                                    
+                                    # Adiciona descrição do equipamento
+                                    df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                                    desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
+                                    df_manut_para_excluir['DESCRICAO_EQUIPAMENTO'] = df_manut_para_excluir['Cod_Equip'].map(desc_map).fillna('N/A')
+                                    
+                                    df_manut_para_excluir['label_exclusao'] = (
+                                        df_manut_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                                        df_manut_para_excluir['Cod_Equip'].astype(str) + " - " +
+                                        df_manut_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                                        df_manut_para_excluir['Tipo_Servico'] + " | " +
+                                        df_manut_para_excluir['Hod_Hor_No_Servico'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
+                                    )
+                                    
+                                    map_label_to_rowid = pd.Series(df_manut_para_excluir.rowid.values, index=df_manut_para_excluir.label_exclusao).to_dict()
+                                    
+                                    registro_selecionado_label = st.selectbox(
+                                        "Selecione a manutenção a ser excluída (mais recentes primeiro)",
+                                        options=df_manut_para_excluir['label_exclusao']
+                                    )
+                                    
+                                    if registro_selecionado_label:
+                                        rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
+                                        
+                                        st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
+                                        
+                                        registro_detalhes = df_manut_para_excluir[df_manut_para_excluir['rowid'] == rowid_para_excluir]
+                                        st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Tipo_Servico', 'Hod_Hor_No_Servico']])
+        
+                                        if st.button("Confirmar Exclusão", type="primary"):
+                                            if excluir_manutencao(DB_PATH, rowid_para_excluir):
+                                                st.success("Manutenção excluída com sucesso!")
+                                                # Invalidar cache para atualizar contadores
+                                                st.cache_data.clear()
+                                                rerun_keep_tab("⚙️ Gerir Lançamentos")
+                                
+                                elif tipo_exclusao == "Manutenção de Componentes":
+                                    st.subheader("🗑️ Excluir Manutenção de Componentes")
+                                    
+                                    df_comp_para_excluir = df_comp_historico.copy()
+                                    
+                                    if df_comp_para_excluir.empty:
+                                        st.warning("Nenhuma manutenção de componente encontrada.")
+                                    else:
+                                        # Garantir que df_comp_historico tenha rowid
+                                        if 'rowid' not in df_comp_para_excluir.columns:
+                                            df_comp_para_excluir = df_comp_para_excluir.reset_index().rename(columns={'index': 'rowid'})
+                                        
+                                        df_comp_para_excluir['Data'] = pd.to_datetime(df_comp_para_excluir['Data'], errors='coerce')
+                                        df_comp_para_excluir = df_comp_para_excluir.sort_values(by="Data", ascending=False)
+                                        
+                                        # Adiciona descrição do equipamento
+                                        df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                                        desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
+                                        df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'] = df_comp_para_excluir['Cod_Equip'].map(desc_map).fillna('N/A')
+                                        
+                                        df_comp_para_excluir['label_exclusao'] = (
+                                            df_comp_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                                            df_comp_para_excluir['Cod_Equip'].astype(str) + " - " +
+                                            df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                                            df_comp_para_excluir['Componente'] + " | " +
+                                            df_comp_para_excluir['Acao'].fillna('N/A')
+                                        )
+                                        
+                                        map_label_to_rowid = pd.Series(df_comp_para_excluir.rowid.values, index=df_comp_para_excluir.label_exclusao).to_dict()
+                                        
+                                        registro_selecionado_label = st.selectbox(
+                                            "Selecione a manutenção de componente a ser excluída (mais recentes primeiro)",
+                                            options=df_comp_para_excluir['label_exclusao']
+                                        )
+                                        
+                                        if registro_selecionado_label:
+                                            rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
+                                            
+                                            st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
+                                            
+                                            registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir]
+                                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Componente', 'Acao']])
+            
+                                            if st.button("Confirmar Exclusão", type="primary"):
+                                                if excluir_manutencao_componente(DB_PATH, rowid_para_excluir):
+                                                    st.success("Manutenção de componente excluída com sucesso!")
+                                                    # Invalidar cache para atualizar contadores
+                                                    st.cache_data.clear()
+                                                    rerun_keep_tab("⚙️ Gerir Lançamentos")
                                             
                     elif acao == "Editar Lançamento":
                                 st.subheader("✏️ Editar um Lançamento")
-                                tipo_edicao = st.radio("O que deseja editar?", ("Abastecimento", "Manutenção"), horizontal=True, key="edit_choice")
+                                tipo_edicao = st.radio("O que deseja editar?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="edit_choice")
         
                                 if tipo_edicao == "Abastecimento":
                                     df_abast_edit = df.sort_values(by="Data", ascending=False).copy()
@@ -1744,6 +1902,83 @@ def main():
                                                     if editar_manutencao(DB_PATH, rowid_selecionado, dados_editados):
                                                         st.success("Manutenção atualizada com sucesso!")
                                                         rerun_keep_tab("⚙️ Gerir Lançamentos")
+
+                                if tipo_edicao == "Manutenção de Componentes":
+                                    st.subheader("Editar Lançamento de Manutenção de Componentes")
+
+                                    # Carregar dados de componentes_historico
+                                    df_comp_edit = df_comp_historico.copy()
+                                    
+                                    if df_comp_edit.empty:
+                                        st.warning("Nenhuma manutenção de componente encontrada.")
+                                    else:
+                                        # Garantir que df_comp_historico tenha rowid
+                                        if 'rowid' not in df_comp_edit.columns:
+                                            df_comp_edit = df_comp_edit.reset_index().rename(columns={'index': 'rowid'})
+
+                                        # Garante que a coluna Data seja datetime
+                                        df_comp_edit['Data'] = pd.to_datetime(df_comp_edit['Data'], errors='coerce')
+
+                                        # Remove duplicatas de Cod_Equip no df_frotas para evitar erro no map
+                                        df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
+
+                                        # Adiciona descrição do equipamento via map
+                                        desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
+                                        df_comp_edit['DESCRICAO_EQUIPAMENTO'] = df_comp_edit['Cod_Equip'].map(desc_map).fillna('N/A')
+
+                                        # Ordena e cria os labels para seleção
+                                        df_comp_edit.sort_values(by="Data", ascending=False, inplace=True)
+                                        df_comp_edit['label_edit'] = (
+                                            df_comp_edit['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                                            df_comp_edit['Cod_Equip'].astype(str) + " - " +
+                                            df_comp_edit['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                                            df_comp_edit['Componente'] + " | " +
+                                            df_comp_edit['Acao'].fillna('N/A')
+                                        )
+
+                                        # Cria o dicionário de label -> rowid
+                                        map_label_to_rowid = pd.Series(
+                                            df_comp_edit['rowid'].values,
+                                            index=df_comp_edit['label_edit']
+                                        ).to_dict()
+
+                                        # Selectbox para escolher manutenção de componente
+                                        label_selecionado = st.selectbox(
+                                            "Selecione a manutenção de componente para editar",
+                                            options=df_comp_edit['label_edit'],
+                                            key="comp_edit_select"
+                                        )
+
+                                        if label_selecionado:
+                                            rowid_selecionado = map_label_to_rowid.get(label_selecionado)
+                                            if rowid_selecionado is not None:
+                                                dados_atuais = df_comp_edit[df_comp_edit['rowid'] == rowid_selecionado].iloc[0]
+
+                                                with st.form("form_edit_comp"):
+                                                    st.write(f"**Editando:** {label_selecionado}")
+
+                                                    lista_labels_frotas = df_frotas.sort_values("label")['label'].tolist()
+                                                    equip_atual = df_frotas[df_frotas['Cod_Equip'] == dados_atuais['Cod_Equip']]['label'].iloc[0]
+                                                    index_equip_atual = lista_labels_frotas.index(equip_atual)
+
+                                                    novo_equip_label = st.selectbox("Equipamento", options=lista_labels_frotas, index=index_equip_atual)
+                                                    novo_componente = st.text_input("Componente", value=dados_atuais['Componente'])
+                                                    nova_acao = st.text_input("Ação", value=dados_atuais.get('Acao', ''))
+                                                    nova_data = st.date_input("Data", value=pd.to_datetime(dados_atuais['Data']).date())
+                                                    novo_hod = st.number_input("Hod./Hor. no Serviço", value=float(dados_atuais.get('Hod_Hor_No_Servico', 0)), format="%.2f")
+
+                                                    submitted = st.form_submit_button("Salvar Alterações")
+                                                    if submitted:
+                                                        dados_editados = {
+                                                            'cod_equip': int(novo_equip_label.split(" - ")[0]),
+                                                            'componente': novo_componente,
+                                                            'acao': nova_acao,
+                                                            'data': nova_data.strftime("%Y-%m-%d"),
+                                                            'hod_hor_servico': novo_hod,
+                                                        }
+                                                        if editar_manutencao_componente(DB_PATH, rowid_selecionado, dados_editados):
+                                                            st.success("Manutenção de componente atualizada com sucesso!")
+                                                            rerun_keep_tab("⚙️ Gerir Lançamentos")
 
 
         with tab_gerir_frotas:
@@ -2186,6 +2421,8 @@ def main():
                             )
                             if success:
                                 st.success(message)
+                                # Invalidar cache para atualizar contadores
+                                st.cache_data.clear()
                                 rerun_keep_tab("✅ Gerir Checklists")
                             else:
                                 st.error(message)
