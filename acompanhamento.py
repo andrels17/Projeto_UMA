@@ -130,9 +130,9 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
             df_manutencoes = pd.read_sql_query("SELECT rowid, * FROM manutencoes", conn)
             df_comp_regras = pd.read_sql_query("SELECT * FROM componentes_regras", conn)
             df_comp_historico = pd.read_sql_query("SELECT * FROM componentes_historico", conn)
-        df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
-        df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
-        df_checklist_historico = pd.read_sql_query("SELECT * FROM checklist_historico", conn)
+            df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+            df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
+            df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
 
         # --- Início do Processamento Integrado ---
         
@@ -741,7 +741,7 @@ def delete_checklist_history(historico_id):
     try:
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM checklist_historico WHERE id = ?", (historico_id,))
+            cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (historico_id,))
             conn.commit()
             return True, "Checklist excluído com sucesso!"
     except Exception as e:
@@ -2152,7 +2152,7 @@ def main():
                     
                     # Mapear labels para IDs
                     map_label_to_id = pd.Series(
-                        df_historico['id'].values, 
+                        df_historico['rowid'].values, 
                         index=df_historico['label_exclusao']
                     ).to_dict()
                     
@@ -2169,7 +2169,7 @@ def main():
                         # Mostrar detalhes do checklist selecionado
                         st.warning("**Atenção:** Você está prestes a excluir o seguinte checklist. Esta ação não pode ser desfeita.")
                         
-                        checklist_detalhes = df_historico[df_historico['id'] == historico_id].iloc[0]
+                        checklist_detalhes = df_historico[df_historico['rowid'] == historico_id].iloc[0]
                         
                         col1, col2 = st.columns(2)
                         with col1:
