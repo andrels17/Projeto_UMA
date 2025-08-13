@@ -799,6 +799,12 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
             
+            # Converter tipos de dados para garantir compatibilidade
+            cod_equip = int(cod_equip)  # Converter numpy.int64 para int
+            titulo_checklist = str(titulo_checklist)
+            data_preenchimento = str(data_preenchimento)
+            turno = str(turno)
+            
             # Debug: verificar todos os registros na tabela
             cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
             all_records = cursor.fetchall()
@@ -848,7 +854,7 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
                 debug_info = f"""
                 Registro não encontrado para exclusão.
                 
-                Valores procurados:
+                Valores procurados (após conversão):
                 - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
                 - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
                 - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
