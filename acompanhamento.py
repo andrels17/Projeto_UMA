@@ -239,13 +239,13 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
         return False
 
 
-def excluir_manutencao_componente(db_path: str, rowid: int) -> bool:
-    """Exclui um registro de manutenção de componente do banco de dados usando seu rowid."""
+def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
+    """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         cursor = conn.cursor()
-        sql = "DELETE FROM componentes_historico WHERE rowid = ?"
-        cursor.execute(sql, (rowid,))
+        sql = "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?"
+        cursor.execute(sql, (cod_equip, nome_componente, data, hod_hor))
         conn.commit()
         conn.close()
         return True
@@ -798,12 +798,31 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
     try:
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
+            
+            # Primeiro, vamos verificar se o registro existe
+            cursor.execute(
+                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, data_preenchimento, turno)
+            )
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                return False, "Registro não encontrado para exclusão"
+            
+            # Agora vamos excluir
             cursor.execute(
                 "DELETE FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
                 (cod_equip, titulo_checklist, data_preenchimento, turno)
             )
             conn.commit()
-            return True, "Checklist excluído com sucesso!"
+            
+            # Verificar se foi realmente excluído
+            rows_deleted = cursor.rowcount
+            if rows_deleted > 0:
+                return True, f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s))"
+            else:
+                return False, "Nenhum registro foi excluído"
+                
     except Exception as e:
         return False, f"Erro ao excluir checklist: {e}"
 
@@ -1746,7 +1765,16 @@ def main():
                                             st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'nome_componente', 'Observacoes']])
             
                                             if st.button("Confirmar Exclusão", type="primary"):
-                                                if excluir_manutencao_componente(DB_PATH, rowid_para_excluir):
+                                                # Obter os dados do registro selecionado
+                                                registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir].iloc[0]
+                                                
+                                                if excluir_manutencao_componente(
+                                                    DB_PATH, 
+                                                    registro_detalhes['Cod_Equip'],
+                                                    registro_detalhes['nome_componente'],
+                                                    registro_detalhes['Data'],
+                                                    registro_detalhes['Hod_Hor_No_Servico']
+                                                ):
                                                     st.success("Manutenção de componente excluída com sucesso!")
                                                     # Invalidar cache para atualizar contadores
                                                     st.cache_data.clear()
