@@ -738,6 +738,24 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
 
 def main():
     st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    # CSS fino para polir a UI
+    st.markdown(
+        """
+        <style>
+        /* Cartões/containers */
+        .stExpander, .stDataFrame, .stTable { border-radius: 10px !important; }
+        .stButton>button { border-radius: 8px; padding: 0.5rem 1rem; }
+        .stSelectbox, .stTextInput, .stNumberInput, .stDateInput, .stTextArea { border-radius: 8px !important; }
+        /* Métricas com mais destaque */
+        div[data-testid="stMetric"] { background: rgba(255,255,255,0.04); padding: 10px 14px; border-radius: 12px; }
+        /* Títulos com leve gradiente */
+        h1, h2, h3 { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        /* Linhas divisórias mais suaves */
+        hr { border: none; height: 1px; background: rgba(255,255,255,0.08); }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
