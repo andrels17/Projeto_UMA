@@ -771,6 +771,10 @@ def main():
         h1, h2, h3 { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
         /* Linhas divisórias mais suaves */
         hr { border: none; height: 1px; background: rgba(255,255,255,0.08); }
+        /* Subtítulo de marca */
+        .brand-subtitle { color: #10b981; font-weight: 600; margin: 0.25rem 0 0.5rem; letter-spacing: 0.2px; }
+        /* Centralizar e limitar logo na sidebar */
+        section[data-testid="stSidebar"] img { display: block; margin: 0.5rem auto 0.75rem; max-width: 140px; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -790,8 +794,9 @@ def main():
                 # --- INÍCIO DA CORREÇÃO ---
                 # Cria 3 sub-colunas dentro da coluna central
                 _, logo_col, _ = st.columns([1, 2, 1])
-                with logo_col:
-                    st.image("logo.png")
+            with logo_col:
+                st.image("logo.png", width=180)
+                st.markdown('<p class="brand-subtitle">Usina Monte Alegre</p>', unsafe_allow_html=True)
                 # --- FIM DA CORREÇÃO ---
             
             st.title("Bem vindo ao Aplicativo de Controle do PCMA")
@@ -809,8 +814,17 @@ def main():
                 else:
                     st.error("Usuário ou Senha incorretos.")
     else:
-    
-        st.title("📊 Dashboard de Frotas e Abastecimentos")
+
+        # Cabeçalho com logo + título
+        if os.path.exists("logo.png"):
+            col_logo, col_title = st.columns([1, 6])
+            with col_logo:
+                st.image("logo.png", width=72)
+            with col_title:
+                st.markdown('<p class="brand-subtitle">Usina Monte Alegre</p>', unsafe_allow_html=True)
+                st.title("📊 Dashboard de Frotas e Abastecimentos")
+        else:
+            st.title("📊 Dashboard de Frotas e Abastecimentos")
 
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
@@ -846,7 +860,9 @@ def main():
                     }
                     
         with st.sidebar:
-            st.write(f"Bem-vindo, **{st.session_state.username}**!") # Agora esta linha funciona
+            if os.path.exists("logo.png"):
+                st.image("logo.png", use_column_width=True)
+            st.write(f"Bem-vindo, **{st.session_state.username}**!")
             if st.button("Sair"):
                 st.session_state.authenticated = False
                 st.session_state.username = "" # Limpa o username ao sair
