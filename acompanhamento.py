@@ -371,16 +371,14 @@ def editar_frota(db_path: str, cod_equip: int, dados: dict) -> bool:
 
 @st.cache_data
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
-    # Garante que a coluna de data é do tipo datetime
-    df['Data'] = pd.to_datetime(df['Data'])
+    df_local = df.copy()
+    df_local['Data'] = pd.to_datetime(df_local['Data'])
     
-    # Filtra por período de datas
-    df_filtrado = df[
-        (df['Data'].dt.date >= opts['data_inicio']) & 
-        (df['Data'].dt.date <= opts['data_fim'])
+    df_filtrado = df_local[
+        (df_local['Data'].dt.date >= opts['data_inicio']) & 
+        (df_local['Data'].dt.date <= opts['data_fim'])
     ]
     
-    # Filtra pelas outras seleções, se existirem
     if opts.get("classes_op"):
         df_filtrado = df_filtrado[df_filtrado["Classe_Operacional"].isin(opts["classes_op"])]
     
@@ -702,8 +700,8 @@ def main():
             st.header("📈 Análise Gráfica de Consumo")
 
             if not df_f.empty:
+                k1, k2 = st.columns(2)
                 if 'Media' in df_f.columns:
-                    k1, k2 = st.columns(2)
                     k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
                     k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
                 else:
@@ -714,7 +712,7 @@ def main():
                 with c1:
                     st.subheader("Consumo por Classe Operacional")
                     classes_a_excluir = ['VEICULOS LEVES', 'MOTOCICLETA', 'MINI CARREGADEIRA', 'USINA']
-                    df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
+                    df_consumo_classe = df_f[~df_f['Classe_Operacional'].fillna('').str.upper().isin(classes_a_excluir)]
                     consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
 
                     if not consumo_por_classe.empty:
@@ -727,7 +725,7 @@ def main():
                 with c2:
                     st.subheader("Top 10 Equipamentos com Maior Consumo")
                     consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum', 'DESCRICAO_EQUIPAMENTO': 'first'}).dropna()
-                    consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
+                    
                     consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
 
                     if not consumo_por_equip.empty:
@@ -745,7 +743,7 @@ def main():
 
                 classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
 
-                df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
+                df_media_filtrado = df_media[~df_media['Classe_Operacional'].fillna('').str.upper().isin(classes_para_excluir)]
 
                 if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
                     media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
@@ -948,10 +946,11 @@ def main():
                     classe_selecionada = ""
                     if equip_label:
                         # Encontra a classe operacional do equipamento selecionado
-                        classe_selecionada = df_frotas.loc[df_frotas['label'] == equip_label, 'Classe Operacional'].iloc[0]
+                        classe_selecionada = df_frotas.loc[df_frotas['label'] == equip_label, 'Classe_Operacional'].iloc[0]
                         # Busca os serviços configurados para ESSA classe na sessão
                         if classe_selecionada in st.session_state.intervalos_por_classe:
-                            servicos_disponiveis = list(st.session_state.intervalos_por_classe[classe_selecionada].keys())
+                            servicos_configurados = st.session_state.intervalos_por_classe[classe_selecionada].get('servicos', {})
+                            servicos_disponiveis = [info.get('nome', sid) for sid, info in servicos_configurados.items()]
                     # --- FIM DA CORREÇÃO ---
         
                     tipo_servico = st.selectbox("Tipo de Serviço Realizado", options=servicos_disponiveis)
@@ -1281,7 +1280,7 @@ def main():
         
                             nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
                             nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
-                            nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe Operacional'])
+                            nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
                             
                             status_options = ["ATIVO", "INATIVO"]
                             index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
@@ -1336,7 +1335,7 @@ def main():
             
                             if st.button("Confirmar e Inserir Dados no Banco de Dados", type="primary"):
                                 with st.spinner("Importando dados... por favor, aguarde."):
-                                    num_inseridos, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
+                                    num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
                                 
                                 if num_inseridos > 0:
                                     st.success(f"**Sucesso!** {num_inseridos} registos foram importados. O dashboard será atualizado.")
