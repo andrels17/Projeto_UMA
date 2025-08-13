@@ -171,6 +171,10 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
         df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map).fillna(df_frotas.get('Classe_Operacional'))
 
+        # Adiciona coluna de tipo de combustível se não existir
+        if 'tipo_combustivel' not in df_frotas.columns:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
+
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
             texto_para_verificar = (
@@ -379,15 +383,16 @@ def inserir_frota(db_path: str, dados: dict) -> bool:
         sql = """
             INSERT INTO frotas (
                 COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA, 
-                "Classe Operacional", ATIVO
-            ) VALUES (?, ?, ?, ?, ?)
+                "Classe Operacional", ATIVO, tipo_combustivel
+            ) VALUES (?, ?, ?, ?, ?, ?)
         """
         valores = (
             dados['cod_equip'],
             dados['descricao'],
             dados['placa'],
             dados['classe_op'],
-            dados['ativo']
+            dados['ativo'],
+            dados.get('tipo_combustivel', 'Diesel S500')
         )
         cursor.execute(sql, valores)
         conn.commit()
@@ -527,10 +532,10 @@ def editar_frota(db_path: str, cod_equip: int, dados: dict) -> bool:
         cursor = conn.cursor()
         sql = """
             UPDATE frotas SET
-                DESCRICAO_EQUIPAMENTO = ?, PLACA = ?, "Classe Operacional" = ?, ATIVO = ?
+                DESCRICAO_EQUIPAMENTO = ?, PLACA = ?, "Classe Operacional" = ?, ATIVO = ?, tipo_combustivel = ?
             WHERE COD_EQUIPAMENTO = ?
         """
-        valores = (dados['descricao'], dados['placa'], dados['classe_op'], dados['ativo'], cod_equip)
+        valores = (dados['descricao'], dados['placa'], dados['classe_op'], dados['ativo'], dados.get('tipo_combustivel', 'Diesel S500'), cod_equip)
         cursor.execute(sql, valores)
         conn.commit()
         conn.close()
@@ -584,6 +589,63 @@ def add_component_service(cod_equip, componente, data, hod_hor, obs):
         return True, "Serviço de componente registado com sucesso."
     except Exception as e:
         return False, f"Erro ao registar serviço: {e}"
+
+
+def get_frota_combustivel(cod_equip):
+    """Obtém o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tipo_combustivel FROM frotas WHERE COD_EQUIPAMENTO = ?", (cod_equip,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        st.error(f"Erro ao obter tipo de combustível: {e}")
+        return None
+
+
+def update_frota_combustivel(cod_equip, tipo_combustivel):
+    """Atualiza o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE COD_EQUIPAMENTO = ?", (tipo_combustivel, cod_equip))
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível: {e}"
+
+
+def update_classe_combustivel(classe_operacional, tipo_combustivel):
+    """Atualiza o tipo de combustível de todas as frotas de uma classe."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE \"Classe Operacional\" = ?", (tipo_combustivel, classe_operacional))
+            rows_updated = cursor.rowcount
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
+
+
+def add_tipo_combustivel_column():
+    """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            # Verificar se a coluna existe
+            cursor.execute("PRAGMA table_info(frotas)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'tipo_combustivel' not in columns:
+                cursor.execute("ALTER TABLE frotas ADD COLUMN tipo_combustivel TEXT DEFAULT 'Diesel S500'")
+                conn.commit()
+                return True, "Coluna tipo_combustivel adicionada com sucesso"
+            else:
+                return True, "Coluna tipo_combustivel já existe"
+    except Exception as e:
+        return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
 
 @st.cache_data(ttl=120)
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
@@ -1278,6 +1340,9 @@ def main():
         # Tentar restaurar backup automaticamente na inicialização
         auto_restore_backup_on_startup()
         
+        # Adicionar coluna de tipo de combustível se não existir
+        add_tipo_combustivel_column()
+        
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
@@ -1566,6 +1631,157 @@ def main():
                     st.plotly_chart(fig_media_classe, use_container_width=True)
                 else:
                     st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
+            
+            # NOVOS GRÁFICOS: Consumo por Classe e por Tipo de Combustível
+            st.markdown("---")
+            st.subheader("🔄 Análise de Consumo por Classe e Combustível")
+            
+            # Criar DataFrame com informações de combustível
+            df_consumo_combustivel = df_f.copy()
+            df_consumo_combustivel = df_consumo_combustivel.merge(
+                df_frotas[['Cod_Equip', 'tipo_combustivel']], 
+                on='Cod_Equip', 
+                how='left'
+            )
+            df_consumo_combustivel['tipo_combustivel'] = df_consumo_combustivel['tipo_combustivel'].fillna('Diesel S500')
+            
+            col_grafico1, col_grafico2 = st.columns(2)
+            
+            with col_grafico1:
+                st.subheader("📊 Consumo por Classe (Visão Macro)")
+                # Excluir "Usina" e frotas sem classe, usar Classe_Operacional
+                classes_a_excluir_macro = ['USINA', 'USINA MOBILE', 'USINA FIXA']
+                df_consumo_classe_macro = df_consumo_combustivel[
+                    (df_consumo_combustivel['Classe_Operacional'].notna()) & 
+                    (~df_consumo_combustivel['Classe_Operacional'].str.upper().isin(classes_a_excluir_macro))
+                ]
+                
+                if not df_consumo_classe_macro.empty:
+                    consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                    
+                    # Criar gráfico de pizza
+                    fig_pizza_classe = px.pie(
+                        consumo_por_classe_macro, 
+                        values='Qtde_Litros', 
+                        names='Classe_Operacional',
+                        title="Proporção de Consumo por Classe",
+                        hole=0.3
+                    )
+                    fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_pizza_classe.update_layout(height=400)
+                    st.plotly_chart(fig_pizza_classe, use_container_width=True)
+                    
+                    # Mostrar totais
+                    st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
+                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
+                else:
+                    st.warning("Não há dados suficientes para análise por classe.")
+            
+            with col_grafico2:
+                st.subheader("⛽ Consumo por Tipo de Combustível")
+                if not df_consumo_combustivel.empty:
+                    consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                    
+                    # Criar gráfico de pizza
+                    fig_pizza_combustivel = px.pie(
+                        consumo_por_combustivel, 
+                        values='Qtde_Litros', 
+                        names='tipo_combustivel',
+                        title="Proporção de Consumo por Combustível",
+                        hole=0.3
+                    )
+                    fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_pizza_combustivel.update_layout(height=400)
+                    st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                    
+                    # Mostrar totais
+                    st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                else:
+                    st.warning("Não há dados suficientes para análise por combustível.")
+            
+            # FERRAMENTAS PARA GERENCIAR TIPOS DE COMBUSTÍVEL
+            st.markdown("---")
+            st.subheader("⚙️ Gerenciar Tipos de Combustível")
+            
+            col_ferramenta1, col_ferramenta2 = st.columns(2)
+            
+            with col_ferramenta1:
+                st.subheader("🔄 Aplicar Combustível a uma Classe")
+                st.write("Define o tipo de combustível para todas as frotas de uma classe específica.")
+                
+                # Selecionar classe
+                classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
+                classe_selecionada = st.selectbox(
+                    "Selecione a Classe:",
+                    options=classes_disponiveis,
+                    key="classe_combustivel"
+                )
+                
+                # Selecionar tipo de combustível
+                tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                tipo_combustivel_classe = st.selectbox(
+                    "Tipo de Combustível:",
+                    options=tipos_combustivel,
+                    key="tipo_combustivel_classe"
+                )
+                
+                if st.button("🔄 Aplicar à Classe", type="primary"):
+                    with st.spinner("Aplicando tipo de combustível à classe..."):
+                        success, message = update_classe_combustivel(classe_selecionada, tipo_combustivel_classe)
+                        if success:
+                            st.success(message)
+                            # Limpar cache para atualizar dados
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(message)
+            
+            with col_ferramenta2:
+                st.subheader("✏️ Editar Combustível de uma Frota Específica")
+                st.write("Define o tipo de combustível para uma frota específica.")
+                
+                # Selecionar frota
+                frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
+                frotas_disponiveis['label_combustivel'] = (
+                    frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
+                    frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
+                    " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
+                )
+                
+                frota_selecionada = st.selectbox(
+                    "Selecione a Frota:",
+                    options=frotas_disponiveis['label_combustivel'].tolist(),
+                    key="frota_combustivel"
+                )
+                
+                if frota_selecionada:
+                    # Obter código da frota selecionada
+                    cod_equip_frota = int(frota_selecionada.split(" - ")[0])
+                    combustivel_atual = frotas_disponiveis[
+                        frotas_disponiveis['Cod_Equip'] == cod_equip_frota
+                    ]['tipo_combustivel'].iloc[0]
+                    
+                    st.info(f"**Combustível atual:** {combustivel_atual}")
+                    
+                    # Selecionar novo tipo de combustível
+                    novo_tipo_combustivel = st.selectbox(
+                        "Novo Tipo de Combustível:",
+                        options=tipos_combustivel,
+                        index=tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0,
+                        key="novo_tipo_combustivel"
+                    )
+                    
+                    if st.button("✏️ Atualizar Frota", type="secondary"):
+                        with st.spinner("Atualizando tipo de combustível..."):
+                            success, message = update_frota_combustivel(cod_equip_frota, novo_tipo_combustivel)
+                            if success:
+                                st.success(message)
+                                # Limpar cache para atualizar dados
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(message)
         
         with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
@@ -2400,6 +2616,10 @@ def main():
                                 classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
                                 ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
                                 
+                                # Campo de tipo de combustível
+                                tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                                tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=0)
+                                
                                 submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
                                 
                                 if submitted_frota:
@@ -2415,7 +2635,8 @@ def main():
                                             'descricao': descricao,
                                             'placa': placa if placa else None, # Salva None se o campo estiver vazio
                                             'classe_op': classe_op,
-                                            'ativo': ativo
+                                            'ativo': ativo,
+                                            'tipo_combustivel': tipo_combustivel
                                         }
                                         
                                         if inserir_frota(DB_PATH, dados_frota):
@@ -2441,6 +2662,12 @@ def main():
                             nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
                             nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
                             
+                            # Campo de tipo de combustível
+                            tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                            combustivel_atual = dados_atuais.get('tipo_combustivel', 'Diesel S500')
+                            index_combustivel = tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0
+                            novo_tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=index_combustivel)
+                            
                             status_options = ["ATIVO", "INATIVO"]
                             index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
                             novo_status = st.selectbox("Status", options=status_options, index=index_status)
@@ -2451,7 +2678,8 @@ def main():
                                     'descricao': nova_descricao,
                                     'placa': nova_placa,
                                     'classe_op': nova_classe_op,
-                                    'ativo': novo_status
+                                    'ativo': novo_status,
+                                    'tipo_combustivel': novo_tipo_combustivel
                                 }
                                 if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
                                     st.success("Dados da frota atualizados com sucesso!")
