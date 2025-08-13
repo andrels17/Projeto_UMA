@@ -738,6 +738,25 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
 
 def main():
     st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    # Garante tema dark coerente mesmo sem config.toml
+    st.markdown(
+        """
+        <style>
+        :root {
+            --primary: #10b981;
+            --bg: #0f172a;
+            --bg2: #111827;
+            --text: #e5e7eb;
+        }
+        body { background: var(--bg); color: var(--text); }
+        section.main > div { background: var(--bg); }
+        .stApp { background: var(--bg); }
+        .st-emotion-cache-1r4qj8v, .st-emotion-cache-13ln4jf { background: var(--bg2) !important; }
+        .stButton>button { background: var(--primary); color: #062e24; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     # CSS fino para polir a UI
     st.markdown(
         """
