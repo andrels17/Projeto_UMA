@@ -2,10 +2,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import os
 import plotly.express as px
 import hashlib
+import json
+import base64
+import io
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
@@ -314,7 +317,13 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
                 cursor.execute("PRAGMA synchronous=FULL")
                 conn.commit()
                 
-                st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s))")
+                # Salvar backup automático para persistência no Streamlit Cloud
+                backup_success, backup_msg = save_backup_to_session_state()
+                if backup_success:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Backup salvo: {backup_msg}")
+                else:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Aviso: {backup_msg}")
+                
                 conn.close()
                 return True
             else:
@@ -971,6 +980,14 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
                  conn.commit()
                  
                  success_msg = f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s)). Total na tabela: {total_after}"
+                 
+                 # Salvar backup automático para persistência no Streamlit Cloud
+                 backup_success, backup_msg = save_backup_to_session_state()
+                 if backup_success:
+                     success_msg += f" | Backup salvo: {backup_msg}"
+                 else:
+                     success_msg += f" | Aviso: {backup_msg}"
+                 
                  conn.close()
                  return True, success_msg
             else:
@@ -1027,6 +1044,149 @@ def force_database_sync():
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
+
+
+def export_database_backup():
+    """Exporta todos os dados do banco para um arquivo de backup."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        
+        # Obter todas as tabelas
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        backup_data = {}
+        
+        for table in tables:
+            table_name = table[0]
+            if table_name != 'sqlite_master':
+                # Exportar dados da tabela
+                df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+                backup_data[table_name] = df.to_dict('records')
+        
+        conn.close()
+        
+        # Converter para JSON
+        backup_json = json.dumps(backup_data, default=str, indent=2)
+        
+        # Criar arquivo de download
+        backup_bytes = backup_json.encode('utf-8')
+        backup_b64 = base64.b64encode(backup_bytes).decode()
+        
+        return backup_b64, backup_data
+        
+    except Exception as e:
+        return None, f"Erro ao exportar backup: {e}"
+
+
+def import_database_backup(backup_data):
+    """Importa dados de backup para o banco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        for table_name, records in backup_data.items():
+            if records:  # Se a tabela tem dados
+                # Limpar tabela existente
+                cursor.execute(f"DELETE FROM {table_name}")
+                
+                # Inserir novos dados
+                for record in records:
+                    columns = list(record.keys())
+                    placeholders = ', '.join(['?' for _ in columns])
+                    values = list(record.values())
+                    
+                    # Converter tipos de dados
+                    converted_values = []
+                    for value in values:
+                        if isinstance(value, str):
+                            # Tentar converter para datetime se for uma data
+                            try:
+                                if 'T' in value or '-' in value:
+                                    dt = pd.to_datetime(value)
+                                    converted_values.append(dt.strftime('%Y-%m-%d %H:%M:%S'))
+                                else:
+                                    converted_values.append(value)
+                            except:
+                                converted_values.append(value)
+                        else:
+                            converted_values.append(value)
+                    
+                    cursor.execute(
+                        f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})",
+                        converted_values
+                    )
+        
+        conn.commit()
+        conn.close()
+        
+        return True, "Backup restaurado com sucesso!"
+        
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def save_backup_to_session_state():
+    """Salva backup dos dados na sessão do Streamlit."""
+    try:
+        backup_b64, backup_data = export_database_backup()
+        if backup_b64:
+            st.session_state['database_backup'] = backup_b64
+            st.session_state['backup_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            return True, "Backup salvo na sessão"
+        else:
+            return False, "Erro ao criar backup"
+    except Exception as e:
+        return False, f"Erro ao salvar backup: {e}"
+
+
+def restore_backup_from_session_state():
+    """Restaura backup dos dados da sessão do Streamlit."""
+    try:
+        if 'database_backup' in st.session_state:
+            backup_b64 = st.session_state['database_backup']
+            backup_bytes = base64.b64decode(backup_b64)
+            backup_json = backup_bytes.decode('utf-8')
+            backup_data = json.loads(backup_json)
+            
+            success, message = import_database_backup(backup_data)
+            if success:
+                # Limpar cache para forçar recarregamento
+                force_cache_clear()
+                return True, message
+            else:
+                return False, message
+        else:
+            return False, "Nenhum backup encontrado na sessão"
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def auto_restore_backup_on_startup():
+    """Tenta restaurar backup automaticamente na inicialização da aplicação."""
+    try:
+        if 'database_backup' in st.session_state:
+            # Verificar se o banco está vazio
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            num_tables = cursor.fetchone()[0]
+            conn.close()
+            
+            if num_tables == 0:
+                # Banco vazio, tentar restaurar
+                success, message = restore_backup_from_session_state()
+                if success:
+                    st.info("🔄 Backup restaurado automaticamente na inicialização!")
+                    return True
+                else:
+                    st.warning(f"⚠️ Falha na restauração automática: {message}")
+                    return False
+        return False
+    except Exception as e:
+        st.warning(f"⚠️ Erro na restauração automática: {e}")
+        return False
 
 
 def main():
@@ -1115,6 +1275,9 @@ def main():
         else:
             st.title("📊 Dashboard de Frotas e Abastecimentos")
 
+        # Tentar restaurar backup automaticamente na inicialização
+        auto_restore_backup_on_startup()
+        
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
@@ -1211,7 +1374,7 @@ def main():
 
 
         abas_visualizacao = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
-        abas_admin = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists"]
+        abas_admin = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists", "💾 Backup"]
 
         if st.session_state.role == 'admin':
             tabs_para_mostrar = abas_visualizacao + abas_admin
@@ -1223,7 +1386,7 @@ def main():
                 abas = st.tabs(tabs_para_mostrar)
             (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
             tab_gerir_lanc, tab_gerir_frotas, tab_importar, tab_config, tab_saude, 
-            tab_gerir_users, tab_gerir_checklists) = abas
+            tab_gerir_users, tab_gerir_checklists, tab_backup) = abas
         else:
             tabs_para_mostrar = abas_visualizacao
             active_idx = st.session_state.get('active_tab_index', 0)
@@ -2672,7 +2835,96 @@ def main():
                                 force_cache_clear()
                             else:
                                 st.error(message)
-
+        
+        # Aba de Backup para persistência no Streamlit Cloud
+        with tab_backup:
+            st.header("💾 Backup e Restauração")
+            st.info("Esta seção permite gerenciar backups dos dados para garantir persistência no Streamlit Cloud.")
+            
+            col_backup, col_restore = st.columns(2)
+            
+            with col_backup:
+                st.subheader("📤 Criar Backup")
+                st.write("Cria um backup completo dos dados atuais e salva na sessão do Streamlit.")
+                
+                if st.button("💾 Criar Backup", type="primary"):
+                    with st.spinner("Criando backup..."):
+                        success, message = save_backup_to_session_state()
+                        if success:
+                            st.success(message)
+                            st.info(f"Backup criado em: {st.session_state.get('backup_timestamp', 'N/A')}")
+                        else:
+                            st.error(message)
+                
+                # Mostrar status do backup atual
+                if 'database_backup' in st.session_state:
+                    st.success("✅ Backup disponível na sessão")
+                    st.info(f"Último backup: {st.session_state.get('backup_timestamp', 'N/A')}")
+                    
+                    # Botão para download do backup
+                    backup_b64 = st.session_state['database_backup']
+                    backup_bytes = base64.b64decode(backup_b64)
+                    
+                    st.download_button(
+                        label="📥 Download do Backup",
+                        data=backup_bytes,
+                        file_name=f"backup_database_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json"
+                    )
+                else:
+                    st.warning("⚠️ Nenhum backup disponível")
+            
+            with col_restore:
+                st.subheader("📥 Restaurar Backup")
+                st.write("Restaura dados de um backup salvo na sessão.")
+                
+                if 'database_backup' in st.session_state:
+                    if st.button("🔄 Restaurar Backup", type="secondary"):
+                        with st.spinner("Restaurando backup..."):
+                            success, message = restore_backup_from_session_state()
+                            if success:
+                                st.success(message)
+                                st.info("Os dados foram restaurados. A aplicação será recarregada.")
+                            else:
+                                st.error(message)
+                else:
+                    st.info("Crie um backup primeiro para poder restaurar.")
+            
+            # Seção de informações sobre persistência
+            st.markdown("---")
+            st.subheader("ℹ️ Sobre Persistência no Streamlit Cloud")
+            
+            st.info("""
+            **Por que os dados voltam após reiniciar?**
+            
+            O Streamlit Cloud recria o ambiente a cada deploy ou reinicialização, 
+            perdendo todos os dados do banco SQLite. Para resolver isso:
+            
+            1. **Crie um backup** sempre que fizer alterações importantes
+            2. **O backup é salvo na sessão** e persiste durante a navegação
+            3. **Após reiniciar**, restaure o backup para recuperar os dados
+            
+            **Dica:** Faça backup antes de sair da aplicação!
+            """)
+            
+            # Backup automático após operações importantes
+            if st.button("🔄 Backup Automático", type="secondary"):
+                with st.spinner("Verificando e criando backup automático..."):
+                    # Verificar se há dados no banco
+                    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                    num_tables = cursor.fetchone()[0]
+                    conn.close()
+                    
+                    if num_tables > 0:
+                        success, message = save_backup_to_session_state()
+                        if success:
+                            st.success(f"Backup automático criado: {message}")
+                        else:
+                            st.error(f"Erro no backup automático: {message}")
+                    else:
+                        st.warning("Nenhuma tabela encontrada no banco de dados.")
                     
 if __name__ == "__main__":
     main()
