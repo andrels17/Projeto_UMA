@@ -132,7 +132,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
             df_comp_historico = pd.read_sql_query("SELECT * FROM componentes_historico", conn)
             df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
             df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
-            df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
+            df_checklist_historico = pd.read_sql_query("SELECT * FROM checklist_historico", conn)
 
         # --- Início do Processamento Integrado ---
         
@@ -736,12 +736,15 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
         st.error(f"Erro ao salvar histórico de checklist: {e}")
 
 
-def delete_checklist_history(historico_id):
-    """Remove um registro do histórico de checklists."""
+def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
+    """Remove um registro do histórico de checklists usando uma combinação única de campos."""
     try:
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (historico_id,))
+            cursor.execute(
+                "DELETE FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, data_preenchimento, turno)
+            )
             conn.commit()
             return True, "Checklist excluído com sucesso!"
     except Exception as e:
@@ -2150,12 +2153,6 @@ def main():
                     # Ordenar por data mais recente
                     df_historico = df_historico.sort_values(by='data_preenchimento', ascending=False)
                     
-                    # Mapear labels para IDs
-                    map_label_to_id = pd.Series(
-                        df_historico['rowid'].values, 
-                        index=df_historico['label_exclusao']
-                    ).to_dict()
-                    
                     # Seleção do checklist para excluir
                     checklist_selecionado = st.selectbox(
                         "Selecione o checklist para excluir:",
@@ -2164,12 +2161,11 @@ def main():
                     )
                     
                     if checklist_selecionado:
-                        historico_id = map_label_to_id[checklist_selecionado]
+                        # Encontrar os detalhes do checklist selecionado
+                        checklist_detalhes = df_historico[df_historico['label_exclusao'] == checklist_selecionado].iloc[0]
                         
                         # Mostrar detalhes do checklist selecionado
                         st.warning("**Atenção:** Você está prestes a excluir o seguinte checklist. Esta ação não pode ser desfeita.")
-                        
-                        checklist_detalhes = df_historico[df_historico['rowid'] == historico_id].iloc[0]
                         
                         col1, col2 = st.columns(2)
                         with col1:
@@ -2182,7 +2178,12 @@ def main():
                         
                         # Botão de confirmação
                         if st.button("🗑️ Confirmar Exclusão", type="primary"):
-                            success, message = delete_checklist_history(historico_id)
+                            success, message = delete_checklist_history(
+                                checklist_detalhes['Cod_Equip'],
+                                checklist_detalhes['titulo_checklist'],
+                                checklist_detalhes['data_preenchimento'],
+                                checklist_detalhes['turno']
+                            )
                             if success:
                                 st.success(message)
                                 rerun_keep_tab("✅ Gerir Checklists")
