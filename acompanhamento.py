@@ -771,8 +771,8 @@ def main():
         h1, h2, h3 { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
         /* Linhas divisórias mais suaves */
         hr { border: none; height: 1px; background: rgba(255,255,255,0.08); }
-        /* Subtítulo de marca */
-        .brand-subtitle { color: #10b981; font-weight: 600; margin: 0.25rem 0 0.5rem; letter-spacing: 0.2px; }
+        /* Subtítulo de marca (opcional) */
+        .brand-subtitle { display: none; }
         /* Centralizar e limitar logo na sidebar */
         section[data-testid="stSidebar"] img { display: block; margin: 0.5rem auto 0.75rem; max-width: 140px; }
         </style>
@@ -791,13 +791,10 @@ def main():
         with col_central:
             
             if os.path.exists("logo.png"):
-                # --- INÍCIO DA CORREÇÃO ---
                 # Cria 3 sub-colunas dentro da coluna central
                 _, logo_col, _ = st.columns([1, 2, 1])
-            with logo_col:
-                st.image("logo.png", width=180)
-                st.markdown('<p class="brand-subtitle">Usina Monte Alegre</p>', unsafe_allow_html=True)
-                # --- FIM DA CORREÇÃO ---
+                with logo_col:
+                    st.image("logo.png", width=140)
             
             st.title("Bem vindo ao Aplicativo de Controle do PCMA")
 
@@ -819,9 +816,8 @@ def main():
         if os.path.exists("logo.png"):
             col_logo, col_title = st.columns([1, 6])
             with col_logo:
-                st.image("logo.png", width=72)
+                st.image("logo.png", width=56)
             with col_title:
-                st.markdown('<p class="brand-subtitle">Usina Monte Alegre</p>', unsafe_allow_html=True)
                 st.title("📊 Dashboard de Frotas e Abastecimentos")
         else:
             st.title("📊 Dashboard de Frotas e Abastecimentos")
@@ -887,6 +883,7 @@ def main():
             )
 
             st.markdown("---")
+            st.caption("Desenvolvido por André Luis")
 
             # --- NOVO: Filtro de Classe em um Menu Expansível ---
             with st.expander("Filtrar por Classe Operacional"):
