@@ -1334,6 +1334,14 @@ def ensure_schema(db_path: str):
                     "INSERT OR IGNORE INTO precos_combustiveis (tipo_combustivel, preco) VALUES (?, ?)",
                     [('Diesel S500', 5.20), ('Gasolina', 6.10), ('Etanol', 4.30)]
                 )
+            # Índices para acelerar joins e filtros
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_abast_cod_data ON abastecimentos(""Cód. Equip."", Data)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_abast_pessoa ON abastecimentos(pessoa_motorista)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_frotas_cod ON frotas(COD_EQUIPAMENTO)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_frotas_classe ON frotas(""Classe Operacional"")")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_precos_tipo ON precos_combustiveis(tipo_combustivel)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_manut_cod ON manutencoes(Cod_Equip)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_comp_hist_cod ON componentes_historico(Cod_Equip)")
             conn.commit()
     except Exception as e:
         st.warning(f"Não foi possível verificar/criar o esquema do banco: {e}")
@@ -1695,26 +1703,20 @@ def main():
             kpi1.metric("Frotas Ativas", total_frotas_ativas)
             
             # KPI 2: Frotas com Alerta
-            frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
-            kpi2.metric("Frotas com Alerta", frotas_com_alerta)
+            if 'plan_df' not in st.session_state:
+                st.session_state['plan_df'] = None
+            kpi2.metric("Frotas com Alerta", st.session_state['plan_df']['Cod_Equip'].nunique() if isinstance(st.session_state['plan_df'], pd.DataFrame) and 'Qualquer_Alerta' in st.session_state['plan_df'].columns else 0)
             
-            # KPIs 3 e 4: Frotas Mais e Menos Eficientes
+            # KPIs 3 e 4
             df_media_geral = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)]
             if not df_media_geral.empty:
-                # Agrupa por Código e Descrição para ter acesso a ambos
                 media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
-                
                 if not media_por_equip.empty:
-                    # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
                     cod_mais_eficiente = media_por_equip.index[0][0]
                     media_mais_eficiente = media_por_equip.iloc[0]
-                    # Exibe o CÓDIGO no KPI
                     kpi3.metric("Frota Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
-            
-                    # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
                     cod_menos_eficiente = media_por_equip.index[-1][0]
                     media_menos_eficiente = media_por_equip.iloc[-1]
-                    # Exibe o CÓDIGO no KPI
                     kpi4.metric("Frota Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
 
             st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
@@ -1723,26 +1725,16 @@ def main():
                 ranking_df = df_f.copy()
                 ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
                 ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
-                
                 ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
                 ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
-                
-                # --- INÍCIO DA CORREÇÃO ---
-                # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
                 ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
-                # --- FIM DA CORREÇÃO ---
-            
                 def formatar_eficiencia(val):
                     if pd.isna(val): return "N/A"
                     if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
                     if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
                     return f"⚪ {val:+.2f}%".replace('.',',')
-                
                 ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
-                
-                # Exibe a nova coluna "Equipamento" formatada
-                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
-                            # NOVO: Botão de Exportação para o Ranking
+                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])
                 csv_ranking = para_csv(ranking)
                 st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
             else:
@@ -3487,6 +3479,30 @@ def main():
                     st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
                     st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
 
+                    # Estatísticas do banco
+                    st.subheader("Estado do Banco de Dados")
+                    stats = get_db_stats(DB_PATH)
+                    if 'error' in stats:
+                        st.warning(f"Não foi possível obter estatísticas: {stats['error']}")
+                    else:
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.metric("Tamanho Aproximado", f"{stats['size_bytes']/1024/1024:.2f} MB")
+                        with col_b:
+                            st.metric("Qtd. Índices", len(stats.get('indexes', [])))
+                        if stats.get('indexes'):
+                            with st.expander("Ver índices"):
+                                st.write(stats['indexes'])
+                    if st.button("Executar Manutenção (ANALYZE/VACUUM)"):
+                        ok, msg = run_maintenance(DB_PATH)
+                        if ok:
+                            st.success(msg)
+                            force_cache_clear()
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+                    st.markdown("---")
                     st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
                     df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
                     df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
