@@ -1608,6 +1608,40 @@ def main():
         plan_df = build_component_maintenance_plan(df_frotas, df, df_comp_regras, df_comp_historico)
 
 
+        # CSS para barra de rolagem horizontal nas abas
+        st.markdown("""
+        <style>
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 2px;
+            overflow-x: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #888 #f1f1f1;
+        }
+        
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+            height: 8px;
+        }
+        
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        .stTabs [data-baseweb="tab-list"] > div {
+            flex-shrink: 0;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         abas_visualizacao = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
         abas_admin = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists", "💾 Backup"]
 
@@ -1639,6 +1673,33 @@ def main():
             except Exception:
                 pass
             st.rerun()
+        
+        # Navegação rápida para abas principais (apenas para admins com muitas abas)
+        if st.session_state.role == 'admin' and len(tabs_para_mostrar) > 8:
+            st.markdown("---")
+            col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
+            
+            with col_nav1:
+                if st.button("📊 Painel", key="nav_painel"):
+                    rerun_keep_tab("📊 Painel de Controle")
+            
+            with col_nav2:
+                if st.button("📈 Análise", key="nav_analise"):
+                    rerun_keep_tab("📈 Análise Geral")
+            
+            with col_nav3:
+                if st.button("🛠️ Manutenção", key="nav_manut"):
+                    rerun_keep_tab("🛠️ Controle de Manutenção")
+            
+            with col_nav4:
+                if st.button("🔎 Consulta", key="nav_consulta"):
+                    rerun_keep_tab("🔎 Consulta Individual")
+            
+            with col_nav5:
+                if st.button("✅ Checklists", key="nav_checklists"):
+                    rerun_keep_tab("✅ Checklists Diários")
+            
+            st.markdown("---")
                 
         with tab_painel:
             st.header("Visão Geral da Frota")
@@ -1887,11 +1948,7 @@ def main():
                         st.subheader("🏭 Top 10 Gastos por Frota")
                         
                         # Mostrar informação sobre filtro da frota 550
-                        if not mostrar_usinas:
-                            # Verificar se a frota 550 existe nos dados
-                            frota_550_existe = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] == 550].shape[0] > 0
-                            if frota_550_existe:
-                                st.info("ℹ️ Frota 550 (Usina) excluída do ranking. Marque a caixa acima para incluí-la.")
+                        # Comentário removido para manter proporção dos gráficos
                         
                         if not gastos_por_frota.empty:
                             fig_gastos_frota = px.bar(
