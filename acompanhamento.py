@@ -1811,8 +1811,15 @@ def main():
                 precos_map = get_precos_combustivel_map()
                 if precos_map:
                     df_gastos = df_f.copy()
-                    df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                    df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                    
+                    # Verificar se a coluna tipo_combustivel existe em df_frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                        df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                    else:
+                        # Se não existir, criar a coluna com valor padrão
+                        df_gastos['tipo_combustivel'] = 'Diesel S500'
+                    
                     df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
                     
@@ -1966,8 +1973,14 @@ def main():
                 if precos_map:
                     # Vincula combustível por frota e multiplica litros por preço
                     df_tmp = df_f.copy()
-                    df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                    df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                    
+                    # Verificar se a coluna tipo_combustivel existe em df_frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                        df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                    else:
+                        # Se não existir, criar a coluna com valor padrão
+                        df_tmp['tipo_combustivel'] = 'Diesel S500'
                     df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
                     # Agrupar por matrícula
