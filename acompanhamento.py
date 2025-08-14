@@ -793,28 +793,81 @@ def ensure_pneus_schema():
         return False, f"Erro ao criar tabela de pneus: {e}"
 
 def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
-    """Importa histórico de pneus de uma planilha Excel."""
+    """Importa histórico de pneus de uma planilha Excel, verificando duplicatas."""
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
         obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
-            return 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
+        
+        # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao'])
-        registros = [tuple(row) for row in df_pneus[obrig + ['observacoes']].fillna('').to_numpy()]
+        
+        # Normalizar tipos de dados
+        df_pneus['Cod_Equip'] = df_pneus['Cod_Equip'].astype(str)
+        df_pneus['posicao'] = df_pneus['posicao'].astype(str).str.strip()
+        df_pneus['data_instalacao'] = pd.to_datetime(df_pneus['data_instalacao']).dt.strftime('%Y-%m-%d')
+        
+        # Remover duplicatas na própria planilha baseada em chave única
+        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'data_instalacao', 'hodometro_instalacao'])
+        
         with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Buscar registros existentes para verificar duplicatas
+            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
+            
+            if not df_existente.empty:
+                # Normalizar dados existentes para comparação
+                df_existente['Cod_Equip'] = df_existente['Cod_Equip'].astype(str)
+                df_existente['posicao'] = df_existente['posicao'].astype(str).str.strip()
+                df_existente['data_instalacao'] = pd.to_datetime(df_existente['data_instalacao']).dt.strftime('%Y-%m-%d')
+                
+                # Criar chaves únicas para comparação
+                df_pneus['chave_unica'] = (df_pneus['Cod_Equip'] + '_' + 
+                                          df_pneus['posicao'] + '_' + 
+                                          df_pneus['data_instalacao'] + '_' + 
+                                          df_pneus['hodometro_instalacao'].astype(str))
+                
+                df_existente['chave_unica'] = (df_existente['Cod_Equip'] + '_' + 
+                                              df_existente['posicao'] + '_' + 
+                                              df_existente['data_instalacao'] + '_' + 
+                                              df_existente['hodometro_instalacao'].astype(str))
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_pneus[~df_pneus['chave_unica'].isin(df_existente['chave_unica'])]
+            else:
+                df_para_inserir = df_pneus
+            
+            num_duplicados = len(df_pneus) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = obrig + ['observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
+            
             cur = conn.cursor()
-            cur.executemany(
-                "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, data_instalacao, hodometro_instalacao, vida_util_km, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                registros
-            )
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO pneus_historico ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
             conn.commit()
-        return len(registros), "Importação concluída"
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} pneus novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
     except Exception as e:
-        return 0, f"Erro ao importar pneus: {e}"
+        return 0, 0, f"Erro ao importar pneus: {e}"
 
 def get_pneus_historico(cod_equip=None):
     """Retorna o histórico de pneus, opcionalmente filtrando por frota."""
@@ -925,6 +978,100 @@ def add_lubrificante(nome, viscosidade, quantidade, unidade, observacoes=""):
         return True, "Lubrificante cadastrado!"
     except Exception as e:
         return False, f"Erro: {e}"
+
+def importar_lubrificantes_de_planilha(db_path: str, arquivo_carregado):
+    """Importa lubrificantes de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_lub = pd.read_excel(arquivo_carregado)
+        df_lub.columns = [c.strip() for c in df_lub.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome': 'nome',
+            'tipo': 'tipo',
+            'viscosidade': 'viscosidade',
+            'quantidade_estoque': 'quantidade_estoque',
+            'unidade': 'unidade',
+            'observacoes': 'observacoes'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_lub.columns:
+                df_lub = df_lub.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome']
+        faltando = [c for c in obrig if c not in df_lub.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'tipo' not in df_lub.columns:
+            df_lub['tipo'] = 'óleo'
+        if 'viscosidade' not in df_lub.columns:
+            df_lub['viscosidade'] = ''
+        if 'quantidade_estoque' not in df_lub.columns:
+            df_lub['quantidade_estoque'] = 0
+        if 'unidade' not in df_lub.columns:
+            df_lub['unidade'] = 'L'
+        if 'observacoes' not in df_lub.columns:
+            df_lub['observacoes'] = ''
+        
+        # Limpar e normalizar dados
+        df_lub = df_lub.dropna(subset=['nome'])
+        df_lub['nome'] = df_lub['nome'].astype(str).str.strip()
+        df_lub['tipo'] = df_lub['tipo'].astype(str).str.strip().fillna('óleo')
+        df_lub['viscosidade'] = df_lub['viscosidade'].astype(str).str.strip().fillna('')
+        df_lub['quantidade_estoque'] = pd.to_numeric(df_lub['quantidade_estoque'], errors='coerce').fillna(0)
+        df_lub['unidade'] = df_lub['unidade'].astype(str).str.strip().fillna('L')
+        df_lub['observacoes'] = df_lub['observacoes'].astype(str).str.strip().fillna('')
+        
+        # Remover duplicatas na própria planilha baseada no nome
+        df_lub = df_lub.drop_duplicates(subset=['nome'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que a tabela existe com a coluna tipo
+            ensure_lubrificantes_schema()
+            
+            # Buscar lubrificantes existentes
+            df_existente = pd.read_sql_query("SELECT nome FROM lubrificantes", conn)
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome'] = df_existente['nome'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_lub[~df_lub['nome'].isin(df_existente['nome'])]
+            else:
+                df_para_inserir = df_lub
+            
+            num_duplicados = len(df_lub) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum lubrificante novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = ['nome', 'tipo', 'viscosidade', 'quantidade_estoque', 'unidade', 'observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO lubrificantes ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} lubrificantes novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar lubrificantes: {e}"
 
 def movimentar_lubrificante(id_lubrificante, tipo, quantidade, data, cod_equip=None, observacoes=""):
     try:
@@ -4345,9 +4492,9 @@ def main():
                                 st.dataframe(df_prev.head())
                                 if st.button("Confirmar e Inserir Pneus", type="primary"):
                                     ensure_pneus_schema()
-                                    inseridos, msg = importar_pneus_de_planilha(DB_PATH, arquivo_pneus)
+                                    inseridos, duplicados, msg = importar_pneus_de_planilha(DB_PATH, arquivo_pneus)
                                     if inseridos > 0:
-                                        st.success(f"{msg} ({inseridos} registros)")
+                                        st.success(f"{msg}")
                                         st.rerun()
                                     else:
                                         st.error(msg)
@@ -4449,28 +4596,13 @@ def main():
                                 df_lub_import = pd.read_excel(arquivo_lub)
                                 st.dataframe(df_lub_import.head())
                                 if st.button("Confirmar e Inserir Lubrificantes", type="primary"):
-                                    # Adiciona coluna tipo se não existir
-                                    with sqlite3.connect(DB_PATH) as conn:
-                                        cur = conn.cursor()
-                                        cur.execute("PRAGMA table_info(lubrificantes)")
-                                        cols = [c[1] for c in cur.fetchall()]
-                                        if 'tipo' not in cols:
-                                            cur.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
-                                        for _, row in df_lub_import.iterrows():
-                                            cur.execute(
-                                                "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
-                                                (
-                                                    row.get('nome'),
-                                                    row.get('tipo', 'óleo'),
-                                                    row.get('viscosidade'),
-                                                    row.get('quantidade_estoque', 0),
-                                                    row.get('unidade', 'L'),
-                                                    row.get('observacoes', '')
-                                                )
-                                            )
-                                        conn.commit()
-                                    st.success("Lubrificantes importados com sucesso!")
-                                    st.rerun()
+                                    with st.spinner("Importando lubrificantes..."):
+                                        inseridos, duplicados, msg = importar_lubrificantes_de_planilha(DB_PATH, arquivo_lub)
+                                    if inseridos > 0:
+                                        st.success(f"{msg}")
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
                             except Exception as e:
                                 st.error(f"Erro ao importar lubrificantes: {e}")
 
