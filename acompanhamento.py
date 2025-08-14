@@ -1798,16 +1798,130 @@ def main():
                             yaxis={'categoryorder':'total ascending'}, 
                             xaxis_title="Total Consumido (Litros)", 
                             yaxis_title="Equipamento",
-                            height=500
+                            height=400
                         )
                         st.plotly_chart(fig_top10, use_container_width=True)
-                        
-                        # Adicionar tabela resumo abaixo do gráfico
-                        st.subheader("📋 Resumo dos Top 10")
-                        resumo_top10 = consumo_por_equip[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Qtde_Litros']].copy()
-                        resumo_top10['Consumo (L)'] = resumo_top10['Qtde_Litros'].apply(formatar_brasileiro_int)
-                        resumo_top10 = resumo_top10[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Consumo (L)']]
-                        st.dataframe(resumo_top10, use_container_width=True)
+
+                st.markdown("---")
+                
+                # NOVA SEÇÃO: Top 10 de Gastos por Frota e por Classe
+                st.subheader("💰 Top 10 de Gastos por Frota e Classe")
+                
+                # Calcular gastos por frota
+                precos_map = get_precos_combustivel_map()
+                if precos_map:
+                    df_gastos = df_f.copy()
+                    df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                    df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                    df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
+                    
+                    # Top 10 gastos por frota individual
+                    gastos_por_frota = df_gastos.groupby('Cod_Equip').agg({
+                        'custo': 'sum',
+                        'Qtde_Litros': 'sum'
+                    }).sort_values('custo', ascending=False).head(10).reset_index()
+                    
+                    # Adicionar informações da frota
+                    gastos_por_frota = gastos_por_frota.merge(
+                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
+                        on='Cod_Equip', 
+                        how='left'
+                    )
+                    gastos_por_frota['label_frota'] = gastos_por_frota.apply(
+                        lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
+                        axis=1
+                    )
+                    gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                    
+                    # Top 10 gastos por classe operacional
+                    gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
+                        'custo': 'sum',
+                        'Qtde_Litros': 'sum'
+                    }).sort_values('custo', ascending=False).head(10).reset_index()
+                    gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                    
+                    # Criar layout em 2 colunas para os gráficos
+                    col_gastos1, col_gastos2 = st.columns(2)
+                    
+                    with col_gastos1:
+                        st.subheader("🏭 Top 10 Gastos por Frota")
+                        if not gastos_por_frota.empty:
+                            fig_gastos_frota = px.bar(
+                                gastos_por_frota,
+                                x='custo',
+                                y='label_frota',
+                                orientation='h',
+                                text='custo_formatado',
+                                title="Gastos por Frota Individual",
+                                labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
+                                color='custo',
+                                color_continuous_scale='Reds'
+                            )
+                            fig_gastos_frota.update_traces(
+                                textposition='outside',
+                                texttemplate='%{text}'
+                            )
+                            fig_gastos_frota.update_layout(
+                                yaxis={'categoryorder':'total ascending'},
+                                xaxis_title="Custo Total (R$)",
+                                yaxis_title="Frota",
+                                height=400,
+                                showlegend=False
+                            )
+                            st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                        else:
+                            st.info("Não há dados de gastos por frota.")
+                    
+                    with col_gastos2:
+                        st.subheader("🏗️ Top 10 Gastos por Classe")
+                        if not gastos_por_classe.empty:
+                            fig_gastos_classe = px.bar(
+                                gastos_por_classe,
+                                x='custo',
+                                y='Classe_Operacional',
+                                orientation='h',
+                                text='custo_formatado',
+                                title="Gastos por Classe Operacional",
+                                labels={'custo': 'Custo (R$)', 'Classe_Operacional': 'Classe'},
+                                color='custo',
+                                color_continuous_scale='Blues'
+                            )
+                            fig_gastos_classe.update_traces(
+                                textposition='outside',
+                                texttemplate='%{text}'
+                            )
+                            fig_gastos_classe.update_layout(
+                                yaxis={'categoryorder':'total ascending'},
+                                xaxis_title="Custo Total (R$)",
+                                yaxis_title="Classe Operacional",
+                                height=400,
+                                showlegend=False
+                            )
+                            st.plotly_chart(fig_gastos_classe, use_container_width=True)
+                        else:
+                            st.info("Não há dados de gastos por classe.")
+                    
+                    # Resumo dos totais
+                    st.markdown("---")
+                    col_resumo1, col_resumo2, col_resumo3 = st.columns(3)
+                    with col_resumo1:
+                        st.metric(
+                            "Total Gastos (Período)", 
+                            formatar_brasileiro(df_gastos['custo'].sum(), 'R$ ')
+                        )
+                    with col_resumo2:
+                        st.metric(
+                            "Frota com Maior Gasto", 
+                            f"{gastos_por_frota.iloc[0]['Cod_Equip'] if not gastos_por_frota.empty else 'N/A'}"
+                        )
+                    with col_resumo3:
+                        st.metric(
+                            "Classe com Maior Gasto", 
+                            f"{gastos_por_classe.iloc[0]['Classe_Operacional'] if not gastos_por_classe.empty else 'N/A'}"
+                        )
+                else:
+                    st.warning("Cadastre os preços de combustível na aba Importar > Preços para visualizar os gastos.")
 
                 st.markdown("---")
                 st.subheader("📈 Média de Consumo por Classe Operacional")
