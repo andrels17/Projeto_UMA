@@ -2760,7 +2760,7 @@ def main():
                                 textposition='top center',
                                 textfont=dict(
                                     size=12,
-                                    color='#edf5fc',
+                                    color='#2c3e50',
                                     family='Arial, sans-serif'
                                 ),
                                 hovertemplate='<b>%{x}</b><br>' +
@@ -2768,25 +2768,25 @@ def main():
                                              '<extra></extra>',
                                 marker=dict(
                                     size=8,
-                                    color='#edf5fc',
-                                    line=dict(width=2, color='#edf5fc')
+                                    color='#e74c3c',
+                                    line=dict(width=2, color='#c0392b')
                                 ),
-                                line=dict(width=3, color='##edf5fc')
+                                line=dict(width=3, color='#e74c3c')
                             )
                             
                             fig_evolucao.update_layout(
-                                height=500,
+                                height=450,
                                 xaxis_title="Mês/Ano",
                                 yaxis_title="Litros Consumidos",
-                                title_font=dict(size=18, color='#edf5fc'),
+                                title_font=dict(size=18, color='#2c3e50'),
                                 xaxis=dict(
-                                    title_font=dict(size=14, color='#edf5fc'),
-                                    tickfont=dict(size=12, color='##edf5fc'),
+                                    title_font=dict(size=14, color='#34495e'),
+                                    tickfont=dict(size=12, color='#7f8c8d'),
                                     tickangle=45
                                 ),
                                 yaxis=dict(
-                                    title_font=dict(size=14, color='#edf5fc'),
-                                    tickfont=dict(size=12, color='#edf5fc'),
+                                    title_font=dict(size=14, color='#34495e'),
+                                    tickfont=dict(size=12, color='#7f8c8d'),
                                     tickformat=',.0f'
                                 ),
                                 plot_bgcolor='rgba(0,0,0,0)',
