@@ -2562,6 +2562,252 @@ def main():
                     st.warning("⚠️ Para visualizar os gastos com combustível, configure os preços na aba 'Importar Dados > Preços de Combustível'.")
                 
                 st.markdown("---")
+                st.subheader("⛽ Consumo Total da Frota")
+
+                if not consumo_eq.empty:
+                    # Calcular consumo total em litros
+                    consumo_total_litros = consumo_eq['Qtde_Litros'].sum()
+
+                    # Calcular consumo por período (últimos 30, 90, 365 dias)
+                    hoje = pd.Timestamp.now()
+                    periodos = {
+                        'Últimos 30 dias': 30,
+                        'Últimos 90 dias': 90,
+                        'Últimos 365 dias': 365
+                    }
+
+                    consumos_periodo = {}
+                    for nome_periodo, dias in periodos.items():
+                        data_limite = hoje - pd.Timedelta(days=dias)
+                        consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
+                        consumos_periodo[nome_periodo] = consumo_periodo
+
+                    # Calcular consumo da classe para comparação
+                    classe_selecionada = dados_eq.get('Classe_Operacional')
+                    consumo_classe_total = 0
+                    if classe_selecionada:
+                        df_classe_consumo = df[df['Classe_Operacional'] == classe_selecionada]
+                        consumo_classe_total = df_classe_consumo['Qtde_Litros'].sum()
+
+                    # Calcular porcentagem do consumo da classe
+                    porcentagem_consumo_classe = (consumo_total_litros / consumo_classe_total * 100) if consumo_classe_total > 0 else 0
+
+                    # Métricas de consumo
+                    col_consumo1, col_consumo2, col_consumo3, col_consumo4, col_consumo5 = st.columns(5)
+
+                    with col_consumo1:
+                        st.metric(
+                            "📊 Consumo Total",
+                            f"{formatar_brasileiro_int(consumo_total_litros)} L",
+                            help="Total de litros consumidos por esta frota"
+                        )
+
+                    with col_consumo2:
+                        st.metric(
+                            "📅 Últimos 30 dias",
+                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 30 dias'])} L"
+                        )
+
+                    with col_consumo3:
+                        st.metric(
+                            "📅 Últimos 90 dias",
+                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 90 dias'])} L"
+                        )
+
+                    with col_consumo4:
+                        st.metric(
+                            "📅 Últimos 365 dias",
+                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 365 dias'])} L"
+                        )
+
+                    with col_consumo5:
+                        st.metric(
+                            "📊 % da Classe",
+                            f"{porcentagem_consumo_classe:.1f}%",
+                            help="Porcentagem que esta frota representa do consumo total da classe"
+                        )
+
+                    # Gráfico de consumo por período
+                    df_consumo_periodo = pd.DataFrame({
+                        'Período': list(consumos_periodo.keys()),
+                        'Consumo (L)': list(consumos_periodo.values())
+                    })
+
+                    # Melhorar formatação dos rótulos para o gráfico
+                    df_consumo_periodo['Rótulo_Formatado'] = df_consumo_periodo['Consumo (L)'].apply(
+                        lambda x: f"{formatar_brasileiro_int(x)} L" if x > 0 else "0 L"
+                    )
+                    
+                    fig_consumo_periodo = px.bar(
+                        df_consumo_periodo,
+                        x='Período',
+                        y='Consumo (L)',
+                        title=f"Consumo de Combustível por Período - Frota {cod_sel}",
+                        text='Rótulo_Formatado',
+                        color='Consumo (L)',
+                        color_continuous_scale='Blues'
+                    )
+                    
+                    # Melhorar a aparência dos rótulos
+                    fig_consumo_periodo.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(
+                            size=14,
+                            color='#2c3e50',
+                            family='Arial, sans-serif'
+                        ),
+                        hovertemplate='<b>%{x}</b><br>' +
+                                     'Consumo: <b>%{y:,.0f} L</b><br>' +
+                                     '<extra></extra>'
+                    )
+                    
+                    fig_consumo_periodo.update_layout(
+                        height=450,
+                        showlegend=False,
+                        xaxis_title="Período",
+                        yaxis_title="Consumo (Litros)",
+                        title_font=dict(size=18, color='#2c3e50'),
+                        xaxis=dict(
+                            title_font=dict(size=14, color='#34495e'),
+                            tickfont=dict(size=12, color='#7f8c8d')
+                        ),
+                        yaxis=dict(
+                            title_font=dict(size=14, color='#34495e'),
+                            tickfont=dict(size=12, color='#7f8c8d'),
+                            tickformat=',.0f'
+                        ),
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        margin=dict(t=80, b=80, l=80, r=80)
+                    )
+                    st.plotly_chart(fig_consumo_periodo, use_container_width=True)
+
+                    # Gráfico de comparação de consumo vs classe
+                    if consumo_classe_total > 0:
+                        df_comparacao_consumo = pd.DataFrame({
+                            'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
+                            'Consumo (L)': [consumo_total_litros, consumo_classe_total - consumo_total_litros]
+                        })
+
+                        # Melhorar formatação dos rótulos para o gráfico de pizza
+                        df_comparacao_consumo['Rótulo_Formatado'] = df_comparacao_consumo['Consumo (L)'].apply(
+                            lambda x: f"{formatar_brasileiro_int(x)} L"
+                        )
+                        
+                        fig_consumo_classe = px.pie(
+                            df_comparacao_consumo,
+                            values='Consumo (L)',
+                            names='Categoria',
+                            title=f"Distribuição de Consumo na Classe {classe_selecionada}",
+                            color_discrete_map={
+                                'Esta Frota': '#ff7f0e',
+                                'Outras Frotas da Classe': '#1f77b4'
+                            }
+                        )
+                        
+                        # Melhorar a aparência dos rótulos
+                        fig_consumo_classe.update_traces(
+                            textposition='inside',
+                            textinfo='percent+label',
+                            textfont=dict(
+                                size=16,
+                                color='white',
+                                family='Arial, sans-serif'
+                            ),
+                            hovertemplate='<b>%{label}</b><br>' +
+                                         'Consumo: <b>%{value:,.0f} L</b><br>' +
+                                         'Percentual: <b>%{percent:.1%}</b><br>' +
+                                         '<extra></extra>'
+                        )
+                        
+                        fig_consumo_classe.update_layout(
+                            height=450,
+                            title_font=dict(size=18, color='#2c3e50'),
+                            showlegend=True,
+                            legend=dict(
+                                font=dict(size=14, color='#34495e'),
+                                bgcolor='rgba(255,255,255,0.8)',
+                                bordercolor='#bdc3c7',
+                                borderwidth=1
+                            ),
+                            margin=dict(t=80, b=80, l=80, r=80)
+                        )
+                        st.plotly_chart(fig_consumo_classe, use_container_width=True)
+
+                    # Gráfico de evolução mensal do consumo
+                    if len(consumo_eq) > 1:
+                        consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+
+                        if not consumo_mensal_frota.empty:
+                            # Melhorar formatação dos dados para o gráfico
+                            consumo_mensal_frota['Consumo_Formatado'] = consumo_mensal_frota['Qtde_Litros'].apply(
+                                lambda x: f"{formatar_brasileiro_int(x)} L"
+                            )
+                            
+                            fig_evolucao = px.line(
+                                consumo_mensal_frota,
+                                x='AnoMes',
+                                y='Qtde_Litros',
+                                title=f"Evolução Mensal do Consumo - Frota {cod_sel}",
+                                labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
+                                markers=True,
+                                text='Consumo_Formatado'
+                            )
+                            
+                            # Melhorar a aparência dos rótulos e marcadores
+                            fig_evolucao.update_traces(
+                                textposition='top center',
+                                textfont=dict(
+                                    size=12,
+                                    color='#2c3e50',
+                                    family='Arial, sans-serif'
+                                ),
+                                hovertemplate='<b>%{x}</b><br>' +
+                                             'Consumo: <b>%{y:,.0f} L</b><br>' +
+                                             '<extra></extra>',
+                                marker=dict(
+                                    size=8,
+                                    color='#e74c3c',
+                                    line=dict(width=2, color='#c0392b')
+                                ),
+                                line=dict(width=3, color='#e74c3c')
+                            )
+                            
+                            fig_evolucao.update_layout(
+                                height=450,
+                                xaxis_title="Mês/Ano",
+                                yaxis_title="Litros Consumidos",
+                                title_font=dict(size=18, color='#2c3e50'),
+                                xaxis=dict(
+                                    title_font=dict(size=14, color='#34495e'),
+                                    tickfont=dict(size=12, color='#7f8c8d'),
+                                    tickangle=45
+                                ),
+                                yaxis=dict(
+                                    title_font=dict(size=14, color='#34495e'),
+                                    tickfont=dict(size=12, color='#7f8c8d'),
+                                    tickformat=',.0f'
+                                ),
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                margin=dict(t=80, b=80, l=80, r=80)
+                            )
+                            st.plotly_chart(fig_evolucao, use_container_width=True)
+
+                    # Resumo informativo
+                    st.info(f"""
+                    **📈 Resumo do Consumo:**
+                    - **Total histórico:** {formatar_brasileiro_int(consumo_total_litros)} litros
+                    - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde_Litros'].mean())} litros
+                    - **Total de abastecimentos:** {len(consumo_eq)} registros
+                    - **Período de operação:** {consumo_eq['Data'].min().strftime('%d/%m/%Y')} a {consumo_eq['Data'].max().strftime('%d/%m/%Y')}
+                    - **Comparação com classe:** Esta frota representa **{porcentagem_consumo_classe:.1f}%** do consumo total da classe **{classe_selecionada}**
+                    """)
+                else:
+                    st.info("Não há dados de consumo para este equipamento.")
+
+                st.markdown("---")
                 
                 st.subheader("Comparativo de Eficiência")
             
