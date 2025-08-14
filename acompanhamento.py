@@ -1773,8 +1773,18 @@ def main():
             gasto_total_combustivel = 0
             if precos_map:
                 df_gastos_total = df.copy()
-                df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+                # Verificar se a coluna tipo_combustivel existe em df_frotas
+                if 'tipo_combustivel' in df_frotas.columns:
+                    df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                    # Verificar se a coluna foi criada após o merge
+                    if 'tipo_combustivel' in df_gastos_total.columns:
+                        df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+                    else:
+                        df_gastos_total['tipo_combustivel'] = 'Diesel S500'
+                else:
+                    # Se não existir, criar a coluna com valor padrão
+                    df_gastos_total['tipo_combustivel'] = 'Diesel S500'
+                
                 df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
                 df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
                 gasto_total_combustivel = df_gastos_total['custo'].sum()
@@ -2445,12 +2455,21 @@ def main():
                 if precos_map:
                     # Calcular gasto da frota selecionada
                     df_frota_gastos = consumo_eq.copy()
-                    df_frota_gastos = df_frota_gastos.merge(
-                        df_frotas[['Cod_Equip', 'tipo_combustivel']], 
-                        on='Cod_Equip', 
-                        how='left'
-                    )
-                    df_frota_gastos['tipo_combustivel'] = df_frota_gastos['tipo_combustivel'].fillna('Diesel S500')
+                    # Verificar se a coluna tipo_combustivel existe em df_frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_frota_gastos = df_frota_gastos.merge(
+                            df_frotas[['Cod_Equip', 'tipo_combustivel']], 
+                            on='Cod_Equip', 
+                            how='left'
+                        )
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_frota_gastos.columns:
+                            df_frota_gastos['tipo_combustivel'] = df_frota_gastos['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
+                    else:
+                        # Se não existir, criar a coluna com valor padrão
+                        df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
                     df_frota_gastos['preco_unit'] = df_frota_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_frota_gastos['custo'] = df_frota_gastos['Qtde_Litros'].fillna(0.0) * df_frota_gastos['preco_unit']
                     
@@ -2461,12 +2480,22 @@ def main():
                     gasto_classe_total = 0
                     if classe_selecionada:
                         df_classe_gastos = df[df['Classe_Operacional'] == classe_selecionada].copy()
-                        df_classe_gastos = df_classe_gastos.merge(
-                            df_frotas[['Cod_Equip', 'tipo_combustivel']], 
-                            on='Cod_Equip', 
-                            how='left'
-                        )
-                        df_classe_gastos['tipo_combustivel'] = df_classe_gastos['tipo_combustivel'].fillna('Diesel S500')
+                        # Verificar se a coluna tipo_combustivel existe em df_frotas
+                        if 'tipo_combustivel' in df_frotas.columns:
+                            df_classe_gastos = df_classe_gastos.merge(
+                                df_frotas[['Cod_Equip', 'tipo_combustivel']], 
+                                on='Cod_Equip', 
+                                how='left'
+                            )
+                            # Verificar se a coluna foi criada após o merge
+                            if 'tipo_combustivel' in df_classe_gastos.columns:
+                                df_classe_gastos['tipo_combustivel'] = df_classe_gastos['tipo_combustivel'].fillna('Diesel S500')
+                            else:
+                                df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
+                        else:
+                            # Se não existir, criar a coluna com valor padrão
+                            df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
+                        
                         df_classe_gastos['preco_unit'] = df_classe_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                         df_classe_gastos['custo'] = df_classe_gastos['Qtde_Litros'].fillna(0.0) * df_classe_gastos['preco_unit']
                         gasto_classe_total = df_classe_gastos['custo'].sum()
