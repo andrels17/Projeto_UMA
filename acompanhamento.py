@@ -117,7 +117,7 @@ def delete_user(user_id):
     except Exception as e:
         return False, f"Ocorreu um erro: {e}"
 
-    
+
 # APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
 
 @st.cache_data(show_spinner="Carregando e processando dados...", ttl=300)
@@ -138,32 +138,32 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
             df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
 
         # --- Início do Processamento Integrado ---
-        
+
         # Renomeia colunas para um padrão consistente
         df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
         df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
 
         # Cria o dataframe principal mesclando abastecimentos e frotas
         df_merged = pd.merge(df_abast, df_frotas, on="Cod_Equip", how="left")
-        
+
         # Trata colunas de classe operacional que podem ter vindo da mesclagem
         if 'Classe_Operacional_x' in df_merged.columns:
             df_merged['Classe_Operacional'] = np.where(df_merged['Classe_Operacional_x'].notna(), df_merged['Classe_Operacional_x'], df_merged['Classe_Operacional_y'])
             df_merged.drop(columns=['Classe_Operacional_x', 'Classe_Operacional_y'], inplace=True)
-        
+
         # Converte a coluna de data e cria colunas de tempo
         df_merged["Data"] = pd.to_datetime(df_merged["Data"], errors='coerce')
         df_merged.dropna(subset=["Data"], inplace=True)
         df_merged["Ano"] = df_merged["Data"].dt.year
         df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
-        
+
         # Limpa e converte colunas numéricas
         for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
             if col in df_merged.columns:
                 series = df_merged[col].astype(str)
                 series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
                 df_merged[col] = pd.to_numeric(series, errors='coerce')
-        
+
         # Cria a coluna "label" no dataframe de frotas para uso em seletores
         df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
 
@@ -178,7 +178,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
                 )
         except Exception:
             pass
-        
+
         # Garante que a classe operacional em df_frotas está atualizada
         classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
         df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map).fillna(df_frotas.get('Classe_Operacional'))
@@ -186,7 +186,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-        
+
         # Garantir que a coluna existe e tem valores válidos
         if 'tipo_combustivel' in df_frotas.columns:
             # Preencher valores nulos com padrão
@@ -197,7 +197,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
             texto_para_verificar = (
-                str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
+                str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' +
                 str(row.get('Classe_Operacional', ''))
             ).upper()
             km_keywords = ['CAMINH', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
@@ -220,8 +220,8 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
                 pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
 
-                
-    
+
+
 def inserir_abastecimento(db_path: str, dados: dict) -> bool:
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -272,83 +272,83 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         cursor = conn.cursor()
-        
+
         # Converter tipos de dados para garantir compatibilidade
         cod_equip = int(cod_equip)
         nome_componente = str(nome_componente)
         data = str(data)
         hod_hor = float(hod_hor)
-        
+
         # Debug: verificar todos os registros na tabela
         cursor.execute("SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico")
         all_records = cursor.fetchall()
-        
+
         # Debug: verificar se há registros com valores similares
         cursor.execute(
-            "SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico WHERE Cod_Equip = ?", 
+            "SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico WHERE Cod_Equip = ?",
             (cod_equip,)
         )
         similar_records = cursor.fetchall()
-        
+
         # Primeiro, vamos verificar se o registro existe
         cursor.execute(
-            "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?",
             (cod_equip, nome_componente, data, hod_hor)
         )
         count = cursor.fetchone()[0]
-        
+
         if count == 0:
             # Debug: retornar informações sobre o que foi encontrado
             debug_info = f"""
             Registro não encontrado para exclusão.
-            
+
             Valores procurados (após conversão):
             - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
             - Nome Componente: {nome_componente} (tipo: {type(nome_componente)})
             - Data: {data} (tipo: {type(data)})
             - Hod_Hor: {hod_hor} (tipo: {type(hod_hor)})
-            
+
             Registros similares encontrados (mesmo Cod_Equip):
             {similar_records}
-            
+
             Todos os registros na tabela:
             {all_records}
             """
             st.error(debug_info)
             return False
-        
+
         # Agora vamos excluir
         cursor.execute(
-            "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?",
             (cod_equip, nome_componente, data, hod_hor)
         )
-        
+
         # Forçar commit imediato
         conn.commit()
-        
+
         # Verificar se foi realmente excluído
         rows_deleted = cursor.rowcount
         if rows_deleted > 0:
             # Verificar novamente se o registro foi realmente excluído
             cursor.execute(
-                "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+                "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?",
                 (cod_equip, nome_componente, data, hod_hor)
             )
             count_after = cursor.fetchone()[0]
-            
+
             if count_after == 0:
                 # Forçar sincronização do banco
                 cursor.execute("PRAGMA wal_checkpoint(FULL)")
                 cursor.execute("PRAGMA synchronous=FULL")
                 conn.commit()
-                
+
                 # Salvar backup automático para persistência no Streamlit Cloud
                 backup_success, backup_msg = save_backup_to_session_state()
                 if backup_success:
                     st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Backup salvo: {backup_msg}")
                 else:
                     st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Aviso: {backup_msg}")
-                
+
                 conn.close()
                 return True
             else:
@@ -359,7 +359,7 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
             st.error("Nenhum registro foi excluído")
             conn.close()
             return False
-            
+
     except Exception as e:
         st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
         return False
@@ -403,7 +403,7 @@ def inserir_frota(db_path: str, dados: dict) -> bool:
         cursor = conn.cursor()
         sql = """
             INSERT INTO frotas (
-                COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA, 
+                COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA,
                 "Classe Operacional", ATIVO, tipo_combustivel
             ) VALUES (?, ?, ?, ?, ?, ?)
         """
@@ -422,7 +422,7 @@ def inserir_frota(db_path: str, dados: dict) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro no banco de dados: {e}")
         return False
-    
+
 
 def editar_abastecimento(db_path: str, rowid: int, dados: dict) -> bool:
     """Atualiza um registro de abastecimento existente."""
@@ -472,7 +472,7 @@ def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         cursor = conn.cursor()
         sql = """
-            UPDATE componentes_historico 
+            UPDATE componentes_historico
             SET Cod_Equip = ?, nome_componente = ?, Observacoes = ?, Data = ?, Hod_Hor_No_Servico = ?
             WHERE rowid = ?
         """
@@ -496,7 +496,7 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
     """Lê uma planilha, verifica por duplicados, e insere os novos dados. Aceita opcionalmente as colunas Matricula e Cod_Pessoa."""
     try:
         df_novo = pd.read_excel(arquivo_carregado)
-        
+
         mapa_colunas = {
             "Cód. Equip.": "Cód. Equip.",
             "Data": "Data",
@@ -517,7 +517,7 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
             return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
         conn = sqlite3.connect(db_path)
         df_existente = pd.read_sql_query("SELECT * FROM abastecimentos", conn)
-        
+
         df_novo['Data'] = pd.to_datetime(df_novo['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
         df_existente['Data'] = pd.to_datetime(df_existente['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -525,7 +525,7 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
         df_existente['chave_unica'] = df_existente['Cód. Equip.'].astype(str) + '_' + df_existente['Data'] + '_' + df_existente['Qtde Litros'].astype(str)
 
         df_para_inserir = df_novo[~df_novo['chave_unica'].isin(df_existente['chave_unica'])]
-        
+
         num_duplicados = len(df_novo) - len(df_para_inserir)
 
         if df_para_inserir.empty:
@@ -534,20 +534,21 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
         colunas_insert = colunas_necessarias + [c for c in colunas_opcionais if c in df_para_inserir.columns]
         df_para_inserir_final = df_para_inserir[colunas_insert]
         registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
-        
+
         cursor = conn.cursor()
         placeholders = ", ".join(["?"] * len(colunas_insert))
-        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+        colunas_quoted = [f'"{col}"' for col in colunas_insert]
+        sql = f"INSERT INTO abastecimentos ({', '.join(colunas_quoted)}) VALUES ({placeholders})"
         cursor.executemany(sql, registros)
-        
+
         conn.commit()
         num_inseridos = cursor.rowcount
         conn.close()
-        
+
         mensagem_sucesso = f"{num_inseridos} registos novos foram importados com sucesso."
         if num_duplicados > 0:
             mensagem_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
-            
+
         return num_inseridos, num_duplicados, mensagem_sucesso
 
     except Exception as e:
@@ -665,7 +666,7 @@ def add_tipo_combustivel_column():
             # Verificar se a coluna existe
             cursor.execute("PRAGMA table_info(frotas)")
             columns = [column[1] for column in cursor.fetchall()]
-            
+
             if 'tipo_combustivel' not in columns:
                 cursor.execute("ALTER TABLE frotas ADD COLUMN tipo_combustivel TEXT DEFAULT 'Diesel S500'")
                 conn.commit()
@@ -811,20 +812,20 @@ def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
     # Garante que a coluna de data é do tipo datetime
     df['Data'] = pd.to_datetime(df['Data'])
-    
+
     # Filtra por período de datas
     df_filtrado = df[
-        (df['Data'].dt.date >= opts['data_inicio']) & 
+        (df['Data'].dt.date >= opts['data_inicio']) &
         (df['Data'].dt.date <= opts['data_fim'])
     ]
-    
+
     # Filtra pelas outras seleções, se existirem
     if opts.get("classes_op"):
         df_filtrado = df_filtrado[df_filtrado["Classe_Operacional"].isin(opts["classes_op"])]
-    
+
     if opts.get("safras"):
         df_filtrado = df_filtrado[df_filtrado["Safra"].isin(opts["safras"])]
-        
+
     return df_filtrado.copy()
 
 @st.cache_data(show_spinner="Calculando plano de manutenção...", ttl=300)
@@ -839,32 +840,32 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
 
         if pd.isna(hod_hor_atual) or not classe_op:
             continue
-        
+
         regras_da_classe = _df_componentes_regras[_df_componentes_regras['classe_operacional'] == classe_op]
         if regras_da_classe.empty:
             continue
 
         unidade = 'km' if frota_row['Tipo_Controle'] == 'QUILÔMETROS' else 'h'
         alerta_default = ALERTAS_MANUTENCAO.get(frota_row['Tipo_Controle'], {}).get('default', 500)
-        
+
         record = {
-            'Cod_Equip': cod_equip, 
-            'Equipamento': frota_row.get('DESCRICAO_EQUIPAMENTO'), 
-            'Leitura_Atual': hod_hor_atual, 
-            'Unidade': unidade, 
-            'Qualquer_Alerta': False, 
+            'Cod_Equip': cod_equip,
+            'Equipamento': frota_row.get('DESCRICAO_EQUIPAMENTO'),
+            'Leitura_Atual': hod_hor_atual,
+            'Unidade': unidade,
+            'Qualquer_Alerta': False,
             'Alertas': []
         }
 
         for _, regra in regras_da_classe.iterrows():
             componente = regra['nome_componente']
             intervalo = regra['intervalo_padrao']
-            
+
             historico_componente = _df_componentes_historico[
                 (_df_componentes_historico['Cod_Equip'] == cod_equip) &
                 (_df_componentes_historico['nome_componente'] == componente)
             ]
-            
+
             ultimo_servico_hod_hor = 0
             if not historico_componente.empty:
                 ultimo_servico_hod_hor = historico_componente['Hod_Hor_No_Servico'].max()
@@ -874,9 +875,9 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
                 prox_servico += intervalo
 
             restante = prox_servico - hod_hor_atual
-            
+
             record[f'Restante_{componente}'] = restante
-            
+
             if restante <= alerta_default:
                 record['Qualquer_Alerta'] = True
                 record['Alertas'].append(componente)
@@ -1093,8 +1094,8 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO checklist_historico 
-                (Cod_Equip, titulo_checklist, data_preenchimento, turno, status_geral) 
+                INSERT INTO checklist_historico
+                (Cod_Equip, titulo_checklist, data_preenchimento, turno, status_geral)
                 VALUES (?, ?, ?, ?, ?)
                 """ ,
                 (cod_equip, titulo_checklist, data_preenchimento, turno, status_geral)
@@ -1110,106 +1111,106 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
         # Primeira tentativa: usar conexão direta
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         cursor = conn.cursor()
-        
+
         # Converter tipos de dados para garantir compatibilidade
         cod_equip = int(cod_equip)  # Converter numpy.int64 para int
         titulo_checklist = str(titulo_checklist)
         data_preenchimento = str(data_preenchimento)
         turno = str(turno)
-        
+
         # Debug: verificar todos os registros na tabela ANTES da exclusão
         cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
         all_records_before = cursor.fetchall()
-        
+
         # Tentar encontrar o registro com diferentes abordagens
         rowid = None
-        
+
         # Primeira tentativa: busca exata
         cursor.execute(
-            "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+            "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?",
             (cod_equip, titulo_checklist, data_preenchimento, turno)
         )
         result = cursor.fetchone()
-        
+
         if result:
             rowid = result[0]
         else:
             # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
             cursor.execute(
-                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
+                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?",
                 (cod_equip, titulo_checklist, turno)
             )
             result = cursor.fetchone()
-            
+
             if result:
                 rowid = result[0]
             else:
                 # Terceira tentativa: buscar apenas por Cod_Equip e título
                 cursor.execute(
-                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
+                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?",
                     (cod_equip, titulo_checklist)
                 )
                 result = cursor.fetchone()
-                
+
                 if result:
                     rowid = result[0]
-        
+
         if rowid is None:
             # Debug: retornar informações sobre o que foi encontrado
             debug_info = f"""
             Registro não encontrado para exclusão.
-            
+
             Valores procurados (após conversão):
             - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
             - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
             - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
             - Turno: {turno} (tipo: {type(turno)})
-            
+
             Todos os registros na tabela ANTES da exclusão:
             {all_records_before}
             """
             conn.close()
             return False, debug_info
-        
+
         # Agora vamos excluir usando rowid
         cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
-        
+
         # Forçar commit imediato
         conn.commit()
-        
+
         # Verificar se foi realmente excluído
         rows_deleted = cursor.rowcount
         if rows_deleted > 0:
             # Verificar novamente se o registro foi realmente excluído
             cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
             count_after = cursor.fetchone()[0]
-            
+
             # Verificar também se o registro ainda existe pelos outros campos
             cursor.execute(
-                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?",
                 (cod_equip, titulo_checklist, data_preenchimento, turno)
             )
             count_by_fields = cursor.fetchone()[0]
-            
+
             if count_after == 0 and count_by_fields == 0:
                  # Verificar o total de registros na tabela
                  cursor.execute("SELECT COUNT(*) FROM checklist_historico")
                  total_after = cursor.fetchone()[0]
-                 
+
                  # Forçar sincronização do banco
                  cursor.execute("PRAGMA wal_checkpoint(FULL)")
                  cursor.execute("PRAGMA synchronous=FULL")
                  conn.commit()
-                 
+
                  success_msg = f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s)). Total na tabela: {total_after}"
-                 
+
                  # Salvar backup automático para persistência no Streamlit Cloud
                  backup_success, backup_msg = save_backup_to_session_state()
                  if backup_success:
                      success_msg += f" | Backup salvo: {backup_msg}"
                  else:
                      success_msg += f" | Aviso: {backup_msg}"
-                 
+
                  conn.close()
                  return True, success_msg
             else:
@@ -1218,7 +1219,7 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
         else:
             conn.close()
             return False, "Nenhum registro foi excluído"
-                
+
     except Exception as e:
         if 'conn' in locals():
             conn.close()
@@ -1230,10 +1231,10 @@ def force_cache_clear():
     try:
         # Limpar cache de dados
         st.cache_data.clear()
-        
+
         # Limpar cache de recursos
         st.cache_resource.clear()
-        
+
         # Forçar rerun da aplicação
         st.rerun()
     except Exception as e:
@@ -1245,24 +1246,24 @@ def force_database_sync():
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         cursor = conn.cursor()
-        
+
         # Forçar commit
         conn.commit()
-        
+
         # Executar PRAGMA para forçar sincronização
         cursor.execute("PRAGMA wal_checkpoint(FULL)")
         cursor.execute("PRAGMA synchronous=FULL")
         cursor.execute("PRAGMA journal_mode=DELETE")
-        
+
         # Forçar commit novamente
         conn.commit()
-        
+
         # Verificar se o banco está em modo WAL
         cursor.execute("PRAGMA journal_mode")
         journal_mode = cursor.fetchone()[0]
-        
+
         conn.close()
-        
+
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
@@ -1272,32 +1273,32 @@ def export_database_backup():
     """Exporta todos os dados do banco para um arquivo de backup."""
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        
+
         # Obter todas as tabelas
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = cursor.fetchall()
-        
+
         backup_data = {}
-        
+
         for table in tables:
             table_name = table[0]
             if table_name != 'sqlite_master':
                 # Exportar dados da tabela
                 df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
                 backup_data[table_name] = df.to_dict('records')
-        
+
         conn.close()
-        
+
         # Converter para JSON
         backup_json = json.dumps(backup_data, default=str, indent=2)
-        
+
         # Criar arquivo de download
         backup_bytes = backup_json.encode('utf-8')
         backup_b64 = base64.b64encode(backup_bytes).decode()
-        
+
         return backup_b64, backup_data
-        
+
     except Exception as e:
         return None, f"Erro ao exportar backup: {e}"
 
@@ -1307,18 +1308,18 @@ def import_database_backup(backup_data):
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         cursor = conn.cursor()
-        
+
         for table_name, records in backup_data.items():
             if records:  # Se a tabela tem dados
                 # Limpar tabela existente
                 cursor.execute(f"DELETE FROM {table_name}")
-                
+
                 # Inserir novos dados
                 for record in records:
                     columns = list(record.keys())
                     placeholders = ', '.join(['?' for _ in columns])
                     values = list(record.values())
-                    
+
                     # Converter tipos de dados
                     converted_values = []
                     for value in values:
@@ -1334,17 +1335,17 @@ def import_database_backup(backup_data):
                                 converted_values.append(value)
                         else:
                             converted_values.append(value)
-                    
+
                     cursor.execute(
                         f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})",
                         converted_values
                     )
-        
+
         conn.commit()
         conn.close()
-        
+
         return True, "Backup restaurado com sucesso!"
-        
+
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
 
@@ -1371,7 +1372,7 @@ def restore_backup_from_session_state():
             backup_bytes = base64.b64decode(backup_b64)
             backup_json = backup_bytes.decode('utf-8')
             backup_data = json.loads(backup_json)
-            
+
             success, message = import_database_backup(backup_data)
             if success:
                 # Limpar cache para forçar recarregamento
@@ -1395,7 +1396,7 @@ def auto_restore_backup_on_startup():
             cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
             num_tables = cursor.fetchone()[0]
             conn.close()
-            
+
             if num_tables == 0:
                 # Banco vazio, tentar restaurar
                 success, message = restore_backup_from_session_state()
@@ -1454,7 +1455,7 @@ def main():
         """,
         unsafe_allow_html=True,
     )
-    
+
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.role = None
@@ -1462,15 +1463,15 @@ def main():
 
     if not st.session_state.authenticated:
         _ , col_central, _ = st.columns([1, 1.5, 1])
-    
+
         with col_central:
-            
+
             if os.path.exists("logo.png"):
                 # Cria 3 sub-colunas dentro da coluna central
                 _, logo_col, _ = st.columns([1, 2, 1])
                 with logo_col:
                     st.image("logo.png", width=140)
-            
+
             st.title("Bem vindo ao Aplicativo de Controle do PCMA")
 
             username = st.text_input("Usuário", key="login_user")
@@ -1499,10 +1500,10 @@ def main():
 
         # Tentar restaurar backup automaticamente na inicialização
         auto_restore_backup_on_startup()
-        
+
         # Adicionar coluna de tipo de combustível se não existir
         add_tipo_combustivel_column()
-        
+
         # Setup de esquemas (motoristas, preços, combustível)
         ensure_motoristas_schema()
         ensure_precos_combustivel_schema()
@@ -1510,7 +1511,7 @@ def main():
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
-        
+
 
 
         if 'intervalos_por_classe' not in st.session_state:
@@ -1539,7 +1540,7 @@ def main():
                             'servico_4': {'nome': 'Revisao 20k', 'intervalo': 20000}
                         }
                     }
-                    
+
         with st.sidebar:
             if os.path.exists("logo.png"):
                 st.image("logo.png", use_container_width=True)
@@ -1562,12 +1563,12 @@ def main():
 
             st.subheader("Período de Análise")
             data_inicio = st.date_input(
-                "Data de Início", 
+                "Data de Início",
                 st.session_state['filtro_data_inicio'],
                 key='data_inicio'
             )
             data_fim = st.date_input(
-                "Data de Fim", 
+                "Data de Fim",
                 st.session_state['filtro_data_fim'],
                 key='data_fim'
             )
@@ -1580,8 +1581,8 @@ def main():
             with st.expander("Filtrar por Classe Operacional"):
                 classe_opts = sorted(list(df["Classe_Operacional"].dropna().unique()))
                 sel_classes = st.multiselect(
-                    "Selecione as Classes", 
-                    classe_opts, 
+                    "Selecione as Classes",
+                    classe_opts,
                     default=classe_opts,
                     key="sel_classes"
                 )
@@ -1589,8 +1590,8 @@ def main():
             with st.expander("Filtrar por Safra"):
                 safra_opts = sorted(list(df["Safra"].dropna().unique()))
                 sel_safras = st.multiselect(
-                    "Selecione as Safras", 
-                    safra_opts, 
+                    "Selecione as Safras",
+                    safra_opts,
                     default=safra_opts,
                     key="sel_safras"
                 )
@@ -1618,18 +1619,18 @@ def main():
             scrollbar-color: #00D4AA #E8F5F2;
             padding: 8px 0;
         }
-        
+
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
             height: 12px;
         }
-        
+
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track {
             background: linear-gradient(90deg, #F0F2F6 0%, #E8F5F2 100%);
             border-radius: 8px;
             border: 1px solid #E0E6ED;
             box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
         }
-        
+
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
             background: linear-gradient(90deg, #00D4AA 0%, #00B8A9 100%);
             border-radius: 8px;
@@ -1637,34 +1638,34 @@ def main():
             box-shadow: 0 2px 4px rgba(0,212,170,0.3);
             transition: all 0.3s ease;
         }
-        
+
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb:hover {
             background: linear-gradient(90deg, #00B8A9 0%, #00A896 100%);
             box-shadow: 0 3px 6px rgba(0,212,170,0.4);
             transform: translateY(-1px);
         }
-        
+
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb:active {
             background: linear-gradient(90deg, #00A896 0%, #009688 100%);
             box-shadow: 0 1px 3px rgba(0,212,170,0.5);
         }
-        
+
         .stTabs [data-baseweb="tab-list"] > div {
             flex-shrink: 0;
             transition: all 0.2s ease;
         }
-        
+
         /* Melhorar aparência das abas */
         .stTabs [data-baseweb="tab"] {
             border-radius: 8px;
             transition: all 0.2s ease;
         }
-        
+
         .stTabs [data-baseweb="tab"]:hover {
             transform: translateY(-1px);
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        
+
         /* Estilo para abas ativas */
         .stTabs [data-baseweb="tab"][aria-selected="true"] {
             background: linear-gradient(135deg, #00D4AA 0%, #00B8A9 100%);
@@ -1674,13 +1675,13 @@ def main():
         }
         </style>
         """, unsafe_allow_html=True)
-        
+
         # Sistema de navegação por menu lateral
         if st.session_state.role == 'admin':
             # Para admins, menu completo
             with st.sidebar:
                 st.markdown("## 🧭 Navegação")
-                
+
                 # Seção Página Principal
                 st.markdown("### 🏠 Página Principal")
                 pagina_principal = st.selectbox(
@@ -1688,7 +1689,7 @@ def main():
                     ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"],
                     key="menu_principal"
                 )
-                
+
                 # Seção Gestão
                 st.markdown("### ⚙️ Gestão e Administração")
                 gestao = st.selectbox(
@@ -1696,7 +1697,7 @@ def main():
                     ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "👤 Gerir Utilizadores", "✅ Gerir Checklists"],
                     key="menu_gestao"
                 )
-                
+
                 # Seção Dados
                 st.markdown("### 📊 Dados e Configurações")
                 dados = st.selectbox(
@@ -1714,7 +1715,7 @@ def main():
                     ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"],
                     key="menu_principal"
                 )
-        
+
         # Determinar qual aba mostrar baseado na seleção
         if st.session_state.role == 'admin':
             if pagina_principal == "📊 Painel de Controle":
@@ -1763,11 +1764,11 @@ def main():
             if clear_cache:
                 st.cache_data.clear()
             st.rerun()
-        
+
         # Navegação rápida para abas principais (apenas para admins)
         if st.session_state.role == 'admin':
             st.markdown("---")
-            
+
             # CSS para melhorar os botões de navegação
             st.markdown("""
             <style>
@@ -1782,13 +1783,13 @@ def main():
                 transition: all 0.3s ease;
                 box-shadow: 0 2px 8px rgba(0,212,170,0.3);
             }
-            
+
             .stButton > button:hover {
                 background: linear-gradient(135deg, #00B8A9 0%, #00A896 100%);
                 transform: translateY(-2px);
                 box-shadow: 0 4px 12px rgba(0,212,170,0.4);
             }
-            
+
             .stButton > button:active {
                 background: linear-gradient(135deg, #00A896 0%, #009688 100%);
                 transform: translateY(0);
@@ -1796,36 +1797,36 @@ def main():
             }
             </style>
             """, unsafe_allow_html=True)
-            
+
             st.markdown("### 🚀 Navegação Rápida")
             col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
-            
+
             with col_nav1:
                 if st.button("📊 Painel", key="nav_painel"):
                     rerun_keep_tab("📊 Painel de Controle")
-            
+
             with col_nav2:
                 if st.button("📈 Análise", key="nav_analise"):
                     rerun_keep_tab("📈 Análise Geral")
-            
+
             with col_nav3:
                 if st.button("🛠️ Manutenção", key="nav_manut"):
                     rerun_keep_tab("🛠️ Controle de Manutenção")
-            
+
             with col_nav4:
                 if st.button("🔎 Consulta", key="nav_consulta"):
                     rerun_keep_tab("🔎 Consulta Individual")
-            
+
             with col_nav5:
                 if st.button("✅ Checklists", key="nav_checklists"):
                     rerun_keep_tab("✅ Checklists Diários")
-            
+
             st.markdown("---")
-                
+
         # Conteúdo baseado na seleção do menu
         if tab_ativo == "painel":
             st.header("Visão Geral da Frota")
-            
+
             # Calcular gasto total com combustível
             precos_map = get_precos_combustivel_map()
             gasto_total_combustivel = 0
@@ -1842,38 +1843,38 @@ def main():
                 else:
                     # Se não existir, criar a coluna com valor padrão
                     df_gastos_total['tipo_combustivel'] = 'Diesel S500'
-                
+
                 df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
                 df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
                 gasto_total_combustivel = df_gastos_total['custo'].sum()
-            
+
             kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-            
+
             # KPI 1: Frotas Ativas
             total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
             kpi1.metric("Frotas Ativas", total_frotas_ativas)
-            
+
             # KPI 2: Frotas com Alerta
             frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
             kpi2.metric("Frotas com Alerta", frotas_com_alerta)
-            
+
             # KPI 3: Gasto Total com Combustível
             kpi3.metric("💰 Gasto com Combustível", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
-            
+
             # KPIs 4 e 5: Frotas Mais e Menos Eficientes
             df_sem_filtro = df.copy()
             df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
             if not df_media_geral.empty:
                 # Agrupa por Código e Descrição para ter acesso a ambos
                 media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
-                
+
                 if not media_por_equip.empty:
                     # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
                     cod_mais_eficiente = media_por_equip.index[0][0]
                     media_mais_eficiente = media_por_equip.iloc[0]
                     # Exibe o CÓDIGO no KPI
                     kpi4.metric("Frota Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
-            
+
                     # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
                     cod_menos_eficiente = media_por_equip.index[-1][0]
                     media_menos_eficiente = media_por_equip.iloc[-1]
@@ -1890,38 +1891,38 @@ def main():
                 ranking_df = df.copy()
                 ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
                 ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
-                
+
                 ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
                 ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
-                
+
                 # --- INÍCIO DA CORREÇÃO ---
                 # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
                 ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
                 # --- FIM DA CORREÇÃO ---
-            
+
                 def formatar_eficiencia(val):
                     if pd.isna(val): return "N/A"
                     if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
                     if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
                     return f"⚪ {val:+.2f}%".replace('.',',')
-                
+
                 ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
-                
+
                 # Exibe a nova coluna "Equipamento" formatada
-                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
+                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])
                             # NOVO: Botão de Exportação para o Ranking
                 csv_ranking = para_csv(ranking)
                 st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
             else:
                     st.info("Não há dados de consumo médio para gerar o ranking.")
-                    
+
             st.markdown("---")
             st.subheader("📈 Tendência de Consumo Mensal")
 
             if not df.empty and 'Qtde_Litros' in df.columns:
                 # Agrupa os dados por Ano/Mês e soma o consumo
                 consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
-                
+
                 if not consumo_mensal.empty:
                     fig_tendencia = px.line(
                         consumo_mensal,
@@ -1935,7 +1936,7 @@ def main():
                     st.plotly_chart(fig_tendencia, use_container_width=True)
                 else:
                     st.info("Não há dados suficientes para gerar o gráfico de tendência com os filtros selecionados.")
-                
+
         elif tab_ativo == "analise":
             st.header("📈 Análise Gráfica de Consumo")
 
@@ -1982,51 +1983,51 @@ def main():
                         # Adicionar informações da frota para melhor identificação
                         consumo_por_equip = consumo_por_equip.reset_index()
                         consumo_por_equip = consumo_por_equip.merge(
-                            df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
-                            on='Cod_Equip', 
+                            df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']],
+                            on='Cod_Equip',
                             how='left'
                         )
-                        
+
                         # Criar label mais informativo: Código - Descrição (Placa)
                         consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
-                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})",
                             axis=1
                         )
-                        
+
                         consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
-                        
+
                         fig_top10 = px.bar(
-                            consumo_por_equip, 
-                            x='Qtde_Litros', 
-                            y='label_grafico', 
-                            orientation='h', 
-                            text='texto_formatado', 
+                            consumo_por_equip,
+                            x='Qtde_Litros',
+                            y='label_grafico',
+                            orientation='h',
+                            text='texto_formatado',
                             labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
                             title="Top 10 Equipamentos com Maior Consumo"
                         )
                         fig_top10.update_traces(
-                            texttemplate='%{text} L', 
+                            texttemplate='%{text} L',
                             textposition='outside',
                             marker_color='#ff7f0e'
                         )
                         fig_top10.update_layout(
-                            yaxis={'categoryorder':'total ascending'}, 
-                            xaxis_title="Total Consumido (Litros)", 
+                            yaxis={'categoryorder':'total ascending'},
+                            xaxis_title="Total Consumido (Litros)",
                             yaxis_title="Equipamento",
                             height=400
                         )
                         st.plotly_chart(fig_top10, use_container_width=True)
 
                 st.markdown("---")
-                
+
                 # NOVA SEÇÃO: Top 10 de Gastos por Frota e por Classe
                 st.subheader("💰 Top 10 de Gastos por Frota e Classe")
-                
+
                 # Calcular gastos por frota
                 precos_map = get_precos_combustivel_map()
                 if precos_map:
                     df_gastos = df_f.copy()
-                    
+
                     # Verificar se a coluna tipo_combustivel existe em df_frotas
                     if 'tipo_combustivel' in df_frotas.columns:
                         df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
@@ -2038,68 +2039,68 @@ def main():
                     else:
                         # Se não existir, criar a coluna com valor padrão
                         df_gastos['tipo_combustivel'] = 'Diesel S500'
-                    
+
                     # Garantir que a coluna tipo_combustivel existe antes de mapear preços
                     if 'tipo_combustivel' not in df_gastos.columns:
                         df_gastos['tipo_combustivel'] = 'Diesel S500'
-                    
+
                     df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
-                    
+
                     # Adicionar informações da frota para filtro
                     df_gastos_com_info = df_gastos.merge(
-                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Classe_Operacional']], 
-                        on='Cod_Equip', 
+                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Classe_Operacional']],
+                        on='Cod_Equip',
                         how='left'
                     )
-                    
+
                     # Garantir que a coluna Classe_Operacional existe
                     if 'Classe_Operacional' not in df_gastos_com_info.columns:
                         df_gastos_com_info['Classe_Operacional'] = 'N/A'
-                    
+
                     # Filtro para excluir a frota 550 (usina) por padrão
                     mostrar_usinas = st.checkbox("🏭 Incluir Frota 550 (Usina) no Top 10 de Gastos por Frota", value=False)
-                    
+
                     if not mostrar_usinas:
                         # Excluir a frota 550 (usina) do DataFrame
                         df_gastos_filtrado = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] != 550]
                     else:
                         df_gastos_filtrado = df_gastos_com_info
-                    
+
                     # Top 10 gastos por frota individual (após filtro)
                     gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
                         'custo': 'sum',
                         'Qtde_Litros': 'sum'
                     }).sort_values('custo', ascending=False).head(10).reset_index()
-                    
+
                     # Adicionar informações da frota
                     gastos_por_frota = gastos_por_frota.merge(
-                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
-                        on='Cod_Equip', 
+                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']],
+                        on='Cod_Equip',
                         how='left'
                     )
                     gastos_por_frota['label_frota'] = gastos_por_frota.apply(
-                        lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
+                        lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}",
                         axis=1
                     )
                     gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                    
+
                     # Top 10 gastos por classe operacional
                     gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
                         'custo': 'sum',
                         'Qtde_Litros': 'sum'
                     }).sort_values('custo', ascending=False).head(10).reset_index()
                     gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                    
+
                     # Criar layout em 2 colunas para os gráficos
                     col_gastos1, col_gastos2 = st.columns(2)
-                    
+
                     with col_gastos1:
                         st.subheader("🏭 Top 10 Gastos por Frota")
-                        
+
                         # Mostrar informação sobre filtro da frota 550
                         # Comentário removido para manter proporção dos gráficos
-                        
+
                         if not gastos_por_frota.empty:
                             fig_gastos_frota = px.bar(
                                 gastos_por_frota,
@@ -2126,7 +2127,7 @@ def main():
                             st.plotly_chart(fig_gastos_frota, use_container_width=True)
                         else:
                             st.info("Não há dados de gastos por frota.")
-                    
+
                     with col_gastos2:
                         st.subheader("🏗️ Top 10 Gastos por Classe")
                         if not gastos_por_classe.empty:
@@ -2155,20 +2156,20 @@ def main():
                             st.plotly_chart(fig_gastos_classe, use_container_width=True)
                         else:
                             st.info("Não há dados de gastos por classe.")
-                    
+
                     # Resumo dos totais
                     st.markdown("---")
                     col_resumo1, col_resumo2, col_resumo3 = st.columns(3)
                     with col_resumo1:
                         st.metric(
-                            "Total Gastos (Período)", 
+                            "Total Gastos (Período)",
                             formatar_brasileiro(df_gastos['custo'].sum(), 'R$ ')
                         )
                     with col_resumo2:
                         if not gastos_por_frota.empty:
                             frota_maior_gasto = gastos_por_frota.iloc[0]
                             st.metric(
-                                "Frota com Maior Gasto", 
+                                "Frota com Maior Gasto",
                                 f"{frota_maior_gasto['Cod_Equip']}",
                                 f"{frota_maior_gasto['custo_formatado']}"
                             )
@@ -2176,7 +2177,7 @@ def main():
                             st.metric("Frota com Maior Gasto", "N/A")
                     with col_resumo3:
                         st.metric(
-                            "Classe com Maior Gasto", 
+                            "Classe com Maior Gasto",
                             f"{gastos_por_classe.iloc[0]['Classe_Operacional'] if not gastos_por_classe.empty else 'N/A'}"
                         )
                 else:
@@ -2196,12 +2197,12 @@ def main():
 
                 if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
                     media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
-                    
+
                     df_media_grafico = media_por_classe.reset_index()
                     df_media_grafico['texto_formatado'] = df_media_grafico['Media'].apply(
                         lambda x: formatar_brasileiro(x)
                     )
-                    
+
                     # Cria o gráfico de barras
                     fig_media_classe = px.bar(
                         df_media_grafico,
@@ -2229,7 +2230,7 @@ def main():
                 if precos_map:
                     # Vincula combustível por frota e multiplica litros por preço
                     df_tmp = df_f.copy()
-                    
+
                     # Verificar se a coluna tipo_combustivel existe em df_frotas
                     if 'tipo_combustivel' in df_frotas.columns:
                         df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
@@ -2244,7 +2245,7 @@ def main():
                     # Garantir que a coluna tipo_combustivel existe antes de mapear preços
                     if 'tipo_combustivel' not in df_tmp.columns:
                         df_tmp['tipo_combustivel'] = 'Diesel S500'
-                    
+
                     df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
                     # Agrupar por matrícula
@@ -2270,18 +2271,18 @@ def main():
 
                 st.markdown("---")
                 st.subheader("🔄 Análise de Proporções por Classe e Combustível")
-            
+
             # Criar DataFrame com informações de combustível
             df_consumo_combustivel = df_f.copy()
-            
+
             # Verificar se a coluna tipo_combustivel existe em df_frotas
             if 'tipo_combustivel' in df_frotas.columns:
                 try:
                     frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
                     frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
                     df_consumo_combustivel = df_consumo_combustivel.merge(
-                        frotas_combustivel, 
-                        on='Cod_Equip', 
+                        frotas_combustivel,
+                        on='Cod_Equip',
                         how='left'
                     )
                     # Verificar se a coluna foi criada após o merge
@@ -2291,13 +2292,13 @@ def main():
                     df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
             else:
                 df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-            
+
             # Garantir que a coluna tipo_combustivel existe
             if 'tipo_combustivel' not in df_consumo_combustivel.columns:
                 df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-            
+
             col_grafico1, col_grafico2 = st.columns(2)
-            
+
             with col_grafico1:
                 st.subheader("📊 Consumo por Classe (Visão Macro)")
                 # Excluir "Usina" e frotas sem classe, usar Classe_Operacional
@@ -2305,20 +2306,20 @@ def main():
                 # Verificar se a coluna Classe_Operacional existe antes de filtrar
                 if 'Classe_Operacional' in df_consumo_combustivel.columns:
                     df_consumo_classe_macro = df_consumo_combustivel[
-                        (df_consumo_combustivel['Classe_Operacional'].notna()) & 
+                        (df_consumo_combustivel['Classe_Operacional'].notna()) &
                         (~df_consumo_combustivel['Classe_Operacional'].str.upper().isin(classes_a_excluir_macro))
                     ]
                 else:
                     df_consumo_classe_macro = df_consumo_combustivel
-                
+
                 if not df_consumo_classe_macro.empty:
                     try:
                         consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
-                        
+
                         # Criar gráfico de pizza
                         fig_pizza_classe = px.pie(
-                            consumo_por_classe_macro, 
-                            values='Qtde_Litros', 
+                            consumo_por_classe_macro,
+                            values='Qtde_Litros',
                             names='Classe_Operacional',
                             title="Proporção de Consumo por Classe",
                             hole=0.3
@@ -2326,7 +2327,7 @@ def main():
                         fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
                         fig_pizza_classe.update_layout(height=400)
                         st.plotly_chart(fig_pizza_classe, use_container_width=True)
-                        
+
                         # Mostrar totais
                         st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
@@ -2334,17 +2335,17 @@ def main():
                         st.error(f"Erro ao criar gráfico de classe: {e}")
                 else:
                     st.warning("Não há dados suficientes para análise por classe.")
-            
+
             with col_grafico2:
                 st.subheader("⛽ Consumo por Tipo de Combustível")
                 if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
                     try:
                         consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
-                        
+
                         # Criar gráfico de pizza
                         fig_pizza_combustivel = px.pie(
-                            consumo_por_combustivel, 
-                            values='Qtde_Litros', 
+                            consumo_por_combustivel,
+                            values='Qtde_Litros',
                             names='tipo_combustivel',
                             title="Proporção de Consumo por Combustível",
                             hole=0.3
@@ -2352,7 +2353,7 @@ def main():
                         fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
                         fig_pizza_combustivel.update_layout(height=400)
                         st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
-                        
+
                         # Mostrar totais
                         st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
@@ -2362,7 +2363,7 @@ def main():
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
                 else:
                     st.warning("Não há dados suficientes para análise por combustível.")
-        
+
         elif tab_ativo == "consulta":
             st.header("🔎 Ficha Individual do Equipamento")
             # Permitir consulta direta por código (Cód Equipamento)
@@ -2371,17 +2372,17 @@ def main():
                 equip_label = df_frotas.loc[df_frotas['Cod_Equip'] == int(cod_input)].iloc[0]['label']
             else:
                 equip_label = None
-        
+
             if equip_label:
                 cod_sel = int(equip_label.split(" - ")[0])
                 dados_eq = df_frotas.query("Cod_Equip == @cod_sel").iloc[0]
                 consumo_eq = df.query("Cod_Equip == @cod_sel")
-                
+
                 st.subheader(f"{dados_eq.get('DESCRICAO_EQUIPAMENTO','–')} ({dados_eq.get('PLACA','–')})")
-                
+
                 ultimo_registro = consumo_eq.dropna(subset=['Hod_Hor_Atual']).sort_values("Data", ascending=False).iloc[0] if not consumo_eq.dropna(subset=['Hod_Hor_Atual']).empty else None
                 valor_atual_display = formatar_brasileiro_int(ultimo_registro['Hod_Hor_Atual']) if ultimo_registro is not None else "–"
-                
+
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Status", dados_eq.get("ATIVO", "–"))
                 c2.metric("Placa", dados_eq.get("PLACA", "–"))
@@ -2390,46 +2391,46 @@ def main():
                 # Análise do motorista com uso mais frequente
                 st.markdown("---")
                 st.subheader("👤 Análise de Uso por Motorista")
-                
+
                 if not consumo_eq.empty and 'Matricula' in consumo_eq.columns:
                     # Análise por motorista (matrícula)
                     uso_por_motorista = consumo_eq.groupby('Matricula').agg({
                         'Qtde_Litros': 'sum',
                         'Data': 'count'
                     }).rename(columns={'Data': 'Abastecimentos'}).sort_values('Qtde_Litros', ascending=False)
-                    
+
                     if not uso_por_motorista.empty:
                         # Top 5 motoristas com maior consumo
                         top_motoristas = uso_por_motorista.head(5).reset_index()
                         top_motoristas['Consumo (L)'] = top_motoristas['Qtde_Litros'].apply(formatar_brasileiro_int)
                         top_motoristas['Abastecimentos'] = top_motoristas['Abastecimentos'].astype(int)
-                        
+
                         col_motorista1, col_motorista2 = st.columns(2)
-                        
+
                         with col_motorista1:
                             st.subheader("🏆 Top 5 Motoristas por Consumo")
                             st.dataframe(
-                                top_motoristas[['Matricula', 'Consumo (L)', 'Abastecimentos']], 
+                                top_motoristas[['Matricula', 'Consumo (L)', 'Abastecimentos']],
                                 use_container_width=True
                             )
-                        
+
                         with col_motorista2:
                             st.subheader("📊 Motorista com Maior Uso")
                             motorista_mais_frequente = top_motoristas.iloc[0]
                             st.metric(
-                                "Motorista Principal", 
+                                "Motorista Principal",
                                 f"Matrícula {motorista_mais_frequente['Matricula']}",
                                 f"{motorista_mais_frequente['Consumo (L)']} L"
                             )
                             st.metric(
-                                "Total de Abastecimentos", 
+                                "Total de Abastecimentos",
                                 motorista_mais_frequente['Abastecimentos']
                             )
                             st.metric(
-                                "Percentual do Total", 
+                                "Percentual do Total",
                                 f"{(motorista_mais_frequente['Qtde_Litros'] / uso_por_motorista['Qtde_Litros'].sum() * 100):.1f}%"
                             )
-                        
+
                         # Gráfico de consumo por motorista
                         st.subheader("📈 Consumo por Motorista")
                         fig_motoristas = px.bar(
@@ -2450,7 +2451,7 @@ def main():
                             height=400
                         )
                         st.plotly_chart(fig_motoristas, use_container_width=True)
-                        
+
                     else:
                         st.info("Não há dados de motoristas (matrículas) para este equipamento.")
                 else:
@@ -2503,12 +2504,12 @@ def main():
                 m2.metric("Checklists (total)", chk_total)
                 m3.metric(f"Revisões ({periodo_dias}d)", rev_30d)
                 m4.metric("Revisões (total)", rev_total)
-        
+
                 st.markdown("---")
 
                 # NOVA SEÇÃO: Gastos com Combustível por Frota vs Classe
                 st.subheader("💰 Gastos com Combustível")
-                
+
                 precos_map = get_precos_combustivel_map()
                 if precos_map:
                     # Calcular gasto da frota selecionada
@@ -2516,8 +2517,8 @@ def main():
                     # Verificar se a coluna tipo_combustivel existe em df_frotas
                     if 'tipo_combustivel' in df_frotas.columns:
                         df_frota_gastos = df_frota_gastos.merge(
-                            df_frotas[['Cod_Equip', 'tipo_combustivel']], 
-                            on='Cod_Equip', 
+                            df_frotas[['Cod_Equip', 'tipo_combustivel']],
+                            on='Cod_Equip',
                             how='left'
                         )
                         # Verificar se a coluna foi criada após o merge
@@ -2530,9 +2531,9 @@ def main():
                         df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
                     df_frota_gastos['preco_unit'] = df_frota_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_frota_gastos['custo'] = df_frota_gastos['Qtde_Litros'].fillna(0.0) * df_frota_gastos['preco_unit']
-                    
+
                     gasto_frota = df_frota_gastos['custo'].sum()
-                    
+
                     # Calcular gasto total da classe
                     classe_selecionada = dados_eq.get('Classe_Operacional')
                     gasto_classe_total = 0
@@ -2541,8 +2542,8 @@ def main():
                         # Verificar se a coluna tipo_combustivel existe em df_frotas
                         if 'tipo_combustivel' in df_frotas.columns:
                             df_classe_gastos = df_classe_gastos.merge(
-                                df_frotas[['Cod_Equip', 'tipo_combustivel']], 
-                                on='Cod_Equip', 
+                                df_frotas[['Cod_Equip', 'tipo_combustivel']],
+                                on='Cod_Equip',
                                 how='left'
                             )
                             # Verificar se a coluna foi criada após o merge
@@ -2553,45 +2554,45 @@ def main():
                         else:
                             # Se não existir, criar a coluna com valor padrão
                             df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
-                        
+
                         df_classe_gastos['preco_unit'] = df_classe_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                         df_classe_gastos['custo'] = df_classe_gastos['Qtde_Litros'].fillna(0.0) * df_classe_gastos['preco_unit']
                         gasto_classe_total = df_classe_gastos['custo'].sum()
-                    
+
                     # Calcular porcentagem
                     porcentagem_classe = (gasto_frota / gasto_classe_total * 100) if gasto_classe_total > 0 else 0
-                    
+
                     # Exibir métricas
                     col_gasto1, col_gasto2, col_gasto3 = st.columns(3)
-                    
+
                     with col_gasto1:
                         st.metric(
-                            "💰 Gasto da Frota", 
+                            "💰 Gasto da Frota",
                             formatar_brasileiro(gasto_frota, 'R$ '),
                             help="Total gasto com combustível por esta frota"
                         )
-                    
+
                     with col_gasto2:
                         st.metric(
-                            "💰 Gasto Total da Classe", 
+                            "💰 Gasto Total da Classe",
                             formatar_brasileiro(gasto_classe_total, 'R$ '),
                             help="Total gasto com combustível por todas as frotas da mesma classe"
                         )
-                    
+
                     with col_gasto3:
                         st.metric(
-                            "📊 % da Classe", 
+                            "📊 % da Classe",
                             f"{porcentagem_classe:.1f}%",
                             help="Porcentagem que esta frota representa do gasto total da classe"
                         )
-                    
+
                     # Gráfico de comparação
                     if gasto_classe_total > 0:
                         df_comparacao_gastos = pd.DataFrame({
                             'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
                             'Gasto (R$)': [gasto_frota, gasto_classe_total - gasto_frota]
                         })
-                        
+
                         fig_gastos = px.pie(
                             df_comparacao_gastos,
                             values='Gasto (R$)',
@@ -2609,7 +2610,7 @@ def main():
                         )
                         fig_gastos.update_layout(height=400)
                         st.plotly_chart(fig_gastos, use_container_width=True)
-                        
+
                         # Informações adicionais
                         st.info(f"""
                         **📊 Resumo dos Gastos:**
@@ -2618,15 +2619,15 @@ def main():
                         """)
                 else:
                     st.warning("⚠️ Para visualizar os gastos com combustível, configure os preços na aba 'Importar Dados > Preços de Combustível'.")
-                
+
                 # NOVA SEÇÃO: Consumo Total da Frota
                 st.markdown("---")
                 st.subheader("⛽ Consumo Total da Frota")
-                
+
                 if not consumo_eq.empty:
                     # Calcular consumo total em litros
                     consumo_total_litros = consumo_eq['Qtde_Litros'].sum()
-                    
+
                     # Calcular consumo por período (últimos 30, 90, 365 dias)
                     hoje = pd.Timestamp.now()
                     periodos = {
@@ -2634,64 +2635,64 @@ def main():
                         'Últimos 90 dias': 90,
                         'Últimos 365 dias': 365
                     }
-                    
+
                     consumos_periodo = {}
                     for nome_periodo, dias in periodos.items():
                         data_limite = hoje - pd.Timedelta(days=dias)
                         consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
                         consumos_periodo[nome_periodo] = consumo_periodo
-                    
+
                     # Calcular consumo da classe para comparação
                     classe_selecionada = dados_eq.get('Classe_Operacional')
                     consumo_classe_total = 0
                     if classe_selecionada:
                         df_classe_consumo = df[df['Classe_Operacional'] == classe_selecionada]
                         consumo_classe_total = df_classe_consumo['Qtde_Litros'].sum()
-                    
+
                     # Calcular porcentagem do consumo da classe
                     porcentagem_consumo_classe = (consumo_total_litros / consumo_classe_total * 100) if consumo_classe_total > 0 else 0
-                    
+
                     # Métricas de consumo
                     col_consumo1, col_consumo2, col_consumo3, col_consumo4, col_consumo5 = st.columns(5)
-                    
+
                     with col_consumo1:
                         st.metric(
-                            "📊 Consumo Total", 
+                            "📊 Consumo Total",
                             f"{formatar_brasileiro_int(consumo_total_litros)} L",
                             help="Total de litros consumidos por esta frota"
                         )
-                    
+
                     with col_consumo2:
                         st.metric(
-                            "📅 Últimos 30 dias", 
+                            "📅 Últimos 30 dias",
                             f"{formatar_brasileiro_int(consumos_periodo['Últimos 30 dias'])} L"
                         )
-                    
+
                     with col_consumo3:
                         st.metric(
-                            "📅 Últimos 90 dias", 
+                            "📅 Últimos 90 dias",
                             f"{formatar_brasileiro_int(consumos_periodo['Últimos 90 dias'])} L"
                         )
-                    
+
                     with col_consumo4:
                         st.metric(
-                            "📅 Últimos 365 dias", 
+                            "📅 Últimos 365 dias",
                             f"{formatar_brasileiro_int(consumos_periodo['Últimos 365 dias'])} L"
                         )
-                    
+
                     with col_consumo5:
                         st.metric(
-                            "📊 % da Classe", 
+                            "📊 % da Classe",
                             f"{porcentagem_consumo_classe:.1f}%",
                             help="Porcentagem que esta frota representa do consumo total da classe"
                         )
-                    
+
                     # Gráfico de consumo por período
                     df_consumo_periodo = pd.DataFrame({
                         'Período': list(consumos_periodo.keys()),
                         'Consumo (L)': list(consumos_periodo.values())
                     })
-                    
+
                     fig_consumo_periodo = px.bar(
                         df_consumo_periodo,
                         x='Período',
@@ -2712,14 +2713,14 @@ def main():
                         yaxis_title="Consumo (Litros)"
                     )
                     st.plotly_chart(fig_consumo_periodo, use_container_width=True)
-                    
+
                     # Gráfico de comparação de consumo vs classe
                     if consumo_classe_total > 0:
                         df_comparacao_consumo = pd.DataFrame({
                             'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
                             'Consumo (L)': [consumo_total_litros, consumo_classe_total - consumo_total_litros]
                         })
-                        
+
                         fig_consumo_classe = px.pie(
                             df_comparacao_consumo,
                             values='Consumo (L)',
@@ -2737,11 +2738,11 @@ def main():
                         )
                         fig_consumo_classe.update_layout(height=400)
                         st.plotly_chart(fig_consumo_classe, use_container_width=True)
-                    
+
                     # Gráfico de evolução mensal do consumo
                     if len(consumo_eq) > 1:
                         consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
-                        
+
                         if not consumo_mensal_frota.empty:
                             fig_evolucao = px.line(
                                 consumo_mensal_frota,
@@ -2757,7 +2758,7 @@ def main():
                                 yaxis_title="Litros Consumidos"
                             )
                             st.plotly_chart(fig_evolucao, use_container_width=True)
-                    
+
                     # Resumo informativo
                     st.info(f"""
                     **📈 Resumo do Consumo:**
@@ -2769,31 +2770,31 @@ def main():
                     """)
                 else:
                     st.info("Não há dados de consumo para este equipamento.")
-                
+
                 st.markdown("---")
-                
+
                 st.subheader("Comparativo de Eficiência")
-            
-                col_grafico, col_alerta = st.columns([2, 1]) 
+
+                col_grafico, col_alerta = st.columns([2, 1])
 
                 if 'Media' not in df.columns or df['Media'].dropna().empty:
                     col_grafico.warning("A coluna 'Media' não foi encontrada ou está vazia.")
                 else:
                     consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
                     media_equip_selecionado = consumo_real_eq['Media'].mean()
-                    
+
                     classe_selecionada = dados_eq.get('Classe_Operacional')
                     media_da_classe = np.nan
 
                     if classe_selecionada:
                         consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
                         media_da_classe = consumo_classe['Media'].mean()
-                        
+
                         meta_consumo = st.session_state.intervalos_por_classe.get(classe_selecionada, {}).get('meta_consumo', 0)
 
                         if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
                             with col_alerta:
-                                st.write("") 
+                                st.write("")
                                 st.write("")
                                 if meta_consumo > 0 and media_equip_selecionado > meta_consumo * 1.05:
                                     st.error(f"**ALERTA DE META!** O consumo está acima da meta definida.")
@@ -2801,7 +2802,7 @@ def main():
                                     st.success(f"**EFICIENTE!** O consumo está dentro ou abaixo da média da sua classe.")
                                 else:
                                     st.warning(f"**ATENÇÃO!** O consumo está acima da média da classe.")
-                                
+
                                 st.metric(label=f"Média do Equipamento", value=formatar_brasileiro(media_equip_selecionado))
                                 st.metric(label=f"Média da Classe", value=formatar_brasileiro(media_da_classe))
                                 if meta_consumo > 0:
@@ -2820,10 +2821,10 @@ def main():
                                 df_comp['texto_formatado'] = df_comp['Média Consumo'].apply(lambda x: formatar_brasileiro(x))
 
                                 fig_comp = px.bar(
-                                    df_comp, 
-                                    x='Categoria', 
-                                    y='Média Consumo', 
-                                    text='texto_formatado', 
+                                    df_comp,
+                                    x='Categoria',
+                                    y='Média Consumo',
+                                    text='texto_formatado',
                                     title="Eficiência de Consumo vs. Meta",
                                     color='Categoria',
                                     # 2. Atualiza o mapa de cores com os novos nomes
@@ -2840,14 +2841,14 @@ def main():
                                 st.plotly_chart(fig_comp, use_container_width=True)
                         else:
                             col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
-                        
+
                 st.markdown("---")
-                
+
                 st.markdown("---")
-                
+
                 st.subheader("Manutenções Pendentes (Componentes)")
                 dados_manut_pendente = plan_df[plan_df['Cod_Equip'] == cod_sel]
-                
+
                 if not dados_manut_pendente.empty:
                     componentes_pendentes = []
                     for col in dados_manut_pendente.columns:
@@ -2857,13 +2858,13 @@ def main():
                                 nome_componente = col.replace('Restante_', '')
                                 unidade = dados_manut_pendente['Unidade'].iloc[0]
                                 componentes_pendentes.append((nome_componente, valor_restante, unidade))
-                    
+
                     if componentes_pendentes:
                         componentes_pendentes.sort(key=lambda x: x[1]) # Ordena para mostrar os mais urgentes primeiro
                         cols_metricas = st.columns(len(componentes_pendentes))
                         for i, (nome, valor, unid) in enumerate(componentes_pendentes):
                             cols_metricas[i].metric(
-                                label=f"Próximo(a) {nome}", 
+                                label=f"Próximo(a) {nome}",
                                 value=f"{formatar_brasileiro_int(valor)} {unid}"
                             )
                     else:
@@ -2873,12 +2874,12 @@ def main():
                 # --- FIM DA MELHORIA 1 ---
 
                 st.markdown("---")
-                
+
                 # --- INÍCIO DA MELHORIA 2: Histórico de Manutenção por Componente ---
                 st.subheader("Histórico de Manutenções de Componentes")
                 # Substitui a tabela de manutenções antigas pela nova
                 historico_manut_display = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
-                
+
                 if not historico_manut_display.empty:
                     st.dataframe(historico_manut_display[['Data', 'nome_componente', 'Hod_Hor_No_Servico', 'Observacoes']])
                 else:
@@ -2894,10 +2895,10 @@ def main():
                     st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display.columns]])
                 else:
                     st.info("Nenhum registo de abastecimento para este equipamento.")
-                            
+
         elif tab_ativo == "manut":
             st.header("🛠️ Controle de Manutenção")
-            
+
             if not plan_df.empty:
                 st.subheader("🚨 Equipamentos com Alertas de Manutenção")
                 df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
@@ -2923,7 +2924,7 @@ def main():
                     for col in plan_df.columns:
                         if 'Restante_' in col and plan_df[col].notna().any():
                             cols_to_show.append(col)
-                    
+
                     df_plano_display = plan_df[cols_to_show].copy()
                     for col in df_plano_display.columns:
                         if col not in ['Cod_Equip', 'Equipamento'] and pd.api.types.is_numeric_dtype(df_plano_display[col]):
@@ -2943,7 +2944,7 @@ def main():
 
             if not plan_df.empty:
                 df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
-                
+
                 st.subheader("🚨 Equipamentos com Alertas de Manutenção")
                 if not df_com_alerta.empty:
                     df_com_alerta['Alertas'] = df_com_alerta['Alertas'].apply(lambda x: ', '.join(x))
@@ -2976,7 +2977,7 @@ def main():
                     regras_classe = df_comp_regras[df_comp_regras['classe_operacional'] == classe_selecionada]
                     if not regras_classe.empty:
                         componentes_disponiveis = regras_classe['nome_componente'].tolist()
-                
+
                 componente_servico = st.selectbox("Componente que recebeu manutenção", options=componentes_disponiveis)
                 data_servico = st.date_input("Data do Serviço")
                 hod_hor_servico = st.number_input("Leitura no Momento do Serviço", min_value=0.0, format="%.2f")
@@ -2990,10 +2991,10 @@ def main():
                         rerun_keep_tab("🛠️ Controle de Manutenção")
                     else:
                         st.warning("Por favor, selecione um equipamento e um componente.")
-                                    
+
                     st.markdown("---")
                     st.subheader("📅 Previsão de Próximas Manutenções")
-                
+
             df_previsao = prever_manutencoes(df_frotas, df, plan_df)
 
             if not df_previsao.empty:
@@ -3001,7 +3002,7 @@ def main():
                     st.dataframe(df_previsao[df_previsao['Dias Restantes'] <= 90])
             else:
                     st.info("Não há dados suficientes para gerar uma previsão de manutenções.")
-                    
+
         # APAGUE O CONTEÚDO DA SUA "with tab_checklists:" E SUBSTITUA-O POR ESTE BLOCO
 
         elif tab_ativo == "checklists":
@@ -3010,7 +3011,7 @@ def main():
 
             hoje = date.today()
             dia_par = hoje.day % 2 == 0
-            
+
             frotas_a_verificar = df_frotas[df_frotas['ATIVO'] == 'ATIVO']
             regras_a_aplicar = get_checklist_rules()
 
@@ -3048,7 +3049,7 @@ def main():
 
                             for _, veiculo in veiculos_da_classe.iterrows():
                                 st.subheader(f"Veículo: {veiculo['label']}")
-                                
+
                                 ja_preenchido = df_checklist_historico[
                                     (df_checklist_historico['Cod_Equip'] == veiculo['Cod_Equip']) &
                                     (df_checklist_historico['data_preenchimento'] == hoje.strftime('%Y-%m-%d')) &
@@ -3066,7 +3067,7 @@ def main():
                                                 options=["Selecione...", "OK", "Com Problema"],
                                                 key=f"item_{item['id_item']}_{veiculo['Cod_Equip']}"
                                             )
-                                        
+
                                         if st.form_submit_button("Salvar Checklist"):
                                             if any(v == "Selecione..." for v in status_itens.values()):
                                                 st.warning("Selecione uma opção para todos os itens antes de salvar.")
@@ -3076,12 +3077,12 @@ def main():
                                                 st.success("Checklist salvo com sucesso!")
                                                 st.session_state['open_expander_checklists'] = f"regra_{regra['id_regra']}"
                                                 rerun_keep_tab("✅ Checklists Diários")
-                
+
                 if not checklists_para_hoje:
                     st.info("Nenhum checklist agendado para hoje.")
 
                                 # bloco duplicado removido
-                    
+
         elif tab_ativo == "gerir_lanc" and st.session_state.role == 'admin':
             st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
             acao = st.radio(
@@ -3090,211 +3091,212 @@ def main():
                 horizontal=True,
                 key="acao_lancamentos"
             )
+
             if acao == "Adicionar Abastecimento":
                 st.subheader("➕ Adicionar Novo Abastecimento")
                 with st.form("form_abastecimento", clear_on_submit=True):
-                            equip_selecionado_label = st.selectbox(
-                                "Selecione o Equipamento", 
-                                options=df_frotas.sort_values("label")["label"],
-                                key="add_abast_equip"
-                            )
-                            # Seleção de motorista (matrícula)
-                            df_mot_all = get_all_motoristas()
-                            matriculas_opts = [m for m in df_mot_all['matricula'].astype(str).tolist()] if not df_mot_all.empty else []
-                            matricula_sel = st.selectbox("Matrícula do Motorista", options=[""] + matriculas_opts)
+                    equip_selecionado_label = st.selectbox(
+                        "Selecione o Equipamento",
+                        options=df_frotas.sort_values("label")["label"],
+                        key="add_abast_equip"
+                    )
+                    # Seleção de motorista (matrícula)
+                    df_mot_all = get_all_motoristas()
+                    matriculas_opts = [m for m in df_mot_all['matricula'].astype(str).tolist()] if not df_mot_all.empty else []
+                    matricula_sel = st.selectbox("Matrícula do Motorista", options=[""] + matriculas_opts)
 
-                            data_abastecimento = st.date_input("Data do Abastecimento")
-                            qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
-                            hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
-                            safra = st.text_input("Safra (Ex: 2023/2024)")
+                    data_abastecimento = st.date_input("Data do Abastecimento")
+                    qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
+                    hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
+                    safra = st.text_input("Safra (Ex: 2023/2024)")
 
-                            submitted = st.form_submit_button("Salvar Abastecimento")
+                    submitted = st.form_submit_button("Salvar Abastecimento")
 
-                            if submitted:
-                                if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
-                                    st.warning("Por favor, preencha todos os campos.")
-                                else:
-                                    cod_equip = int(equip_selecionado_label.split(" - ")[0])
-                                    
-                                    # Usa o nome da coluna padronizado ('Classe_Operacional' com underscore)
-                                    classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe_Operacional'].iloc[0]
+                    if submitted:
+                        if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
+                            st.warning("Por favor, preencha todos os campos.")
+                        else:
+                            cod_equip = int(equip_selecionado_label.split(" - ")[0])
 
-                                    cod_pessoa_val = None
-                                    if matricula_sel:
-                                        df_mot_sel = df_mot_all[df_mot_all['matricula'].astype(str) == str(matricula_sel)] if not df_mot_all.empty else pd.DataFrame()
-                                        if not df_mot_sel.empty:
-                                            cod_pessoa_val = df_mot_sel.iloc[0].get('codigo_pessoa')
+                            # Usa o nome da coluna padronizado ('Classe_Operacional' com underscore)
+                            classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe_Operacional'].iloc[0]
 
-                                    dados_novos = {
-                                        'cod_equip': cod_equip,
-                                        'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
-                                        'qtde_litros': qtde_litros,
-                                        'hod_hor_atual': hod_hor_atual,
-                                        'safra': safra,
-                                        'mes': data_abastecimento.month,
-                                        'classe_operacional': classe_op,
-                                        'matricula': matricula_sel if matricula_sel else None,
-                                        'cod_pessoa': cod_pessoa_val
-                                    }
+                            cod_pessoa_val = None
+                            if matricula_sel:
+                                df_mot_sel = df_mot_all[df_mot_all['matricula'].astype(str) == str(matricula_sel)] if not df_mot_all.empty else pd.DataFrame()
+                                if not df_mot_sel.empty:
+                                    cod_pessoa_val = df_mot_sel.iloc[0].get('codigo_pessoa')
 
-                                    if inserir_abastecimento(DB_PATH, dados_novos):
-                                        st.success("Abastecimento salvo com sucesso!")
-                                        rerun_keep_tab("⚙️ Gerir Lançamentos")
+                            dados_novos = {
+                                'cod_equip': cod_equip,
+                                'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
+                                'qtde_litros': qtde_litros,
+                                'hod_hor_atual': hod_hor_atual,
+                                'safra': safra,
+                                'mes': data_abastecimento.month,
+                                'classe_operacional': classe_op,
+                                'matricula': matricula_sel if matricula_sel else None,
+                                'cod_pessoa': cod_pessoa_val
+                            }
+
+                            if inserir_abastecimento(DB_PATH, dados_novos):
+                                st.success("Abastecimento salvo com sucesso!")
+                                rerun_keep_tab("⚙️ Gerir Lançamentos")
 
             elif acao == "Excluir Lançamento":
                 st.subheader("🗑️ Excluir um Lançamento")
-                                
+
                 tipo_exclusao = st.radio("O que deseja excluir?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="delete_choice")
-                                
+
                 if tipo_exclusao == "Abastecimento":
-                                    df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
-                                    df_para_excluir['label_exclusao'] = (
-                                        df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
-                                        df_para_excluir['Cod_Equip'].astype(str) + " - " +
-                                        df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                        df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
-                                        df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
-                                    )
-        
-                                    # Adiciona um mapeamento de label para rowid para encontrar o registro certo
-                                    map_label_to_rowid = pd.Series(df_para_excluir.rowid.values, index=df_para_excluir.label_exclusao).to_dict()
-        
-                                    registro_selecionado_label = st.selectbox(
-                                        "Selecione o abastecimento a ser excluído (mais recentes primeiro)",
-                                        options=df_para_excluir['label_exclusao']
-                                    )
-                                    
-                                    if registro_selecionado_label:
-                                        rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
-                                        
-                                        st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
-                                        
-                                        # Mostra os detalhes do registro selecionado
-                                        registro_detalhes = df[df['rowid'] == rowid_para_excluir]
-                                        st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Qtde_Litros', 'Hod_Hor_Atual']])
-        
-                                        if st.button("Confirmar Exclusão", type="primary"):
-                                            if excluir_abastecimento(DB_PATH, rowid_para_excluir):
-                                                st.success("Registro excluído com sucesso!")
-                                                # Invalidar cache para atualizar contadores
-                                                st.cache_data.clear()
-                                                rerun_keep_tab("⚙️ Gerir Lançamentos")
-                                
-                                elif tipo_exclusao == "Manutenção":
-                                    st.subheader("🗑️ Excluir Manutenção")
-                                    
-                                    # Garantir que df_manutencoes tenha rowid
-                                    if 'rowid' not in df_manutencoes.columns:
-                                        df_manutencoes = df_manutencoes.reset_index().rename(columns={'index': 'rowid'})
-                                    
-                                    df_manut_para_excluir = df_manutencoes.copy()
-                                    df_manut_para_excluir['Data'] = pd.to_datetime(df_manut_para_excluir['Data'], errors='coerce')
-                                    df_manut_para_excluir = df_manut_para_excluir.sort_values(by="Data", ascending=False)
-                                    
-                                    # Adiciona descrição do equipamento
-                                    df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
-                                    desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
-                                    df_manut_para_excluir['DESCRICAO_EQUIPAMENTO'] = df_manut_para_excluir['Cod_Equip'].map(desc_map).fillna('N/A')
-                                    
-                                    df_manut_para_excluir['label_exclusao'] = (
-                                        df_manut_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
-                                        df_manut_para_excluir['Cod_Equip'].astype(str) + " - " +
-                                        df_manut_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                        df_manut_para_excluir['Tipo_Servico'] + " | " +
-                                        df_manut_para_excluir['Hod_Hor_No_Servico'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
-                                    )
-                                    
-                                    map_label_to_rowid = pd.Series(df_manut_para_excluir.rowid.values, index=df_manut_para_excluir.label_exclusao).to_dict()
-                                    
-                                    registro_selecionado_label = st.selectbox(
-                                        "Selecione a manutenção a ser excluída (mais recentes primeiro)",
-                                        options=df_manut_para_excluir['label_exclusao']
-                                    )
-                                    
-                                    if registro_selecionado_label:
-                                        rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
-                                        
-                                        st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
-                                        
-                                        registro_detalhes = df_manut_para_excluir[df_manut_para_excluir['rowid'] == rowid_para_excluir]
-                                        st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Tipo_Servico', 'Hod_Hor_No_Servico']])
-        
-                                        if st.button("Confirmar Exclusão", type="primary"):
-                                            if excluir_manutencao(DB_PATH, rowid_para_excluir):
-                                                st.success("Manutenção excluída com sucesso!")
-                                                # Invalidar cache para atualizar contadores
-                                                st.cache_data.clear()
-                                                rerun_keep_tab("⚙️ Gerir Lançamentos")
-                                
-                                elif tipo_exclusao == "Manutenção de Componentes":
-                                    st.subheader("🗑️ Excluir Manutenção de Componentes")
-                                    
-                                    df_comp_para_excluir = df_comp_historico.copy()
-                                    
-                                    if df_comp_para_excluir.empty:
-                                        st.warning("Nenhuma manutenção de componente encontrada.")
-                                    else:
-                                        # Garantir que df_comp_historico tenha rowid
-                                        if 'rowid' not in df_comp_para_excluir.columns:
-                                            df_comp_para_excluir = df_comp_para_excluir.reset_index().rename(columns={'index': 'rowid'})
-                                        
-                                        df_comp_para_excluir['Data'] = pd.to_datetime(df_comp_para_excluir['Data'], errors='coerce')
-                                        df_comp_para_excluir = df_comp_para_excluir.sort_values(by="Data", ascending=False)
-                                        
-                                        # Adiciona descrição do equipamento
-                                        df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
-                                        desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
-                                        df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'] = df_comp_para_excluir['Cod_Equip'].map(desc_map).fillna('N/A')
-                                        
-                                        df_comp_para_excluir['label_exclusao'] = (
-                                            df_comp_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
-                                            df_comp_para_excluir['Cod_Equip'].astype(str) + " - " +
-                                            df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                            df_comp_para_excluir['nome_componente'] + " | " +
-                                            df_comp_para_excluir['Observacoes'].fillna('N/A')
-                                        )
-                                        
-                                        map_label_to_rowid = pd.Series(df_comp_para_excluir.rowid.values, index=df_comp_para_excluir.label_exclusao).to_dict()
-                                        
-                                        registro_selecionado_label = st.selectbox(
-                                            "Selecione a manutenção de componente a ser excluída (mais recentes primeiro)",
-                                            options=df_comp_para_excluir['label_exclusao']
-                                        )
-                                        
-                                        if registro_selecionado_label:
-                                            rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
-                                            
-                                            st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
-                                            
-                                            registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir]
-                                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'nome_componente', 'Observacoes']])
-            
-                                            if st.button("Confirmar Exclusão", type="primary"):
-                                                # Obter os dados do registro selecionado
-                                                registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir].iloc[0]
-                                                
-                                                # Converter a data para string se for Timestamp
-                                                data_str = str(registro_detalhes['Data'])
-                                                if hasattr(registro_detalhes['Data'], 'strftime'):
-                                                    data_str = registro_detalhes['Data'].strftime('%Y-%m-%d')
-                                                
-                                                if excluir_manutencao_componente(
-                                                    DB_PATH, 
-                                                    registro_detalhes['Cod_Equip'],
-                                                    registro_detalhes['nome_componente'],
-                                                    data_str,
-                                                    registro_detalhes['Hod_Hor_No_Servico']
-                                                ):
-                                                    st.success("Manutenção de componente excluída com sucesso!")
-                                                    # Invalidar cache para atualizar contadores
-                                                    force_cache_clear()
-                                                    rerun_keep_tab("⚙️ Gerir Lançamentos")
-                                            
-                    elif acao == "Editar Lançamento":
-                                st.subheader("✏️ Editar um Lançamento")
-                                tipo_edicao = st.radio("O que deseja editar?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="edit_choice")
-        
-                                if tipo_edicao == "Abastecimento":
+                    df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
+                    df_para_excluir['label_exclusao'] = (
+                        df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                        df_para_excluir['Cod_Equip'].astype(str) + " - " +
+                        df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                        df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
+                        df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
+                    )
+
+                    # Adiciona um mapeamento de label para rowid para encontrar o registro certo
+                    map_label_to_rowid = pd.Series(df_para_excluir.rowid.values, index=df_para_excluir.label_exclusao).to_dict()
+
+                    registro_selecionado_label = st.selectbox(
+                        "Selecione o abastecimento a ser excluído (mais recentes primeiro)",
+                        options=df_para_excluir['label_exclusao']
+                    )
+
+                    if registro_selecionado_label:
+                        rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
+
+                        st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
+
+                        # Mostra os detalhes do registro selecionado
+                        registro_detalhes = df[df['rowid'] == rowid_para_excluir]
+                        st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Qtde_Litros', 'Hod_Hor_Atual']])
+
+                        if st.button("Confirmar Exclusão", type="primary"):
+                            if excluir_abastecimento(DB_PATH, rowid_para_excluir):
+                                st.success("Registro excluído com sucesso!")
+                                # Invalidar cache para atualizar contadores
+                                st.cache_data.clear()
+                                rerun_keep_tab("⚙️ Gerir Lançamentos")
+
+                elif tipo_exclusao == "Manutenção":
+                    st.subheader("🗑️ Excluir Manutenção")
+
+                    # Garantir que df_manutencoes tenha rowid
+                    if 'rowid' not in df_manutencoes.columns:
+                        df_manutencoes = df_manutencoes.reset_index().rename(columns={'index': 'rowid'})
+
+                    df_manut_para_excluir = df_manutencoes.copy()
+                    df_manut_para_excluir['Data'] = pd.to_datetime(df_manut_para_excluir['Data'], errors='coerce')
+                    df_manut_para_excluir = df_manut_para_excluir.sort_values(by="Data", ascending=False)
+
+                    # Adiciona descrição do equipamento
+                    df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                    desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
+                    df_manut_para_excluir['DESCRICAO_EQUIPAMENTO'] = df_manut_para_excluir['Cod_Equip'].map(desc_map).fillna('N/A')
+
+                    df_manut_para_excluir['label_exclusao'] = (
+                        df_manut_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                        df_manut_para_excluir['Cod_Equip'].astype(str) + " - " +
+                        df_manut_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                        df_manut_para_excluir['Tipo_Servico'] + " | " +
+                        df_manut_para_excluir['Hod_Hor_No_Servico'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
+                    )
+
+                    map_label_to_rowid = pd.Series(df_manut_para_excluir.rowid.values, index=df_manut_para_excluir.label_exclusao).to_dict()
+
+                    registro_selecionado_label = st.selectbox(
+                        "Selecione a manutenção a ser excluída (mais recentes primeiro)",
+                        options=df_manut_para_excluir['label_exclusao']
+                    )
+
+                    if registro_selecionado_label:
+                        rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
+
+                        st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
+
+                        registro_detalhes = df_manut_para_excluir[df_manut_para_excluir['rowid'] == rowid_para_excluir]
+                        st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Tipo_Servico', 'Hod_Hor_No_Servico']])
+
+                        if st.button("Confirmar Exclusão", type="primary"):
+                            if excluir_manutencao(DB_PATH, rowid_para_excluir):
+                                st.success("Manutenção excluída com sucesso!")
+                                # Invalidar cache para atualizar contadores
+                                st.cache_data.clear()
+                                rerun_keep_tab("⚙️ Gerir Lançamentos")
+
+                elif tipo_exclusao == "Manutenção de Componentes":
+                    st.subheader("🗑️ Excluir Manutenção de Componentes")
+
+                    df_comp_para_excluir = df_comp_historico.copy()
+
+                    if df_comp_para_excluir.empty:
+                        st.warning("Nenhuma manutenção de componente encontrada.")
+                    else:
+                        # Garantir que df_comp_historico tenha rowid
+                        if 'rowid' not in df_comp_para_excluir.columns:
+                            df_comp_para_excluir = df_comp_para_excluir.reset_index().rename(columns={'index': 'rowid'})
+
+                        df_comp_para_excluir['Data'] = pd.to_datetime(df_comp_para_excluir['Data'], errors='coerce')
+                        df_comp_para_excluir = df_comp_para_excluir.sort_values(by="Data", ascending=False)
+
+                        # Adiciona descrição do equipamento
+                        df_frotas_unique = df_frotas.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                        desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
+                        df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'] = df_comp_para_excluir['Cod_Equip'].map(desc_map).fillna('N/A')
+
+                        df_comp_para_excluir['label_exclusao'] = (
+                            df_comp_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                            df_comp_para_excluir['Cod_Equip'].astype(str) + " - " +
+                            df_comp_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
+                            df_comp_para_excluir['nome_componente'] + " | " +
+                            df_comp_para_excluir['Observacoes'].fillna('N/A')
+                        )
+
+                        map_label_to_rowid = pd.Series(df_comp_para_excluir.rowid.values, index=df_comp_para_excluir.label_exclusao).to_dict()
+
+                        registro_selecionado_label = st.selectbox(
+                            "Selecione a manutenção de componente a ser excluída (mais recentes primeiro)",
+                            options=df_comp_para_excluir['label_exclusao']
+                        )
+
+                        if registro_selecionado_label:
+                            rowid_para_excluir = map_label_to_rowid[registro_selecionado_label]
+
+                            st.warning("**Atenção:** Você está prestes a excluir o seguinte registro. Esta ação não pode ser desfeita.")
+
+                            registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir]
+                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'nome_componente', 'Observacoes']])
+
+                            if st.button("Confirmar Exclusão", type="primary"):
+                                # Obter os dados do registro selecionado
+                                registro_detalhes = df_comp_para_excluir[df_comp_para_excluir['rowid'] == rowid_para_excluir].iloc[0]
+
+                                # Converter a data para string se for Timestamp
+                                data_str = str(registro_detalhes['Data'])
+                                if hasattr(registro_detalhes['Data'], 'strftime'):
+                                    data_str = registro_detalhes['Data'].strftime('%Y-%m-%d')
+
+                                if excluir_manutencao_componente(
+                                    DB_PATH,
+                                    registro_detalhes['Cod_Equip'],
+                                    registro_detalhes['nome_componente'],
+                                    data_str,
+                                    registro_detalhes['Hod_Hor_No_Servico']
+                                ):
+                                    st.success("Manutenção de componente excluída com sucesso!")
+                                    # Invalidar cache para atualizar contadores
+                                    force_cache_clear()
+                                    rerun_keep_tab("⚙️ Gerir Lançamentos")
+
+            elif acao == "Editar Lançamento":
+                st.subheader("✏️ Editar um Lançamento")
+                tipo_edicao = st.radio("O que deseja editar?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="edit_choice")
+
+                if tipo_edicao == "Abastecimento":
                                     df_abast_edit = df.sort_values(by="Data", ascending=False).copy()
                                     df_abast_edit['label_edit'] = (
                                         df_abast_edit['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
@@ -3305,7 +3307,7 @@ def main():
                                     )
                                     map_label_to_rowid = pd.Series(df_abast_edit.rowid.values, index=df_abast_edit.label_edit).to_dict()
                                     label_selecionado = st.selectbox("Selecione o abastecimento para editar", options=df_abast_edit['label_edit'])
-                                    
+
                                     if label_selecionado:
                                         rowid_selecionado = map_label_to_rowid[label_selecionado]
                                         dados_atuais = df[df['rowid'] == rowid_selecionado].iloc[0]
@@ -3318,8 +3320,8 @@ def main():
 
                                             # --- Campos do formulário pré-preenchidos ---
                                             novo_equip_label = st.selectbox(
-                                                "Equipamento", 
-                                                options=lista_labels_frotas, 
+                                                "Equipamento",
+                                                options=lista_labels_frotas,
                                                 index=index_equip_atual
                                             )
                                             # Motorista: matrícula e nome (mostra matrícula na UI e guarda ambos)
@@ -3328,21 +3330,21 @@ def main():
                                             matricula_sel = st.selectbox("Matrícula do Motorista", options=[""] + matriculas_opts)
 
                                             nova_data = st.date_input(
-                                                "Data", 
+                                                "Data",
                                                 value=pd.to_datetime(dados_atuais['Data']).date()
                                             )
                                             nova_qtde = st.number_input(
-                                                "Qtde Litros", 
-                                                value=float(dados_atuais['Qtde_Litros']), 
+                                                "Qtde Litros",
+                                                value=float(dados_atuais['Qtde_Litros']),
                                                 format="%.2f"
                                             )
                                             novo_hod = st.number_input(
-                                                "Hod./Hor. Atual", 
-                                                value=float(dados_atuais['Hod_Hor_Atual']), 
+                                                "Hod./Hor. Atual",
+                                                value=float(dados_atuais['Hod_Hor_Atual']),
                                                 format="%.2f"
                                             )
                                             nova_safra = st.text_input(
-                                                "Safra", 
+                                                "Safra",
                                                 value=dados_atuais['Safra']
                                             )
 
@@ -3356,7 +3358,7 @@ def main():
                                                     cod_pessoa_val = df_mot_sel.iloc[0].get('codigo_pessoa')
                                             dados_editados = {
                                                 'cod_equip': int(novo_equip_label.split(" - ")[0]),
-                                                'data': nova_data.strftime("%Y-%m-%d %H:%M:%S"), 
+                                                'data': nova_data.strftime("%Y-%m-%d %H:%M:%S"),
                                                 'qtde_litros': nova_qtde,
                                                 'hod_hor_atual': novo_hod,
                                                 'safra': nova_safra,
@@ -3367,7 +3369,7 @@ def main():
                                                 st.success("Abastecimento atualizado com sucesso!")
                                                 rerun_keep_tab("⚙️ Gerir Lançamentos")
 
-                                if tipo_edicao == "Manutenção":
+                elif tipo_edicao == "Manutenção":
                                     st.subheader("Editar Lançamento de Manutenção")
 
                                     # Garantir que df_manutencoes tenha rowid
@@ -3454,12 +3456,12 @@ def main():
                                                         st.success("Manutenção atualizada com sucesso!")
                                                         rerun_keep_tab("⚙️ Gerir Lançamentos")
 
-                                if tipo_edicao == "Manutenção de Componentes":
+                elif tipo_edicao == "Manutenção de Componentes":
                                     st.subheader("Editar Lançamento de Manutenção de Componentes")
 
                                     # Carregar dados de componentes_historico
                                     df_comp_edit = df_comp_historico.copy()
-                                    
+
                                     if df_comp_edit.empty:
                                         st.warning("Nenhuma manutenção de componente encontrada.")
                                     else:
@@ -3532,7 +3534,7 @@ def main():
                                                             rerun_keep_tab("⚙️ Gerir Lançamentos")
 
 
-        with tab_gerir_frotas:
+        elif tab_ativo == "gerir_frotas":
             st.header("⚙️ Gerir Frotas")
             acao_frota = st.radio(
                 "Selecione a ação que deseja realizar:",
@@ -3540,25 +3542,25 @@ def main():
                 horizontal=True,
                 key="acao_frotas"
             )
-    
+
             if acao_frota == "Cadastrar Nova Frota":
                 st.subheader("➕ Cadastrar Nova Frota")
                 with st.form("form_nova_frota", clear_on_submit=True):
                     st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
-                    
+
                     # Campos do formulário
                     cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
                     descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
                     placa = st.text_input("Placa (deixe em branco se não aplicável)")
                     classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
                     ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
-                    
+
                     # Campo de tipo de combustível
                     tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
                     tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=0)
-                    
+
                     submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
-                    
+
                     if submitted_frota:
                         # Validação
                         if not all([cod_equip, descricao, classe_op]):
@@ -3575,11 +3577,11 @@ def main():
                                 'ativo': ativo,
                                 'tipo_combustivel': tipo_combustivel
                             }
-                            
+
                             if inserir_frota(DB_PATH, dados_frota):
                                 st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
                                 rerun_keep_tab("⚙️ Gerir Frotas")
-        
+
             elif acao_frota == "Editar Frota Existente":
                 st.subheader("✏️ Editar Frota Existente")
                 equip_para_editar_label = st.selectbox(
@@ -3587,28 +3589,28 @@ def main():
                     options=df_frotas.sort_values("label")["label"],
                     key="frota_edit_select"
                 )
-    
+
                 if equip_para_editar_label:
                     cod_equip_edit = int(equip_para_editar_label.split(" - ")[0])
                     dados_atuais = df_frotas[df_frotas['Cod_Equip'] == cod_equip_edit].iloc[0]
-    
+
                     with st.form("form_edit_frota"):
                         st.write(f"**Editando:** {dados_atuais['DESCRICAO_EQUIPAMENTO']} (Cód: {dados_atuais['Cod_Equip']})")
-    
+
                         nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
                         nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
                         nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
-                        
+
                         # Campo de tipo de combustível
                         tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
                         combustivel_atual = dados_atuais.get('tipo_combustivel', 'Diesel S500')
                         index_combustivel = tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0
                         novo_tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=index_combustivel)
-                        
+
                         status_options = ["ATIVO", "INATIVO"]
                         index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
                         novo_status = st.selectbox("Status", options=status_options, index=index_status)
-    
+
                         submitted = st.form_submit_button("Salvar Alterações na Frota")
                         if submitted:
                             dados_editados = {
@@ -3621,22 +3623,29 @@ def main():
                             if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
                                 st.success("Dados da frota atualizados com sucesso!")
                                 rerun_keep_tab("⚙️ Gerir Frotas")
-        
+
                 # NOVA SEÇÃO: Gerenciar Tipos de Combustível
             st.markdown("---")
             st.subheader("⛽ Gerenciar Tipos de Combustível")
             st.info("Esta seção permite gerenciar os tipos de combustível das frotas de forma eficiente. Acesso restrito a administradores.")
-        
+
             # Criar abas para organizar as funcionalidades
             tab_combustivel_classe, tab_combustivel_frota = st.tabs(["🔄 Por Classe", "✏️ Por Frota"])
-        
-            with tab_combustivel_classe:
-                st.subheader("🔄 Aplicar Combustível a uma Classe Inteira")
-                st.write("Define o tipo de combustível para todas as frotas de uma classe específica. Útil para padronização em massa.")
-            
+
+            if acao_frota == "Gerenciar Combustível":
+                st.subheader("⛽ Gerenciar Tipos de Combustível")
+                st.info("Esta seção permite gerenciar os tipos de combustível das frotas de forma eficiente. Acesso restrito a administradores.")
+                
+                # Criar abas para organizar as funcionalidades
+                tab_combustivel_classe, tab_combustivel_frota = st.tabs(["🔄 Por Classe", "✏️ Por Frota"])
+                
+                with tab_combustivel_classe:
+                    st.subheader("🔄 Aplicar Combustível a uma Classe Inteira")
+                    st.write("Define o tipo de combustível para todas as frotas de uma classe específica. Útil para padronização em massa.")
+
                 # Selecionar classe
                 classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
-            
+
                 if not classes_disponiveis:
                     st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
                 else:
@@ -3645,21 +3654,21 @@ def main():
                         options=classes_disponiveis,
                         key="classe_combustivel_admin"
                     )
-                
+
                     # Mostrar informações sobre a classe selecionada
                     if classe_selecionada:
                         frotas_da_classe = df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]
                         st.info(f"**Classe selecionada:** {classe_selecionada}")
                         st.info(f"**Total de frotas:** {len(frotas_da_classe)}")
                         st.info(f"**Frotas ativas:** {len(frotas_da_classe[frotas_da_classe['ATIVO'] == 'ATIVO'])}")
-                    
+
                         # Mostrar tipos de combustível atuais
                         if 'tipo_combustivel' in frotas_da_classe.columns:
                             combustiveis_atuais = frotas_da_classe['tipo_combustivel'].value_counts()
                             st.write("**Tipos de combustível atuais na classe:**")
                             for combustivel, count in combustiveis_atuais.items():
                                 st.write(f"- {combustivel}: {count} frotas")
-                    
+
                         # Selecionar novo tipo de combustível
                         tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
                         tipo_combustivel_classe = st.selectbox(
@@ -3667,7 +3676,7 @@ def main():
                             options=tipos_combustivel,
                             key="tipo_combustivel_classe_admin"
                         )
-                    
+
                         if st.button("🔄 Aplicar à Classe Inteira", type="primary", use_container_width=True):
                             with st.spinner("Aplicando tipo de combustível à classe..."):
                                 success, message = update_classe_combustivel(classe_selecionada, tipo_combustivel_classe)
@@ -3678,36 +3687,36 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error(message)
-        
+
             with tab_combustivel_frota:
                 st.subheader("✏️ Editar Combustível de uma Frota Específica")
                 st.write("Define o tipo de combustível para uma frota específica. Útil para casos especiais ou exceções.")
-            
+
                 # Selecionar frota
                 frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-            
+
                 if frotas_disponiveis.empty:
                     st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
                 else:
                     frotas_disponiveis['label_combustivel'] = (
-                        frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
-                        frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
+                        frotas_disponiveis['Cod_Equip'].astype(str) + " - " +
+                        frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') +
                         " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
                     )
-                
+
                     frota_selecionada = st.selectbox(
                         "Selecione a Frota:",
                         options=frotas_disponiveis['label_combustivel'].tolist(),
                         key="frota_combustivel_admin"
                     )
-                
+
                     if frota_selecionada:
                         # Obter código da frota selecionada
                         cod_equip_frota = int(frota_selecionada.split(" - ")[0])
-                    
+
                         # Obter dados da frota
                         dados_frota = frotas_disponiveis[frotas_disponiveis['Cod_Equip'] == cod_equip_frota].iloc[0]
-                    
+
                         # Mostrar informações da frota
                         col_info1, col_info2 = st.columns(2)
                         with col_info1:
@@ -3716,16 +3725,16 @@ def main():
                         with col_info2:
                             st.write(f"**Placa:** {dados_frota['PLACA']}")
                             st.write(f"**Classe:** {dados_frota['Classe_Operacional']}")
-                    
+
                         # Verificar combustível atual
                         if 'tipo_combustivel' in dados_frota:
                             combustivel_atual = dados_frota['tipo_combustivel']
                             combustivel_atual = combustivel_atual if pd.notna(combustivel_atual) else 'Diesel S500'
                         else:
                             combustivel_atual = 'Diesel S500'
-                    
+
                         st.info(f"**Combustível atual:** {combustivel_atual}")
-                    
+
                         # Selecionar novo tipo de combustível
                         tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
                         novo_tipo_combustivel = st.selectbox(
@@ -3734,7 +3743,7 @@ def main():
                             index=tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0,
                             key="novo_tipo_combustivel_admin"
                         )
-                    
+
                         if st.button("✏️ Atualizar Frota", type="secondary", use_container_width=True):
                             with st.spinner("Atualizando tipo de combustível..."):
                                 success, message = update_frota_combustivel(cod_equip_frota, novo_tipo_combustivel)
@@ -3745,27 +3754,27 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error(message)
-        
+
             # Resumo dos tipos de combustível
             st.markdown("---")
             st.subheader("📊 Resumo dos Tipos de Combustível")
-        
+
             if 'tipo_combustivel' in df_frotas.columns:
                 # Estatísticas gerais
                 col_stats1, col_stats2, col_stats3 = st.columns(3)
-            
+
                 with col_stats1:
                     total_frotas = len(df_frotas)
                     st.metric("Total de Frotas", total_frotas)
-            
+
                 with col_stats2:
                     frotas_com_combustivel = df_frotas['tipo_combustivel'].notna().sum()
                     st.metric("Frotas com Combustível", frotas_com_combustivel)
-            
+
                 with col_stats3:
                     tipos_unicos = df_frotas['tipo_combustivel'].nunique()
                     st.metric("Tipos de Combustível", tipos_unicos)
-            
+
                 # Distribuição por tipo de combustível
                 st.write("**Distribuição por Tipo de Combustível:**")
                 combustivel_dist = df_frotas['tipo_combustivel'].value_counts()
@@ -3777,9 +3786,9 @@ def main():
 
         # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
 
-        with tab_config:
+        elif tab_ativo == "config":
             st.header("⚙️ Configurar Manutenções e Checklists")
-            
+
             # --- Gestão de Componentes ---
             exp_comp_open = st.session_state.get('open_expander_config_componentes', False)
             with st.expander("Configurar Componentes de Manutenção por Classe", expanded=bool(exp_comp_open)):
@@ -3790,7 +3799,7 @@ def main():
                     with st.container():
                         st.subheader(f"Classe: {classe}")
                         regras_atuais = df_comp_regras[df_comp_regras['classe_operacional'] == classe]
-                        
+
                         # Exibe as regras atuais com um botão para apagar
                         for _, regra in regras_atuais.iterrows():
                             col1, col2, col3 = st.columns([2, 1, 1])
@@ -3822,16 +3831,16 @@ def main():
 
                 with st.form("form_add_checklist", clear_on_submit=True):
                     st.subheader("Criar Novo Modelo de Checklist")
-                    
+
                     col1_form, col2_form = st.columns(2)
                     nova_classe = col1_form.selectbox("Aplicar à Classe Operacional", options=classes_operacionais, key="chk_classe")
                     novo_titulo = col1_form.text_input("Título do Checklist (ex: Verificação Matinal Colhedoras)", key="chk_titulo")
                     nova_frequencia = col2_form.selectbox("Frequência", options=['Diário', 'Dias Pares', 'Dias Ímpares'], key="chk_freq")
                     novo_turno = col2_form.selectbox("Turno", options=['Manhã', 'Noite', 'N/A'], key="chk_turno")
-                    
+
                     st.write("**Itens a serem verificados (um por linha):**")
                     novos_itens_texto = st.text_area("Itens do Checklist", height=150, key="chk_itens", placeholder="Nível do Óleo\nPressão dos Pneus\nVerificar Facas")
-                    
+
                     if st.form_submit_button("Salvar Novo Modelo de Checklist"):
                         if nova_classe and novo_titulo and novos_itens_texto:
                             # Ordem correta dos parâmetros: (classe, título, turno, frequência)
@@ -3847,194 +3856,194 @@ def main():
                                 rerun_keep_tab("⚙️ Configurações")
                         else:
                             st.warning("Por favor, preencha todos os campos obrigatórios.")
-                        
-        with tab_importar:
-                    st.header("📤 Importar Dados")
-                    # Abas internas: Abastecimentos e Motoristas
-                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos = st.tabs(["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível"])
 
-                    with sub_tab_abastec:
-                        st.subheader("Importar Novos Abastecimentos de uma Planilha")
-                        st.info("Carregue múltiplos abastecimentos de uma vez (Excel .xlsx). Colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`, opcional `Matricula`, `Cod_Pessoa`.")
-                        arquivo_carregado = st.file_uploader(
-                            "Selecione a sua planilha de abastecimentos",
-                            type=['xlsx'], key="upl_abast"
-                        )
-                        if arquivo_carregado is not None:
-                            st.markdown("---")
-                            st.write("Pré-visualização:")
-                            try:
-                                df_preview = pd.read_excel(arquivo_carregado)
-                                st.dataframe(df_preview.head())
-                                if st.button("Confirmar e Inserir Dados", type="primary"):
-                                    with st.spinner("Importando dados..."):
-                                        num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
-                                    if num_inseridos > 0:
-                                        msg_sucesso = f"{num_inseridos} registos importados."
-                                        if num_duplicados > 0:
-                                            msg_sucesso += f" {num_duplicados} duplicados ignorados."
-                                        st.success(msg_sucesso)
-                                        rerun_keep_tab("📤 Importar Dados")
-                                    else:
-                                        st.error(mensagem)
-                            except Exception as e:
-                                st.error(f"Não foi possível ler a planilha: {e}")
+        elif tab_ativo == "importar":
+            st.header("📤 Importar Dados")
+            # Abas internas: Abastecimentos e Motoristas
+            sub_tab_abastec, sub_tab_motoristas, sub_tab_precos = st.tabs(["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível"])
 
-                    with sub_tab_motoristas:
-                        st.subheader("Importar Motoristas por Planilha")
-                        st.info("Colunas esperadas: `Matricula`, `Nome`, opcional `Cod_Pessoa`. A matrícula será exibida nos gráficos; na consulta será mostrada matrícula e nome.")
-                        arquivo_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upl_motoristas")
-                        if arquivo_motoristas is not None:
-                            try:
-                                df_prev = pd.read_excel(arquivo_motoristas)
-                                st.dataframe(df_prev.head())
-                                if st.button("Confirmar e Inserir Motoristas", type="primary"):
-                                    with st.spinner("Importando motoristas..."):
-                                        ensure_motoristas_schema()
-                                        inseridos, duplicados, msg = importar_motoristas_de_planilha(DB_PATH, arquivo_motoristas)
-                                    if inseridos > 0:
-                                        st.success(f"{msg}")
-                                        rerun_keep_tab("📤 Importar Dados")
-                                    else:
-                                        st.error(msg)
-                            except Exception as e:
-                                st.error(f"Erro ao ler planilha: {e}")
-
-                    with sub_tab_precos:
-                        st.subheader("Definir Preços por Tipo de Combustível")
-                        ok, msg = ensure_precos_combustivel_schema()
-                        if not ok:
-                            st.warning(msg)
-                        precos_map = get_precos_combustivel_map()
-                        tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                        cols = st.columns(5)
-                        novos_precos = {}
-                        for i, t in enumerate(tipos):
-                            with cols[i % 5]:
-                                valor = st.number_input(f"{t}", min_value=0.0, format="%.3f", value=float(precos_map.get(t) or 0.0), key=f"preco_{t}")
-                                novos_precos[t] = valor
-                        if st.button("Salvar Preços", type="secondary"):
-                            with st.spinner("Salvando preços..."):
-                                ok_all = True
-                                for t, p in novos_precos.items():
-                                    ok, _ = upsert_preco_combustivel(t, float(p) if p is not None else None)
-                                    ok_all = ok_all and ok
-                                if ok_all:
-                                    st.success("Preços atualizados.")
-                                else:
-                                    st.warning("Alguns preços podem não ter sido salvos.")
-                            
-        with tab_saude:
-                    st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
-                    st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
-
-                    st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
-                    df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
-                    df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
-
-                    erros_hodometro = df_abastecimentos_sorted[
-                        df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
-                    ]
-
-                    if not erros_hodometro.empty:
-                        st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
-                        st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
-                    else:
-                        st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
-
+            with sub_tab_abastec:
+                st.subheader("Importar Novos Abastecimentos de uma Planilha")
+                st.info("Carregue múltiplos abastecimentos de uma vez (Excel .xlsx). Colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`, opcional `Matricula`, `Cod_Pessoa`.")
+                arquivo_carregado = st.file_uploader(
+                    "Selecione a sua planilha de abastecimentos",
+                    type=['xlsx'], key="upl_abast"
+                )
+                if arquivo_carregado is not None:
                     st.markdown("---")
-                    st.subheader("2. Verificação de Frotas Inativas")
+                    st.write("Pré-visualização:")
+                    try:
+                        df_preview = pd.read_excel(arquivo_carregado)
+                        st.dataframe(df_preview.head())
+                        if st.button("Confirmar e Inserir Dados", type="primary"):
+                            with st.spinner("Importando dados..."):
+                                num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
+                            if num_inseridos > 0:
+                                msg_sucesso = f"{num_inseridos} registos importados."
+                                if num_duplicados > 0:
+                                    msg_sucesso += f" {num_duplicados} duplicados ignorados."
+                                st.success(msg_sucesso)
+                                rerun_keep_tab("📤 Importar Dados")
+                            else:
+                                st.error(mensagem)
+                    except Exception as e:
+                        st.error(f"Não foi possível ler a planilha: {e}")
 
-                    data_limite = datetime.now() - pd.Timedelta(days=90)
-                    ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
+            with sub_tab_motoristas:
+                st.subheader("Importar Motoristas por Planilha")
+                st.info("Colunas esperadas: `Matricula`, `Nome`, opcional `Cod_Pessoa`. A matrícula será exibida nos gráficos; na consulta será mostrada matrícula e nome.")
+                arquivo_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upl_motoristas")
+                if arquivo_motoristas is not None:
+                    try:
+                        df_prev = pd.read_excel(arquivo_motoristas)
+                        st.dataframe(df_prev.head())
+                        if st.button("Confirmar e Inserir Motoristas", type="primary"):
+                            with st.spinner("Importando motoristas..."):
+                                ensure_motoristas_schema()
+                                inseridos, duplicados, msg = importar_motoristas_de_planilha(DB_PATH, arquivo_motoristas)
+                            if inseridos > 0:
+                                st.success(f"{msg}")
+                                rerun_keep_tab("📤 Importar Dados")
+                            else:
+                                st.error(msg)
+                    except Exception as e:
+                        st.error(f"Erro ao ler planilha: {e}")
 
-                    frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-                    frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
+            with sub_tab_precos:
+                st.subheader("Definir Preços por Tipo de Combustível")
+                ok, msg = ensure_precos_combustivel_schema()
+                if not ok:
+                    st.warning(msg)
+                precos_map = get_precos_combustivel_map()
+                tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                cols = st.columns(5)
+                novos_precos = {}
+                for i, t in enumerate(tipos):
+                    with cols[i % 5]:
+                        valor = st.number_input(f"{t}", min_value=0.0, format="%.3f", value=float(precos_map.get(t) or 0.0), key=f"preco_{t}")
+                        novos_precos[t] = valor
+                if st.button("Salvar Preços", type="secondary"):
+                    with st.spinner("Salvando preços..."):
+                        ok_all = True
+                        for t, p in novos_precos.items():
+                            ok, _ = upsert_preco_combustivel(t, float(p) if p is not None else None)
+                            ok_all = ok_all and ok
+                        if ok_all:
+                            st.success("Preços atualizados.")
+                        else:
+                            st.warning("Alguns preços podem não ter sido salvos.")
 
-                    frotas_inativas = frotas_ativas[
-                        (frotas_ativas['Ultimo_Abastecimento'].isna()) | 
-                        (frotas_ativas['Ultimo_Abastecimento'] < data_limite)
-                    ]
+        elif tab_ativo == "saude":
+            st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
+            st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
 
-                    if not frotas_inativas.empty:
-                        st.warning(f"**Atenção:** Foram encontradas {len(frotas_inativas)} frotas marcadas como 'ATIVAS' que não têm abastecimentos nos últimos 90 dias.")
-                        st.dataframe(frotas_inativas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Ultimo_Abastecimento']])
+            st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
+            df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
+            df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
+
+            erros_hodometro = df_abastecimentos_sorted[
+                df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
+            ]
+
+            if not erros_hodometro.empty:
+                st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
+                st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
+            else:
+                st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
+
+            st.markdown("---")
+            st.subheader("2. Verificação de Frotas Inativas")
+
+            data_limite = datetime.now() - pd.Timedelta(days=90)
+            ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
+
+            frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
+            frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
+
+            frotas_inativas = frotas_ativas[
+                (frotas_ativas['Ultimo_Abastecimento'].isna()) |
+                (frotas_ativas['Ultimo_Abastecimento'] < data_limite)
+            ]
+
+            if not frotas_inativas.empty:
+                st.warning(f"**Atenção:** Foram encontradas {len(frotas_inativas)} frotas marcadas como 'ATIVAS' que não têm abastecimentos nos últimos 90 dias.")
+                st.dataframe(frotas_inativas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Ultimo_Abastecimento']])
+            else:
+                st.success("✅ Todas as frotas ativas têm registos de abastecimento recentes.")
+
+        elif tab_ativo == "gerir_users":
+            st.header("👤 Gestão de Usuários")
+
+            acao_user = st.radio(
+                "Selecione uma ação:",
+                ("Adicionar Novo Usuário", "Editar Usuário", "Remover Usuário"),
+                horizontal=True
+            )
+
+            st.markdown("---")
+            df_users = get_all_users()
+
+            if acao_user == "Adicionar Novo Usuário":
+                with st.form("form_add_user", clear_on_submit=True):
+                    st.subheader("Adicionar Novo Usuário")
+                    novo_user = st.text_input("Nome de Usuário")
+                    nova_pass = st.text_input("Senha", type="password")
+                    novo_role = st.selectbox("Função (Role)", ("admin", "básico"))
+
+                    if st.form_submit_button("Adicionar Usuário"):
+                        success, message = add_user(novo_user, nova_pass, novo_role)
+                        if success:
+                            st.success(message)
+                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
+                        else:
+                            st.error(message)
+
+            elif acao_user == "Editar Usuário":
+                st.subheader("Editar Usuário Existente")
+                user_a_editar = st.selectbox("Selecione o usuário para editar", options=df_users['username'])
+
+                if user_a_editar:
+                    user_data = df_users[df_users['username'] == user_a_editar].iloc[0]
+
+                    with st.form("form_edit_user"):
+                        st.write(f"A editar: **{user_data['username']}**")
+                        novo_username = st.text_input("Novo nome de usuário", value=user_data['username'])
+
+                        roles = ["admin", "básico"]
+                        role_index = roles.index(user_data['role']) if user_data['role'] in roles else 0
+                        novo_role_edit = st.selectbox("Novo cargo", options=roles, index=role_index)
+
+                        if st.form_submit_button("Salvar Alterações"):
+                            success, message = update_user(user_data['id'], novo_username, novo_role_edit)
+                            if success:
+                                st.success(message)
+                                rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
+                            else:
+                                st.error(message)
+
+            elif acao_user == "Remover Usuário":
+                st.subheader("Remover Usuário")
+                user_a_remover = st.selectbox("Selecione o usuário para remover", options=df_users['username'])
+
+                if user_a_remover:
+                    if user_a_remover == st.session_state.username:
+                        st.error("Não pode remover o seu próprio usuário enquanto estiver com a sessão iniciada.")
                     else:
-                        st.success("✅ Todas as frotas ativas têm registos de abastecimento recentes.")
-                        
-        with tab_gerir_users:
-                        st.header("👤 Gestão de Usuários")
-                        
-                        acao_user = st.radio(
-                            "Selecione uma ação:",
-                            ("Adicionar Novo Usuário", "Editar Usuário", "Remover Usuário"),
-                            horizontal=True
-                        )
-
-                        st.markdown("---")
-                        df_users = get_all_users()
-
-                        if acao_user == "Adicionar Novo Usuário":
-                            with st.form("form_add_user", clear_on_submit=True):
-                                st.subheader("Adicionar Novo Usuário")
-                                novo_user = st.text_input("Nome de Usuário")
-                                nova_pass = st.text_input("Senha", type="password")
-                                novo_role = st.selectbox("Função (Role)", ("admin", "básico"))
-                                
-                                if st.form_submit_button("Adicionar Usuário"):
-                                    success, message = add_user(novo_user, nova_pass, novo_role)
-                                    if success:
-                                        st.success(message)
-                                        rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
-                                    else:
-                                        st.error(message)
-                        
-                        elif acao_user == "Editar Usuário":
-                            st.subheader("Editar Usuário Existente")
-                            user_a_editar = st.selectbox("Selecione o usuário para editar", options=df_users['username'])
-                            
-                            if user_a_editar:
-                                user_data = df_users[df_users['username'] == user_a_editar].iloc[0]
-                                
-                                with st.form("form_edit_user"):
-                                    st.write(f"A editar: **{user_data['username']}**")
-                                    novo_username = st.text_input("Novo nome de usuário", value=user_data['username'])
-                                    
-                                    roles = ["admin", "básico"]
-                                    role_index = roles.index(user_data['role']) if user_data['role'] in roles else 0
-                                    novo_role_edit = st.selectbox("Novo cargo", options=roles, index=role_index)
-                                    
-                                    if st.form_submit_button("Salvar Alterações"):
-                                        success, message = update_user(user_data['id'], novo_username, novo_role_edit)
-                                        if success:
-                                            st.success(message)
-                                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
-                                        else:
-                                            st.error(message)
-
-                        elif acao_user == "Remover Usuário":
-                            st.subheader("Remover Usuário")
-                            user_a_remover = st.selectbox("Selecione o usuário para remover", options=df_users['username'])
-                            
-                            if user_a_remover:
-                                if user_a_remover == st.session_state.username:
-                                    st.error("Não pode remover o seu próprio usuário enquanto estiver com a sessão iniciada.")
-                                else:
-                                    st.warning(f"**Atenção:** Tem a certeza de que deseja remover o usuário **{user_a_remover}**? Esta ação é irreversível.")
-                                    if st.button("Confirmar Remoção", type="primary"):
-                                        user_id_remover = df_users[df_users['username'] == user_a_remover].iloc[0]['id']
-                                        success, message = delete_user(user_id_remover)
-                                        if success:
-                                            st.success(message)
-                                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
-                                        else:
-                                            st.error(message)
-        with tab_gerir_checklists:
+                        st.warning(f"**Atenção:** Tem a certeza de que deseja remover o usuário **{user_a_remover}**? Esta ação é irreversível.")
+                        if st.button("Confirmar Remoção", type="primary"):
+                            user_id_remover = df_users[df_users['username'] == user_a_remover].iloc[0]['id']
+                            success, message = delete_user(user_id_remover)
+                            if success:
+                                st.success(message)
+                                rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
+                            else:
+                                st.error(message)
+        elif tab_ativo == "gerir_checklists":
             st.header("✅ Gerir Checklists")
-            
+
             # Criar abas para organizar melhor as funcionalidades
             tab_config, tab_historico = st.tabs(["⚙️ Configuração", "🗑️ Histórico"])
-            
+
             with tab_config:
                 col_regras, col_itens = st.columns(2)
                 with col_regras:
@@ -4054,7 +4063,7 @@ def main():
                         classe_op = st.text_input("Classe Operacional")
                         titulo = st.text_input("Título do Checklist")
                         frequencia = st.selectbox("Frequência", ["Diário", "Dias Pares", "Dias Ímpares"])
-                        turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noite"]) 
+                        turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noite"])
 
                         if st.form_submit_button("Salvar Regra"):
                             if id_regra_edit:
@@ -4115,24 +4124,24 @@ def main():
                                 else:
                                     st.error(str(msg))
                                 rerun_keep_tab("✅ Gerir Checklists")
-            
+
             with tab_historico:
                 st.subheader("🗑️ Excluir Checklists Lançados")
                 st.info("Esta seção permite excluir checklists que já foram preenchidos e salvos no histórico.")
-                
+
                 # Carregar dados do histórico
                 df_historico = df_checklist_historico.copy()
-                
+
                 if df_historico.empty:
                     st.warning("Nenhum checklist foi preenchido ainda.")
                 else:
                     # Adicionar informações do equipamento ao histórico
                     df_historico = df_historico.merge(
-                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO']], 
-                        on='Cod_Equip', 
+                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO']],
+                        on='Cod_Equip',
                         how='left'
                     )
-                    
+
                     # Criar labels para seleção
                     df_historico['label_exclusao'] = (
                         df_historico['data_preenchimento'] + " | " +
@@ -4142,24 +4151,24 @@ def main():
                         df_historico['turno'] + " | " +
                         "Status: " + df_historico['status_geral']
                     )
-                    
+
                     # Ordenar por data mais recente
                     df_historico = df_historico.sort_values(by='data_preenchimento', ascending=False)
-                    
+
                     # Seleção do checklist para excluir
                     checklist_selecionado = st.selectbox(
                         "Selecione o checklist para excluir:",
                         options=df_historico['label_exclusao'],
                         key="checklist_exclusao"
                     )
-                    
+
                     if checklist_selecionado:
                         # Encontrar os detalhes do checklist selecionado
                         checklist_detalhes = df_historico[df_historico['label_exclusao'] == checklist_selecionado].iloc[0]
-                        
+
                         # Mostrar detalhes do checklist selecionado
                         st.warning("**Atenção:** Você está prestes a excluir o seguinte checklist. Esta ação não pode ser desfeita.")
-                        
+
                         col1, col2 = st.columns(2)
                         with col1:
                             st.write(f"**Data:** {checklist_detalhes['data_preenchimento']}")
@@ -4168,7 +4177,7 @@ def main():
                             st.write(f"**Título:** {checklist_detalhes['titulo_checklist']}")
                             st.write(f"**Turno:** {checklist_detalhes['turno']}")
                             st.write(f"**Status:** {checklist_detalhes['status_geral']}")
-                        
+
                         # Botão de confirmação
                         if st.button("🗑️ Confirmar Exclusão", type="primary"):
                             # Debug: mostrar os valores que serão usados
@@ -4177,12 +4186,12 @@ def main():
                             st.write(f"- Título: {checklist_detalhes['titulo_checklist']}")
                             st.write(f"- Data: {checklist_detalhes['data_preenchimento']}")
                             st.write(f"- Turno: {checklist_detalhes['turno']}")
-                            
+
                             # Verificar status do banco antes da exclusão
                             sync_success, sync_msg = force_database_sync()
                             if sync_success:
                                 st.info(f"Status do banco: {sync_msg}")
-                            
+
                             success, message = delete_checklist_history(
                                 checklist_detalhes['Cod_Equip'],
                                 checklist_detalhes['titulo_checklist'],
@@ -4195,18 +4204,18 @@ def main():
                                 force_cache_clear()
                             else:
                                 st.error(message)
-        
+
         # Aba de Backup para persistência no Streamlit Cloud
-        with tab_backup:
+        elif tab_ativo == "backup":
             st.header("💾 Backup e Restauração")
             st.info("Esta seção permite gerenciar backups dos dados para garantir persistência no Streamlit Cloud.")
-            
+
             col_backup, col_restore = st.columns(2)
-            
+
             with col_backup:
                 st.subheader("📤 Criar Backup")
                 st.write("Cria um backup completo dos dados atuais e salva na sessão do Streamlit.")
-                
+
                 if st.button("💾 Criar Backup", type="primary"):
                     with st.spinner("Criando backup..."):
                         success, message = save_backup_to_session_state()
@@ -4215,16 +4224,16 @@ def main():
                             st.info(f"Backup criado em: {st.session_state.get('backup_timestamp', 'N/A')}")
                         else:
                             st.error(message)
-                
+
                 # Mostrar status do backup atual
                 if 'database_backup' in st.session_state:
                     st.success("✅ Backup disponível na sessão")
                     st.info(f"Último backup: {st.session_state.get('backup_timestamp', 'N/A')}")
-                    
+
                     # Botão para download do backup
                     backup_b64 = st.session_state['database_backup']
                     backup_bytes = base64.b64decode(backup_b64)
-                    
+
                     st.download_button(
                         label="📥 Download do Backup",
                         data=backup_bytes,
@@ -4233,11 +4242,11 @@ def main():
                     )
                 else:
                     st.warning("⚠️ Nenhum backup disponível")
-            
+
             with col_restore:
                 st.subheader("📥 Restaurar Backup")
                 st.write("Restaura dados de um backup salvo na sessão.")
-                
+
                 if 'database_backup' in st.session_state:
                     if st.button("🔄 Restaurar Backup", type="secondary"):
                         with st.spinner("Restaurando backup..."):
@@ -4249,24 +4258,24 @@ def main():
                                 st.error(message)
                 else:
                     st.info("Crie um backup primeiro para poder restaurar.")
-            
+
             # Seção de informações sobre persistência
             st.markdown("---")
             st.subheader("ℹ️ Sobre Persistência no Streamlit Cloud")
-            
+
             st.info("""
             **Por que os dados voltam após reiniciar?**
-            
-            O Streamlit Cloud recria o ambiente a cada deploy ou reinicialização, 
+
+            O Streamlit Cloud recria o ambiente a cada deploy ou reinicialização,
             perdendo todos os dados do banco SQLite. Para resolver isso:
-            
+
             1. **Crie um backup** sempre que fizer alterações importantes
             2. **O backup é salvo na sessão** e persiste durante a navegação
             3. **Após reiniciar**, restaure o backup para recuperar os dados
-            
+
             **Dica:** Faça backup antes de sair da aplicação!
             """)
-            
+
             # Backup automático após operações importantes
             if st.button("🔄 Backup Automático", type="secondary"):
                 with st.spinner("Verificando e criando backup automático..."):
@@ -4276,7 +4285,7 @@ def main():
                     cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
                     num_tables = cursor.fetchone()[0]
                     conn.close()
-                    
+
                     if num_tables > 0:
                         success, message = save_backup_to_session_state()
                         if success:
@@ -4285,6 +4294,6 @@ def main():
                             st.error(f"Erro no backup automático: {message}")
                     else:
                         st.warning("Nenhuma tabela encontrada no banco de dados.")
-                    
+
 if __name__ == "__main__":
     main()
