@@ -1740,6 +1740,7 @@ def main():
                 else:
                     k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
                 st.markdown("---")
+                st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
                 c1, c2 = st.columns(2)
 
                 with c1:
@@ -1770,40 +1771,7 @@ def main():
                         st.plotly_chart(fig_top10, use_container_width=True)
 
                 st.markdown("---")
-                st.subheader("Média de Consumo por Classe Operacional")
-
-                # Novo: Total de Gasto por Motorista (usa preços por tipo de combustível)
-                st.markdown("---")
-                st.subheader("💰 Total de Gasto por Motorista")
-                precos_map = get_precos_combustivel_map()
-                if precos_map:
-                    # Vincula combustível por frota e multiplica litros por preço
-                    df_tmp = df_f.copy()
-                    df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                    df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
-                    df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
-                    # Agrupar por matrícula
-                    if 'Matricula' in df_tmp.columns:
-                        gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
-                        gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
-                        if not gasto_motorista.empty:
-                            gasto_motorista = gasto_motorista.reset_index()
-                            gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                            gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
-                            st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
-                            try:
-                                fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
-                                st.plotly_chart(fig_gasto, use_container_width=True)
-                            except Exception:
-                                pass
-                        else:
-                            st.info("Sem dados suficientes de custo (verifique preços cadastrados).")
-                    else:
-                        st.info("Não há coluna de matrícula nos abastecimentos para calcular o gasto por motorista.")
-                else:
-                    st.info("Cadastre os preços de combustível na aba Importar > Preços.")
-
+                st.subheader("📈 Média de Consumo por Classe Operacional")
                 df_media = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)].copy()
 
                 classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
@@ -1838,10 +1806,40 @@ def main():
                     st.plotly_chart(fig_media_classe, use_container_width=True)
                 else:
                     st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
-            
-            # NOVOS GRÁFICOS: Consumo por Classe e por Tipo de Combustível
-            st.markdown("---")
-            st.subheader("🔄 Análise de Consumo por Classe e Combustível")
+
+                st.markdown("---")
+                st.subheader("💰 Total de Gasto por Motorista")
+                precos_map = get_precos_combustivel_map()
+                if precos_map:
+                    # Vincula combustível por frota e multiplica litros por preço
+                    df_tmp = df_f.copy()
+                    df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                    df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                    df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                    # Agrupar por matrícula
+                    if 'Matricula' in df_tmp.columns:
+                        gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                        gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
+                        if not gasto_motorista.empty:
+                            gasto_motorista = gasto_motorista.reset_index()
+                            gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                            gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
+                            try:
+                                fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
+                                st.plotly_chart(fig_gasto, use_container_width=True)
+                            except Exception:
+                                pass
+                        else:
+                            st.info("Sem dados suficientes de custo (verifique preços cadastrados).")
+                    else:
+                        st.info("Não há coluna de matrícula nos abastecimentos para calcular o gasto por motorista.")
+                else:
+                    st.info("Cadastre os preços de combustível na aba Importar > Preços.")
+
+                st.markdown("---")
+                st.subheader("🔄 Análise de Proporções por Classe e Combustível")
             
             # Criar DataFrame com informações de combustível
             df_consumo_combustivel = df_f.copy()
