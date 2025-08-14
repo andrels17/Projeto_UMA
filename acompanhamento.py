@@ -1674,9 +1674,9 @@ def main():
                     kpi4.metric("Frota Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
 
             st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
-            if 'Media' in df_f.columns and not df_f['Media'].dropna().empty:
-                media_por_classe = df_f.groupby('Classe_Operacional')['Media'].mean().to_dict()
-                ranking_df = df_f.copy()
+            if 'Media' in df.columns and not df['Media'].dropna().empty:
+                media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
+                ranking_df = df.copy()
                 ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
                 ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
                 
@@ -1707,9 +1707,9 @@ def main():
             st.markdown("---")
             st.subheader("📈 Tendência de Consumo Mensal")
 
-            if not df_f.empty and 'Qtde_Litros' in df_f.columns:
+            if not df.empty and 'Qtde_Litros' in df.columns:
                 # Agrupa os dados por Ano/Mês e soma o consumo
-                consumo_mensal = df_f.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
                 
                 if not consumo_mensal.empty:
                     fig_tendencia = px.line(
