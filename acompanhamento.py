@@ -1675,89 +1675,25 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Sistema de navegação por menu lateral
+        # Definição das abas por grupo
+        abas_principal = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
+        abas_gerir = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "👤 Gerir Utilizadores", "✅ Gerir Checklists"]
+        abas_dados = ["📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "💾 Backup"]
+
         if st.session_state.role == 'admin':
-            # Para admins, menu completo
-            with st.sidebar:
-                st.markdown("## 🧭 Navegação")
-                
-                # Seção Página Principal
-                st.markdown("### 🏠 Página Principal")
-                pagina_principal = st.selectbox(
-                    "Selecione a página:",
-                    ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"],
-                    key="menu_principal"
-                )
-                
-                # Seção Gestão
-                st.markdown("### ⚙️ Gestão e Administração")
-                gestao = st.selectbox(
-                    "Selecione a gestão:",
-                    ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "👤 Gerir Utilizadores", "✅ Gerir Checklists"],
-                    key="menu_gestao"
-                )
-                
-                # Seção Dados
-                st.markdown("### 📊 Dados e Configurações")
-                dados = st.selectbox(
-                    "Selecione os dados:",
-                    ["📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "💾 Backup"],
-                    key="menu_dados"
-                )
+            # Para admins, mostrar todas as abas agrupadas
+            st.markdown("### 🏠 Página Principal")
+            tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(abas_principal)
+            
+            st.markdown("### ⚙️ Gestão e Administração")
+            tab_gerir_lanc, tab_gerir_frotas, tab_gerir_users, tab_gerir_checklists = st.tabs(abas_gerir)
+            
+            st.markdown("### 📊 Dados e Configurações")
+            tab_importar, tab_config, tab_saude, tab_backup = st.tabs(abas_dados)
         else:
-            # Para usuários comuns, apenas menu principal
-            with st.sidebar:
-                st.markdown("## 🧭 Navegação")
-                st.markdown("### 🏠 Página Principal")
-                pagina_principal = st.selectbox(
-                    "Selecione a página:",
-                    ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"],
-                    key="menu_principal"
-                )
-        
-        # Determinar qual aba mostrar baseado na seleção
-        if st.session_state.role == 'admin':
-            if pagina_principal == "📊 Painel de Controle":
-                tab_ativo = "painel"
-            elif pagina_principal == "📈 Análise Geral":
-                tab_ativo = "analise"
-            elif pagina_principal == "🛠️ Controle de Manutenção":
-                tab_ativo = "manut"
-            elif pagina_principal == "🔎 Consulta Individual":
-                tab_ativo = "consulta"
-            elif pagina_principal == "✅ Checklists Diários":
-                tab_ativo = "checklists"
-            elif gestao == "⚙️ Gerir Lançamentos":
-                tab_ativo = "gerir_lanc"
-            elif gestao == "⚙️ Gerir Frotas":
-                tab_ativo = "gerir_frotas"
-            elif gestao == "👤 Gerir Utilizadores":
-                tab_ativo = "gerir_users"
-            elif gestao == "✅ Gerir Checklists":
-                tab_ativo = "gerir_checklists"
-            elif dados == "📤 Importar Dados":
-                tab_ativo = "importar"
-            elif dados == "⚙️ Configurações":
-                tab_ativo = "config"
-            elif dados == "⚕️ Saúde dos Dados":
-                tab_ativo = "saude"
-            elif dados == "💾 Backup":
-                tab_ativo = "backup"
-            else:
-                tab_ativo = "painel"
-        else:
-            if pagina_principal == "📊 Painel de Controle":
-                tab_ativo = "painel"
-            elif pagina_principal == "📈 Análise Geral":
-                tab_ativo = "consulta"
-            elif pagina_principal == "🛠️ Controle de Manutenção":
-                tab_ativo = "manut"
-            elif pagina_principal == "🔎 Consulta Individual":
-                tab_ativo = "consulta"
-            elif pagina_principal == "✅ Checklists Diários":
-                tab_ativo = "checklists"
-            else:
-                tab_ativo = "painel"
+            # Para usuários comuns, apenas abas principais
+            st.markdown("### 🏠 Página Principal")
+            tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(abas_principal)
 
         def rerun_keep_tab(tab_title: str, clear_cache: bool = True):
             if clear_cache:
@@ -1822,8 +1758,7 @@ def main():
             
             st.markdown("---")
                 
-        # Conteúdo baseado na seleção do menu
-        if tab_ativo == "painel":
+        with tab_painel:
             st.header("Visão Geral da Frota")
             
             # Calcular gasto total com combustível
@@ -1936,7 +1871,7 @@ def main():
                 else:
                     st.info("Não há dados suficientes para gerar o gráfico de tendência com os filtros selecionados.")
                 
-        elif tab_ativo == "analise":
+        with tab_analise:
             st.header("📈 Análise Gráfica de Consumo")
 
             # Aplica filtros apenas nesta aba
@@ -2363,7 +2298,7 @@ def main():
                 else:
                     st.warning("Não há dados suficientes para análise por combustível.")
         
-        elif tab_ativo == "consulta":
+        with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
             # Permitir consulta direta por código (Cód Equipamento)
             cod_input = st.text_input("Digite o código da frota")
@@ -2641,18 +2576,8 @@ def main():
                         consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
                         consumos_periodo[nome_periodo] = consumo_periodo
                     
-                    # Calcular consumo da classe para comparação
-                    classe_selecionada = dados_eq.get('Classe_Operacional')
-                    consumo_classe_total = 0
-                    if classe_selecionada:
-                        df_classe_consumo = df[df['Classe_Operacional'] == classe_selecionada]
-                        consumo_classe_total = df_classe_consumo['Qtde_Litros'].sum()
-                    
-                    # Calcular porcentagem do consumo da classe
-                    porcentagem_consumo_classe = (consumo_total_litros / consumo_classe_total * 100) if consumo_classe_total > 0 else 0
-                    
                     # Métricas de consumo
-                    col_consumo1, col_consumo2, col_consumo3, col_consumo4, col_consumo5 = st.columns(5)
+                    col_consumo1, col_consumo2, col_consumo3, col_consumo4 = st.columns(4)
                     
                     with col_consumo1:
                         st.metric(
@@ -2677,13 +2602,6 @@ def main():
                         st.metric(
                             "📅 Últimos 365 dias", 
                             f"{formatar_brasileiro_int(consumos_periodo['Últimos 365 dias'])} L"
-                        )
-                    
-                    with col_consumo5:
-                        st.metric(
-                            "📊 % da Classe", 
-                            f"{porcentagem_consumo_classe:.1f}%",
-                            help="Porcentagem que esta frota representa do consumo total da classe"
                         )
                     
                     # Gráfico de consumo por período
@@ -2713,31 +2631,6 @@ def main():
                     )
                     st.plotly_chart(fig_consumo_periodo, use_container_width=True)
                     
-                    # Gráfico de comparação de consumo vs classe
-                    if consumo_classe_total > 0:
-                        df_comparacao_consumo = pd.DataFrame({
-                            'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
-                            'Consumo (L)': [consumo_total_litros, consumo_classe_total - consumo_total_litros]
-                        })
-                        
-                        fig_consumo_classe = px.pie(
-                            df_comparacao_consumo,
-                            values='Consumo (L)',
-                            names='Categoria',
-                            title=f"Distribuição de Consumo na Classe {classe_selecionada}",
-                            color_discrete_map={
-                                'Esta Frota': '#ff7f0e',
-                                'Outras Frotas da Classe': '#1f77b4'
-                            }
-                        )
-                        fig_consumo_classe.update_traces(
-                            textposition='inside',
-                            textinfo='percent+label',
-                            textfont_size=14
-                        )
-                        fig_consumo_classe.update_layout(height=400)
-                        st.plotly_chart(fig_consumo_classe, use_container_width=True)
-                    
                     # Gráfico de evolução mensal do consumo
                     if len(consumo_eq) > 1:
                         consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
@@ -2765,7 +2658,6 @@ def main():
                     - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde_Litros'].mean())} litros
                     - **Total de abastecimentos:** {len(consumo_eq)} registros
                     - **Período de operação:** {consumo_eq['Data'].min().strftime('%d/%m/%Y')} a {consumo_eq['Data'].max().strftime('%d/%m/%Y')}
-                    - **Comparação com classe:** Esta frota representa **{porcentagem_consumo_classe:.1f}%** do consumo total da classe **{classe_selecionada}**
                     """)
                 else:
                     st.info("Não há dados de consumo para este equipamento.")
@@ -2895,7 +2787,7 @@ def main():
                 else:
                     st.info("Nenhum registo de abastecimento para este equipamento.")
                             
-        elif tab_ativo == "manut":
+        with tab_manut:
             st.header("🛠️ Controle de Manutenção")
             
             if not plan_df.empty:
@@ -3004,7 +2896,7 @@ def main():
                     
         # APAGUE O CONTEÚDO DA SUA "with tab_checklists:" E SUBSTITUA-O POR ESTE BLOCO
 
-        elif tab_ativo == "checklists":
+        with tab_checklists:
             st.header("✅ Checklists de Verificação Diária")
             st.info("Esta aba mostra os checklists que, de acordo com as regras, precisam de ser preenchidos hoje.")
 
@@ -3082,17 +2974,18 @@ def main():
 
                                 # bloco duplicado removido
                     
-        elif tab_ativo == "gerir_lanc" and st.session_state.role == 'admin':
-            st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
-            acao = st.radio(
-                "Selecione a ação que deseja realizar:",
-                ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento"),
-                horizontal=True,
-                key="acao_lancamentos"
-            )
-            if acao == "Adicionar Abastecimento":
-                st.subheader("➕ Adicionar Novo Abastecimento")
-                with st.form("form_abastecimento", clear_on_submit=True):
+    if st.session_state.role == 'admin':
+        with tab_gerir_lanc:
+                    st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
+                    acao = st.radio(
+                        "Selecione a ação que deseja realizar:",
+                        ("Adicionar Abastecimento", "Editar Lançamento", "Excluir Lançamento"),
+                        horizontal=True,
+                        key="acao_lancamentos"
+                    )
+                    if acao == "Adicionar Abastecimento":
+                        st.subheader("➕ Adicionar Novo Abastecimento")
+                        with st.form("form_abastecimento", clear_on_submit=True):
                             equip_selecionado_label = st.selectbox(
                                 "Selecione o Equipamento", 
                                 options=df_frotas.sort_values("label")["label"],
@@ -3141,12 +3034,12 @@ def main():
                                         st.success("Abastecimento salvo com sucesso!")
                                         rerun_keep_tab("⚙️ Gerir Lançamentos")
 
-            elif acao == "Excluir Lançamento":
-                st.subheader("🗑️ Excluir um Lançamento")
+                    elif acao == "Excluir Lançamento":
+                                st.subheader("🗑️ Excluir um Lançamento")
                                 
-                tipo_exclusao = st.radio("O que deseja excluir?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="delete_choice")
+                                tipo_exclusao = st.radio("O que deseja excluir?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="delete_choice")
                                 
-                if tipo_exclusao == "Abastecimento":
+                                if tipo_exclusao == "Abastecimento":
                                     df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
                                     df_para_excluir['label_exclusao'] = (
                                         df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
