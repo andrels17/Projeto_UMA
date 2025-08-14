@@ -1282,18 +1282,6 @@ def formata_motorista_display(pessoa: str) -> str:
         pass
     return "Sem cadastro"
 
-def main():
-    # Garante que o esquema do banco esteja correto
-    ensure_schema(DB_PATH)
-    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
-    # Garante tema dark coerente mesmo sem config.toml
-    st.markdown(
-        """
-        <style>
-        :root {
-            --pr
-# ==== NOVAS FUNÇÕES PARA ESQUEMA DO BANCO, IMPORTAÇÕES E CONSULTAS ====
-
 
 def ensure_schema(db_path: str):
     """Garante que as estruturas necessárias existam no banco: motoristas (PK=pessoa), coluna pessoa_motorista em abastecimentos e preços de combustíveis."""
@@ -1336,8 +1324,9 @@ def ensure_schema(db_path: str):
     except Exception as e:
         st.warning(f"Não foi possível verificar/criar o esquema do banco: {e}")
 
+
 def importar_motoristas_de_planilha(df_plan: pd.DataFrame, db_path: str) -> int:
-    \"\"\"Insere/atualiza motoristas com PK 'pessoa'. Requer colunas: pessoa, nome, matricula. Opcional: documento, ativo.\"\"\"
+    """Insere/atualiza motoristas com PK 'pessoa'. Requer colunas: pessoa, nome, matricula. Opcional: documento, ativo."""
     if df_plan is None or df_plan.empty:
         return 0
     # Normalização de colunas
@@ -1373,8 +1362,9 @@ def importar_motoristas_de_planilha(df_plan: pd.DataFrame, db_path: str) -> int:
         conn.commit()
     return affected
 
+
 def importar_precos_combustiveis_de_planilha(df_plan: pd.DataFrame, db_path: str) -> int:
-    \"\"\"Insere/atualiza preços pela coluna 'tipo_combustivel' e 'preco'.\"\"\"
+    """Insere/atualiza preços pela coluna 'tipo_combustivel' e 'preco'."""
     if df_plan is None or df_plan.empty:
         return 0
     df_tmp = df_plan.copy()
@@ -1405,8 +1395,9 @@ def importar_precos_combustiveis_de_planilha(df_plan: pd.DataFrame, db_path: str
         conn.commit()
     return affected
 
+
 def consulta_gasto_por_motorista(db_path: str) -> pd.DataFrame:
-    \"\"\"Calcula gasto por motorista agrupando por pessoa_motorista. Exibe matrícula e nome quando disponíveis.\"\"\"
+    """Calcula gasto por motorista agrupando por pessoa_motorista. Exibe matrícula e nome quando disponíveis."""
     with sqlite3.connect(db_path, check_same_thread=False) as conn:
         sql = """
         SELECT 
@@ -1416,7 +1407,7 @@ def consulta_gasto_por_motorista(db_path: str) -> pd.DataFrame:
             SUM(COALESCE(a."Qtde Litros", 0)) AS litros_total,
             SUM(COALESCE(a."Qtde Litros", 0) * COALESCE(p.preco, 0)) AS gasto_total
         FROM abastecimentos a
-        LEFT JOIN frotas f ON f.Cod_Equip = a."Cód. Equip."
+        LEFT JOIN frotas f ON f.COD_EQUIPAMENTO = a."Cód. Equip."
         LEFT JOIN motoristas m ON m.pessoa = a.pessoa_motorista
         LEFT JOIN precos_combustiveis p ON p.tipo_combustivel = f.tipo_combustivel
         GROUP BY COALESCE(m.matricula, 'Sem cadastro'), COALESCE(m.nome, 'Sem cadastro'), a.pessoa_motorista
@@ -1433,7 +1424,7 @@ def consulta_gasto_por_motorista(db_path: str) -> pd.DataFrame:
                 SUM(COALESCE(a.[Qtde Litros], 0)) AS litros_total,
                 SUM(COALESCE(a.[Qtde Litros], 0) * COALESCE(p.preco, 0)) AS gasto_total
             FROM abastecimentos a
-            LEFT JOIN frotas f ON f.Cod_Equip = a.[Cód. Equip.]
+            LEFT JOIN frotas f ON f.COD_EQUIPAMENTO = a.[Cód. Equip.]
             LEFT JOIN motoristas m ON m.pessoa = a.pessoa_motorista
             LEFT JOIN precos_combustiveis p ON p.tipo_combustivel = f.tipo_combustivel
             GROUP BY COALESCE(m.matricula, 'Sem cadastro'), COALESCE(m.nome, 'Sem cadastro'), a.pessoa_motorista
@@ -1441,9 +1432,18 @@ def consulta_gasto_por_motorista(db_path: str) -> pd.DataFrame:
             """
             df = pd.read_sql_query(sql2, conn)
     return df
-# ==== FIM NOVAS FUNÇÕES ====
 
-imary: #10b981;
+
+def main():
+    # Garante que o esquema do banco esteja correto
+    ensure_schema(DB_PATH)
+    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    # Garante tema dark coerente mesmo sem config.toml
+    st.markdown(
+        """
+        <style>
+        :root {
+            --primary: #10b981;
             --bg: #0f172a;
             --bg2: #111827;
             --text: #e5e7eb;
@@ -1778,15 +1778,15 @@ imary: #10b981;
                         clcol = "Classe_Operacional" if "Classe_Operacional" in df_tmp.columns else "Classe Operacional" if "Classe Operacional" in df_tmp.columns else None
                         if clcol:
                             df_tmp = df_tmp[df_tmp[clcol] == classe_top]
-                    \1                # Exportação Top N
-                _rank_df = rank.reset_index().rename(columns={'Cod_Equip':'Cod_Equip', col_litros:'Consumo (L)'})
-                ctn1, ctn2 = st.columns(2)
-                with ctn1:
-                    _b, _m = _download_bytes(_rank_df, 'csv')
-                    if _b: st.download_button('CSV (Top N)', _b, file_name=f'top{int(top_n)}.csv', mime=_m, use_container_width=True)
-                with ctn2:
-                    _b2, _m2 = _download_bytes(_rank_df, 'xlsx')
-                    if _b2: st.download_button('Excel (Top N)', _b2, file_name=f'top{int(top_n)}.xlsx', mime=_m2, use_container_width=True)
+                    rank = df_tmp.groupby("Cod_Equip")[col_litros].sum().sort_values(ascending=False).head(int(top_n))
+                    _rank_df = rank.reset_index().rename(columns={'Cod_Equip':'Cod_Equip', col_litros:'Consumo (L)'})
+                    ctn1, ctn2 = st.columns(2)
+                    with ctn1:
+                        _b, _m = _download_bytes(_rank_df, 'csv')
+                        if _b: st.download_button('CSV (Top N)', _b, file_name=f'top{int(top_n)}.csv', mime=_m, use_container_width=True)
+                    with ctn2:
+                        _b2, _m2 = _download_bytes(_rank_df, 'xlsx')
+                        if _b2: st.download_button('Excel (Top N)', _b2, file_name=f'top{int(top_n)}.xlsx', mime=_m2, use_container_width=True)
                     try:
                         import plotly.express as px
                         fig_top = px.bar(rank.reset_index(), x="Cod_Equip", y=col_litros, title=f"Top {int(top_n)} por Consumo")
@@ -1796,7 +1796,7 @@ imary: #10b981;
                         pass
             except Exception as e:
                 st.info(f"Não foi possível gerar o Top N: {e}")
-    st.header("📈 Análise Gráfica de Consumo")
+            st.header("📈 Análise Gráfica de Consumo")
 
             if not df_f.empty:
                 if 'Media' in df_f.columns:
@@ -2215,7 +2215,6 @@ imary: #10b981;
                         'litros_total':'Litros',
                         'gasto_total':'Gasto (R$)'
                     })[['Matrícula','Nome','Litros','Gasto (R$)']]
-                    \1
                     # Exportar Gasto por Motorista
                     cgm1, cgm2 = st.columns(2)
                     with cgm1:
@@ -2258,32 +2257,32 @@ imary: #10b981;
                             info = df_frotas_local[df_frotas_local[cod_col_f].astype(str) == str(cod_input)]
                             hist = df_abast_local[df_abast_local[cod_col_a].astype(str) == str(cod_input)]
                             if not info.empty:
-                                \1                            # Exportação do cadastro
-                            cf1, cf2 = st.columns(2)
-                            with cf1:
-                                _b, _m = _download_bytes(info, 'csv')
-                                if _b: st.download_button('CSV (Cadastro)', _b, file_name=f'cadastro_{cod_input}.csv', mime=_m, use_container_width=True)
-                            with cf2:
-                                _b2, _m2 = _download_bytes(info, 'xlsx')
-                                if _b2: st.download_button('Excel (Cadastro)', _b2, file_name=f'cadastro_{cod_input}.xlsx', mime=_m2, use_container_width=True)
+                                # Exportação do cadastro
+                                cf1, cf2 = st.columns(2)
+                                with cf1:
+                                    _b, _m = _download_bytes(info, 'csv')
+                                    if _b: st.download_button('CSV (Cadastro)', _b, file_name=f'cadastro_{cod_input}.csv', mime=_m, use_container_width=True)
+                                with cf2:
+                                    _b2, _m2 = _download_bytes(info, 'xlsx')
+                                    if _b2: st.download_button('Excel (Cadastro)', _b2, file_name=f'cadastro_{cod_input}.xlsx', mime=_m2, use_container_width=True)
                             else:
                                 st.info("Nenhum cadastro encontrado para este código.")
                             if not hist.empty:
-                                \1                            # Exportação do histórico
-                            ch1, ch2 = st.columns(2)
-                            with ch1:
-                                _b, _m = _download_bytes(hist, 'csv')
-                                if _b: st.download_button('CSV (Histórico)', _b, file_name=f'historico_{cod_input}.csv', mime=_m, use_container_width=True)
-                            with ch2:
-                                _b2, _m2 = _download_bytes(hist, 'xlsx')
-                                if _b2: st.download_button('Excel (Histórico)', _b2, file_name=f'historico_{cod_input}.xlsx', mime=_m2, use_container_width=True)
+                                # Exportação do histórico
+                                ch1, ch2 = st.columns(2)
+                                with ch1:
+                                    _b, _m = _download_bytes(hist, 'csv')
+                                    if _b: st.download_button('CSV (Histórico)', _b, file_name=f'historico_{cod_input}.csv', mime=_m, use_container_width=True)
+                                with ch2:
+                                    _b2, _m2 = _download_bytes(hist, 'xlsx')
+                                    if _b2: st.download_button('Excel (Histórico)', _b2, file_name=f'historico_{cod_input}.xlsx', mime=_m2, use_container_width=True)
                             else:
                                 st.info("Sem histórico de abastecimentos para este código.")
                         else:
                             st.warning("Não foi possível localizar as colunas de código da frota/abastecimentos.")
                     except Exception as e:
                         st.error(f"Erro ao consultar ficha: {e}")
-    st.header("🛠️ Controle de Manutenção")
+            st.header("🛠️ Controle de Manutenção")
             
             if not plan_df.empty:
                 st.subheader("🚨 Equipamentos com Alertas de Manutenção")
@@ -2514,7 +2513,7 @@ imary: #10b981;
                                         'classe_operacional': classe_op,
                                         'pessoa_motorista': pessoa_motorista_escolhida
                                     }
-if inserir_abastecimento(DB_PATH, dados_novos):
+                                    if inserir_abastecimento(DB_PATH, dados_novos):
                                         st.success("Abastecimento salvo com sucesso!")
                                         rerun_keep_tab("⚙️ Gerir Lançamentos")
         
@@ -3166,48 +3165,48 @@ if inserir_abastecimento(DB_PATH, dados_novos):
 
                 st.markdown("### Incluir / Atualizar")
                 st.caption("As alterações feitas na tabela acima não são salvas automaticamente. Clique em **Salvar alterações da tabela** para persistir.")
-                \1                    # Validação dos motoristas
-                    _errs = []
-                    if df_view.empty:
-                        _errs.append('Nada para salvar.')
-                    else:
-                        # Matrícula obrigatória e ativa 0/1
-                        if df_view['matricula'].isna().any() or (df_view['matricula'].astype(str).str.strip() == '').any():
-                            _errs.append('Há motoristas sem matrícula. Preencha antes de salvar.')
-                        if not set(df_view['ativo'].dropna().astype(int).unique()).issubset({0,1}):
-                            _errs.append('Campo \"ativo\" deve ser 0 ou 1.')
-                        # Matrícula duplicada (apenas entre ativos)
-                        dups = df_view[df_view['ativo'] == 1]['matricula'].astype(str).str.strip().duplicated(keep=False)
-                        if dups.any():
-                            _errs.append('Há matrículas duplicadas entre motoristas ativos.')
-                    if _errs:
-                        for e in _errs: st.error(e)
-                    else:
-                        try:
-                            with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
-                                for _, r in df_view.iterrows():
-                                    _conn.execute(
-                                        \"INSERT INTO motoristas (pessoa, nome, matricula, documento, ativo) VALUES (?, ?, ?, ?, ?) \"
-                                        \"ON CONFLICT(pessoa) DO UPDATE SET nome=excluded.nome, matricula=excluded.matricula, documento=excluded.documento, ativo=excluded.ativo\",
-                                        (str(r['pessoa']), str(r['nome']), str(r['matricula']), (None if pd.isna(r.get('documento')) or str(r.get('documento')).strip()=='' else str(r.get('documento'))), int(r['ativo']) if not pd.isna(r['ativo']) else 1)
-                                    )
-                                _conn.commit()
-                            st.success('Alterações salvas com sucesso.')
-                            rerun_keep_tab('⚙️ Configurações')
-                        except Exception as e:
-                            st.error(f'Erro ao salvar alterações: {e}')
+                # Validação dos motoristas
+                _errs = []
+                if df_view.empty:
+                    _errs.append('Nada para salvar.')
+                else:
+                    # Matrícula obrigatória e ativa 0/1
+                    if df_view['matricula'].isna().any() or (df_view['matricula'].astype(str).str.strip() == '').any():
+                        _errs.append('Há motoristas sem matrícula. Preencha antes de salvar.')
+                    if not set(df_view['ativo'].dropna().astype(int).unique()).issubset({0,1}):
+                        _errs.append('Campo "ativo" deve ser 0 ou 1.')
+                    # Matrícula duplicada (apenas entre ativos)
+                    dups = df_view[df_view['ativo'] == 1]['matricula'].astype(str).str.strip().duplicated(keep=False)
+                    if dups.any():
+                        _errs.append('Há matrículas duplicadas entre motoristas ativos.')
+                if _errs:
+                    for e in _errs: st.error(e)
+                else:
                     try:
                         with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
                             for _, r in df_view.iterrows():
                                 _conn.execute(
-                                    "INSERT INTO motoristas (pessoa, nome, matricula, documento, ativo) VALUES (?, ?, ?, ?, ?) ON CONFLICT(pessoa) DO UPDATE SET nome=excluded.nome, matricula=excluded.matricula, documento=excluded.documento, ativo=excluded.ativo",
-                                    (r['pessoa'], r['nome'], r['matricula'], r.get('documento', None), int(r.get('ativo',1)))
+                                    "INSERT INTO motoristas (pessoa, nome, matricula, documento, ativo) VALUES (?, ?, ?, ?, ?) "
+                                    "ON CONFLICT(pessoa) DO UPDATE SET nome=excluded.nome, matricula=excluded.matricula, documento=excluded.documento, ativo=excluded.ativo",
+                                    (str(r['pessoa']), str(r['nome']), str(r['matricula']), (None if pd.isna(r.get('documento')) or str(r.get('documento')).strip()=='' else str(r.get('documento'))), int(r['ativo']) if not pd.isna(r['ativo']) else 1)
                                 )
                             _conn.commit()
-                        st.success("Alterações salvas.")
-                        rerun_keep_tab("⚙️ Configurações")
+                        st.success('Alterações salvas com sucesso.')
+                        rerun_keep_tab('⚙️ Configurações')
                     except Exception as e:
-                        st.error(f"Erro ao salvar alterações: {e}")
+                        st.error(f'Erro ao salvar alterações: {e}')
+                try:
+                    with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
+                        for _, r in df_view.iterrows():
+                            _conn.execute(
+                                "INSERT INTO motoristas (pessoa, nome, matricula, documento, ativo) VALUES (?, ?, ?, ?, ?) ON CONFLICT(pessoa) DO UPDATE SET nome=excluded.nome, matricula=excluded.matricula, documento=excluded.documento, ativo=excluded.ativo",
+                                (r['pessoa'], r['nome'], r['matricula'], r.get('documento', None), int(r.get('ativo',1)))
+                            )
+                        _conn.commit()
+                    st.success("Alterações salvas.")
+                    rerun_keep_tab("⚙️ Configurações")
+                except Exception as e:
+                    st.error(f"Erro ao salvar alterações: {e}")
                 with st.form("form_motorista_crud"):
                     colA, colB = st.columns([1,1])
                     with colA:
@@ -3280,92 +3279,46 @@ if inserir_abastecimento(DB_PATH, dados_novos):
                 if q_precos:
                     dfp_view = dfp_view[dfp_view['tipo_combustivel'].str.lower().str.contains(q_precos)]
                 st.data_editor(dfp_view, use_container_width=True, num_rows="dynamic")
-                \1                    # Validação dos preços
-                    _errs = []
-                    if dfp_view.empty:
-                        _errs.append('Nada para salvar.')
-                    else:
-                        if dfp_view['tipo_combustivel'].isna().any() or (dfp_view['tipo_combustivel'].astype(str).str.strip() == '').any():
-                            _errs.append('Há registros sem tipo de combustível.')
-                        try:
-                            vals_ok = (pd.to_numeric(dfp_view['preco'], errors='coerce') > 0).all()
-                        except Exception:
-                            vals_ok = False
-                        if not vals_ok:
-                            _errs.append('Preços devem ser numéricos e > 0.')
-                    if _errs:
-                        for e in _errs: st.error(e)
-                    else:
-                        try:
-                            with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
-                                for _, r in dfp_view.iterrows():
-                                    _conn.execute(
-                                        \"INSERT INTO precos_combustiveis (tipo_combustivel, preco) VALUES (?, ?) \"
-                                        \"ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco\",
-                                        (str(r['tipo_combustivel']).strip(), float(r['preco']))
-                                    )
-                                _conn.commit()
-                            st.success('Alterações de preços salvas com sucesso.')
-                            rerun_keep_tab('⚙️ Configurações')
-                        except Exception as e:
-                            st.error(f'Erro ao salvar alterações de preços: {e}')
+                # Validação dos preços
+                _errs = []
+                if dfp_view.empty:
+                    _errs.append('Nada para salvar.')
+                else:
+                    if dfp_view['tipo_combustivel'].isna().any() or (dfp_view['tipo_combustivel'].astype(str).str.strip() == '').any():
+                        _errs.append('Há registros sem tipo de combustível.')
+                    try:
+                        vals_ok = (pd.to_numeric(dfp_view['preco'], errors='coerce') > 0).all()
+                    except Exception:
+                        vals_ok = False
+                    if not vals_ok:
+                        _errs.append('Preços devem ser numéricos e > 0.')
+                if _errs:
+                    for e in _errs: st.error(e)
+                else:
                     try:
                         with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
                             for _, r in dfp_view.iterrows():
                                 _conn.execute(
                                     "INSERT INTO precos_combustiveis (tipo_combustivel, preco) VALUES (?, ?) ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco",
-                                    (r['tipo_combustivel'], float(r['preco']))
+                                    (str(r['tipo_combustivel']).strip(), float(r['preco']))
                                 )
                             _conn.commit()
-                        st.success("Alterações salvas.")
-                        rerun_keep_tab("⚙️ Configurações")
+                        st.success('Alterações de preços salvas com sucesso.')
+                        rerun_keep_tab('⚙️ Configurações')
                     except Exception as e:
-                        st.error(f"Erro ao salvar alterações: {e}")
-
-                st.markdown("### Incluir / Atualizar")
-                st.caption("As alterações feitas na tabela acima não são salvas automaticamente. Clique em **Salvar alterações da tabela** para persistir.")
-                \1                    # Validação dos motoristas
-                    _errs = []
-                    if df_view.empty:
-                        _errs.append('Nada para salvar.')
-                    else:
-                        # Matrícula obrigatória e ativa 0/1
-                        if df_view['matricula'].isna().any() or (df_view['matricula'].astype(str).str.strip() == '').any():
-                            _errs.append('Há motoristas sem matrícula. Preencha antes de salvar.')
-                        if not set(df_view['ativo'].dropna().astype(int).unique()).issubset({0,1}):
-                            _errs.append('Campo \"ativo\" deve ser 0 ou 1.')
-                        # Matrícula duplicada (apenas entre ativos)
-                        dups = df_view[df_view['ativo'] == 1]['matricula'].astype(str).str.strip().duplicated(keep=False)
-                        if dups.any():
-                            _errs.append('Há matrículas duplicadas entre motoristas ativos.')
-                    if _errs:
-                        for e in _errs: st.error(e)
-                    else:
-                        try:
-                            with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
-                                for _, r in df_view.iterrows():
-                                    _conn.execute(
-                                        \"INSERT INTO motoristas (pessoa, nome, matricula, documento, ativo) VALUES (?, ?, ?, ?, ?) \"
-                                        \"ON CONFLICT(pessoa) DO UPDATE SET nome=excluded.nome, matricula=excluded.matricula, documento=excluded.documento, ativo=excluded.ativo\",
-                                        (str(r['pessoa']), str(r['nome']), str(r['matricula']), (None if pd.isna(r.get('documento')) or str(r.get('documento')).strip()=='' else str(r.get('documento'))), int(r['ativo']) if not pd.isna(r['ativo']) else 1)
-                                    )
-                                _conn.commit()
-                            st.success('Alterações salvas com sucesso.')
-                            rerun_keep_tab('⚙️ Configurações')
-                        except Exception as e:
-                            st.error(f'Erro ao salvar alterações: {e}')
-                    try:
-                        with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
-                            for _, r in df_view.iterrows():
-                                _conn.execute(
-                                    "INSERT INTO motoristas (pessoa, nome, matricula, documento, ativo) VALUES (?, ?, ?, ?, ?) ON CONFLICT(pessoa) DO UPDATE SET nome=excluded.nome, matricula=excluded.matricula, documento=excluded.documento, ativo=excluded.ativo",
-                                    (r['pessoa'], r['nome'], r['matricula'], r.get('documento', None), int(r.get('ativo',1)))
-                                )
-                            _conn.commit()
-                        st.success("Alterações salvas.")
-                        rerun_keep_tab("⚙️ Configurações")
-                    except Exception as e:
-                        st.error(f"Erro ao salvar alterações: {e}")
+                        st.error(f'Erro ao salvar alterações de preços: {e}')
+                try:
+                    with sqlite3.connect(DB_PATH, check_same_thread=False) as _conn:
+                        for _, r in dfp_view.iterrows():
+                            _conn.execute(
+                                "INSERT INTO precos_combustiveis (tipo_combustivel, preco) VALUES (?, ?) ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco",
+                                (r['tipo_combustivel'], float(r['preco']))
+                            )
+                        _conn.commit()
+                    st.success("Alterações salvas.")
+                    rerun_keep_tab("⚙️ Configurações")
+                except Exception as e:
+                    st.error(f"Erro ao salvar alterações: {e}")
                 col1, col2 = st.columns([2,1])
                 with col1:
                     tipo_in = st.text_input("Tipo de combustível*", key="crud_tipo").strip()
@@ -3616,19 +3569,19 @@ if inserir_abastecimento(DB_PATH, dados_novos):
             
             # Criar abas para organizar melhor as funcionalidades
             tab_config, tab_historico = st.tabs(["⚙️ Configuração", "🗑️ Histórico"])
-                    st.markdown("## 👤 Importar Lista de Motoristas")
-                    arq_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upload_motoristas")
-                    if arq_motoristas is not None:
-                        try:
-                            df_prev = pd.read_excel(arq_motoristas)
-                            st.write("Pré-visualização:")
-                            st.dataframe(df_prev, use_container_width=True)
-                            if st.button("Confirmar importação de motoristas"):
-                                afetados = importar_motoristas_de_planilha(df_prev, DB_PATH)
-                                st.success(f"Motoristas importados/atualizados: {afetados}")
-                                rerun_keep_tab("📤 Importar Dados")
-                        except Exception as e:
-                            st.error(f"Erro ao ler a planilha de motoristas: {e}")
+            st.markdown("## 👤 Importar Lista de Motoristas")
+            arq_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upload_motoristas")
+            if arq_motoristas is not None:
+                try:
+                    df_prev = pd.read_excel(arq_motoristas)
+                    st.write("Pré-visualização:")
+                    st.dataframe(df_prev, use_container_width=True)
+                    if st.button("Confirmar importação de motoristas"):
+                        afetados = importar_motoristas_de_planilha(df_prev, DB_PATH)
+                        st.success(f"Motoristas importados/atualizados: {afetados}")
+                        rerun_keep_tab("📤 Importar Dados")
+                except Exception as e:
+                    st.error(f"Erro ao ler a planilha de motoristas: {e}")
 
                     st.markdown("---")
                     st.markdown("## ⛽ Importar/Atualizar Preços de Combustíveis")
