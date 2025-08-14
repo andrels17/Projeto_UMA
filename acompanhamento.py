@@ -1608,36 +1608,69 @@ def main():
         plan_df = build_component_maintenance_plan(df_frotas, df, df_comp_regras, df_comp_historico)
 
 
-        # CSS para barra de rolagem horizontal nas abas
+        # CSS para barra de rolagem horizontal nas abas com design moderno
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"] {
-            gap: 2px;
+            gap: 4px;
             overflow-x: auto;
             scrollbar-width: thin;
-            scrollbar-color: #888 #f1f1f1;
+            scrollbar-color: #00D4AA #E8F5F2;
+            padding: 4px 0;
         }
         
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
-            height: 8px;
+            height: 12px;
         }
         
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 4px;
+            background: linear-gradient(90deg, #F0F2F6 0%, #E8F5F2 100%);
+            border-radius: 8px;
+            border: 1px solid #E0E6ED;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
         }
         
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 4px;
+            background: linear-gradient(90deg, #00D4AA 0%, #00B8A9 100%);
+            border-radius: 8px;
+            border: 1px solid #00A896;
+            box-shadow: 0 2px 4px rgba(0,212,170,0.3);
+            transition: all 0.3s ease;
         }
         
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb:hover {
-            background: #555;
+            background: linear-gradient(90deg, #00B8A9 0%, #00A896 100%);
+            box-shadow: 0 3px 6px rgba(0,212,170,0.4);
+            transform: translateY(-1px);
+        }
+        
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb:active {
+            background: linear-gradient(90deg, #00A896 0%, #009688 100%);
+            box-shadow: 0 1px 3px rgba(0,212,170,0.5);
         }
         
         .stTabs [data-baseweb="tab-list"] > div {
             flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+        
+        /* Melhorar aparência das abas */
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+        
+        .stTabs [data-baseweb="tab"]:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        /* Estilo para abas ativas */
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {
+            background: linear-gradient(135deg, #00D4AA 0%, #00B8A9 100%);
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,212,170,0.3);
         }
         </style>
         """, unsafe_allow_html=True)
@@ -1677,6 +1710,37 @@ def main():
         # Navegação rápida para abas principais (apenas para admins com muitas abas)
         if st.session_state.role == 'admin' and len(tabs_para_mostrar) > 8:
             st.markdown("---")
+            
+            # CSS para melhorar os botões de navegação
+            st.markdown("""
+            <style>
+            .stButton > button {
+                background: linear-gradient(135deg, #00D4AA 0%, #00B8A9 100%);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-weight: 600;
+                font-size: 14px;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 8px rgba(0,212,170,0.3);
+            }
+            
+            .stButton > button:hover {
+                background: linear-gradient(135deg, #00B8A9 0%, #00A896 100%);
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,212,170,0.4);
+            }
+            
+            .stButton > button:active {
+                background: linear-gradient(135deg, #00A896 0%, #009688 100%);
+                transform: translateY(0);
+                box-shadow: 0 2px 4px rgba(0,212,170,0.5);
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("### 🚀 Navegação Rápida")
             col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
             
             with col_nav1:
