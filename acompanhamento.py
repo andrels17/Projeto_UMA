@@ -3092,7 +3092,7 @@ def main():
             )
             if acao == "Adicionar Abastecimento":
                 st.subheader("➕ Adicionar Novo Abastecimento")
-                        with st.form("form_abastecimento", clear_on_submit=True):
+                with st.form("form_abastecimento", clear_on_submit=True):
                             equip_selecionado_label = st.selectbox(
                                 "Selecione o Equipamento", 
                                 options=df_frotas.sort_values("label")["label"],
@@ -3141,12 +3141,12 @@ def main():
                                         st.success("Abastecimento salvo com sucesso!")
                                         rerun_keep_tab("⚙️ Gerir Lançamentos")
 
-                    elif acao == "Excluir Lançamento":
-                                st.subheader("🗑️ Excluir um Lançamento")
+            elif acao == "Excluir Lançamento":
+                st.subheader("🗑️ Excluir um Lançamento")
                                 
-                                tipo_exclusao = st.radio("O que deseja excluir?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="delete_choice")
+                tipo_exclusao = st.radio("O que deseja excluir?", ("Abastecimento", "Manutenção", "Manutenção de Componentes"), horizontal=True, key="delete_choice")
                                 
-                                if tipo_exclusao == "Abastecimento":
+                if tipo_exclusao == "Abastecimento":
                                     df_para_excluir = df.sort_values(by="Data", ascending=False).copy()
                                     df_para_excluir['label_exclusao'] = (
                                         df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
