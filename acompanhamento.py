@@ -2707,7 +2707,7 @@ def main():
                         texttemplate='%{text} L'
                     )
                     fig_consumo_periodo.update_layout(
-                        height=400,
+                        height=500,
                         showlegend=False,
                         xaxis_title="Período",
                         yaxis_title="Consumo (Litros)"
