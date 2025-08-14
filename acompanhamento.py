@@ -874,6 +874,70 @@ def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
         return True, f"Preço atualizado para {tipo}"
     except Exception as e:
         return False, f"Erro ao atualizar preço: {e}"
+    
+def ensure_lubrificantes_schema():
+    """Garante a existência da tabela de lubrificantes e movimentações."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT,
+                    viscosidade TEXT,
+                    quantidade_estoque REAL,
+                    unidade TEXT,
+                    observacoes TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes_movimentacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_lubrificante INTEGER,
+                    tipo TEXT, -- 'entrada' ou 'saida'
+                    quantidade REAL,
+                    data TEXT,
+                    cod_equip INTEGER,
+                    observacoes TEXT,
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id)
+                )
+            """)
+            conn.commit()
+        return True, "Tabelas de lubrificantes verificadas"
+    except Exception as e:
+        return False, f"Erro ao criar tabelas de lubrificantes: {e}"
+    
+def add_lubrificante(nome, viscosidade, quantidade, unidade, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes (nome, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, viscosidade, quantidade, unidade, observacoes)
+            )
+            conn.commit()
+        return True, "Lubrificante cadastrado!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def movimentar_lubrificante(id_lubrificante, tipo, quantidade, data, cod_equip=None, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes_movimentacoes (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes)
+            )
+            # Atualiza estoque
+            sinal = 1 if tipo == "entrada" else -1
+            cur.execute(
+                "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque + ? WHERE id = ?",
+                (sinal * quantidade, id_lubrificante)
+            )
+            conn.commit()
+        return True, "Movimentação registrada!"
+    except Exception as e:
+        return False, f"Erro: {e}"
 
 @st.cache_data(ttl=120)
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
@@ -1744,7 +1808,7 @@ def main():
         """, unsafe_allow_html=True)
         
         abas_visualizacao = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
-        abas_admin = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists", "💾 Backup"]
+        abas_admin = ["⚙️ Gerir Lançamentos", "🛢️ Gestão de Lubrificantes", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists", "💾 Backup"]
 
         if st.session_state.role == 'admin':
             tabs_para_mostrar = abas_visualizacao + abas_admin
@@ -1755,7 +1819,7 @@ def main():
             except TypeError:
                 abas = st.tabs(tabs_para_mostrar)
             (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
-            tab_gerir_lanc, tab_gerir_frotas, tab_importar, tab_config, tab_saude, 
+            tab_gerir_lanc, tab_gerir_lub, tab_gerir_frotas, tab_importar, tab_config, tab_saude, 
             tab_gerir_users, tab_gerir_checklists, tab_backup) = abas
         else:
             tabs_para_mostrar = abas_visualizacao
@@ -2436,6 +2500,27 @@ def main():
 
                 else:
                     st.info("Nenhum pneu cadastrado para demonstrativo.")
+
+                st.markdown("---")
+                st.subheader("🛢️ Demonstrativos de Lubrificantes")
+
+                ensure_lubrificantes_schema()
+                conn = sqlite3.connect(DB_PATH)
+                df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
+
+                st.write("**Estoque Atual de Lubrificantes:**")
+                st.dataframe(df_lub)
+
+                if not df_lub.empty:
+                    st.bar_chart(df_lub.groupby("viscosidade")["quantidade_estoque"].sum())
+
+                st.write("**Movimentações Recentes:**")
+                df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                df_mov = df_mov.sort_values('data', ascending=False)
+                st.dataframe(df_mov.head(20))
+
+                conn.close()
         
         with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
@@ -3700,6 +3785,46 @@ def main():
                                                             st.success("Manutenção de componente atualizada com sucesso!")
                                                             rerun_keep_tab("⚙️ Gerir Lançamentos")
 
+        with tab_gerir_lub:
+                    st.header("🛢️ Gestão de Lubrificantes")
+                    ensure_lubrificantes_schema()
+                    conn = sqlite3.connect(DB_PATH)
+                    df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                    df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
+
+                    with st.expander("Cadastrar Novo Lubrificante"):
+                        nome = st.text_input("Nome")
+                        viscosidade = st.text_input("Viscosidade")
+                        quantidade = st.number_input("Quantidade Inicial", min_value=0.0, format="%.2f")
+                        unidade = st.selectbox("Unidade", ["L", "kg", "gal"])
+                        obs = st.text_area("Observações")
+                        if st.button("Salvar Lubrificante"):
+                            ok, msg = add_lubrificante(nome, viscosidade, quantidade, unidade, obs)
+                            st.success(msg) if ok else st.error(msg)
+                            st.rerun()
+
+                    st.subheader("Estoque Atual")
+                    st.dataframe(df_lub)
+
+                    st.subheader("Registrar Entrada/Saída")
+                    lubs = df_lub['nome'].tolist()
+                    if lubs:
+                        lub_sel = st.selectbox("Lubrificante", lubs)
+                        tipo_mov = st.selectbox("Tipo", ["entrada", "saida"])
+                        quantidade = st.number_input("Quantidade", min_value=0.01, format="%.2f")
+                        data_mov = st.date_input("Data", value=date.today())
+                        cod_equip = st.number_input("Código da Máquina (opcional)", min_value=0, step=1)
+                        obs_mov = st.text_input("Observações")
+                        if st.button("Registrar Movimentação"):
+                            id_lub = df_lub[df_lub['nome'] == lub_sel]['id'].iloc[0]
+                            ok, msg = movimentar_lubrificante(id_lub, tipo_mov, quantidade, data_mov.strftime("%Y-%m-%d"), cod_equip if cod_equip > 0 else None, obs_mov)
+                            st.success(msg) if ok else st.error(msg)
+                            st.rerun()
+
+                    st.subheader("Histórico de Movimentações")
+                    st.dataframe(df_mov)
+
+                    conn.close()
 
         with tab_gerir_frotas:
             st.header("⚙️ Gerir Frotas")
