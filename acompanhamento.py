@@ -1815,9 +1815,17 @@ def main():
                     # Verificar se a coluna tipo_combustivel existe em df_frotas
                     if 'tipo_combustivel' in df_frotas.columns:
                         df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                        df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_gastos.columns:
+                            df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_gastos['tipo_combustivel'] = 'Diesel S500'
                     else:
                         # Se não existir, criar a coluna com valor padrão
+                        df_gastos['tipo_combustivel'] = 'Diesel S500'
+                    
+                    # Garantir que a coluna tipo_combustivel existe antes de mapear preços
+                    if 'tipo_combustivel' not in df_gastos.columns:
                         df_gastos['tipo_combustivel'] = 'Diesel S500'
                     
                     df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
@@ -1977,10 +1985,18 @@ def main():
                     # Verificar se a coluna tipo_combustivel existe em df_frotas
                     if 'tipo_combustivel' in df_frotas.columns:
                         df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                        df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_tmp.columns:
+                            df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_tmp['tipo_combustivel'] = 'Diesel S500'
                     else:
                         # Se não existir, criar a coluna com valor padrão
                         df_tmp['tipo_combustivel'] = 'Diesel S500'
+                    # Garantir que a coluna tipo_combustivel existe antes de mapear preços
+                    if 'tipo_combustivel' not in df_tmp.columns:
+                        df_tmp['tipo_combustivel'] = 'Diesel S500'
+                    
                     df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
                     # Agrupar por matrícula
@@ -2020,11 +2036,16 @@ def main():
                         on='Cod_Equip', 
                         how='left'
                     )
+                    # Verificar se a coluna foi criada após o merge
                     if 'tipo_combustivel' not in df_consumo_combustivel.columns:
                         df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
                 except Exception:
                     df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
             else:
+                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+            
+            # Garantir que a coluna tipo_combustivel existe
+            if 'tipo_combustivel' not in df_consumo_combustivel.columns:
                 df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
             
             col_grafico1, col_grafico2 = st.columns(2)
