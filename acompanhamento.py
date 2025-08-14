@@ -3843,37 +3843,98 @@ def main():
                     df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
                     df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
 
-                    with st.expander("Cadastrar Novo Lubrificante"):
-                        nome = st.text_input("Nome")
-                        viscosidade = st.text_input("Viscosidade")
-                        quantidade = st.number_input("Quantidade Inicial", min_value=0.0, format="%.2f")
-                        unidade = st.selectbox("Unidade", ["L", "kg", "gal"])
-                        obs = st.text_area("Observações")
-                        if st.button("Salvar Lubrificante"):
-                            ok, msg = add_lubrificante(nome, viscosidade, quantidade, unidade, obs)
-                            st.success(msg) if ok else st.error(msg)
-                            st.rerun()
+                    # ----------- Visualização do Estoque Atual -----------
+                    st.subheader("Visualização do Estoque Atual")
 
-                    st.subheader("Estoque Atual")
-                    st.dataframe(df_lub)
+                    if not df_lub.empty:
+                        # Separar por tipo
+                        df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                        df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
 
-                    st.subheader("Registrar Entrada/Saída")
-                    lubs = df_lub['nome'].tolist()
-                    if lubs:
-                        lub_sel = st.selectbox("Lubrificante", lubs)
-                        tipo_mov = st.selectbox("Tipo", ["entrada", "saida"])
-                        quantidade = st.number_input("Quantidade", min_value=0.01, format="%.2f")
-                        data_mov = st.date_input("Data", value=date.today())
-                        cod_equip = st.number_input("Código da Máquina (opcional)", min_value=0, step=1)
-                        obs_mov = st.text_input("Observações")
-                        if st.button("Registrar Movimentação"):
-                            id_lub = df_lub[df_lub['nome'] == lub_sel]['id'].iloc[0]
-                            ok, msg = movimentar_lubrificante(id_lub, tipo_mov, quantidade, data_mov.strftime("%Y-%m-%d"), cod_equip if cod_equip > 0 else None, obs_mov)
-                            st.success(msg) if ok else st.error(msg)
-                            st.rerun()
+                        col_o, col_g = st.columns(2)
+                        with col_o:
+                            st.markdown("#### Estoque de Óleos")
+                            if not df_oleos.empty:
+                                fig_oleos = px.bar(
+                                    df_oleos,
+                                    x='nome',
+                                    y='quantidade_estoque',
+                                    color='viscosidade',
+                                    text='quantidade_estoque',
+                                    title="Óleos - Estoque Atual",
+                                    labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
+                                )
+                                st.plotly_chart(fig_oleos, use_container_width=True)
+                            else:
+                                st.info("Nenhum óleo cadastrado.")
 
+                        with col_g:
+                            st.markdown("#### Estoque de Graxas")
+                            if not df_graxas.empty:
+                                fig_graxas = px.bar(
+                                    df_graxas,
+                                    x='nome',
+                                    y='quantidade_estoque',
+                                    color='viscosidade',
+                                    text='quantidade_estoque',
+                                    title="Graxas - Estoque Atual",
+                                    labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                                )
+                                st.plotly_chart(fig_graxas, use_container_width=True)
+                            else:
+                                st.info("Nenhuma graxa cadastrada.")
+
+                        # Pizza geral
+                        df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                        fig_pizza = px.pie(
+                            df_lub,
+                            names='tipo',
+                            values='quantidade_estoque',
+                            title="Proporção de Estoque: Óleos vs Graxas"
+                        )
+                        st.plotly_chart(fig_pizza, use_container_width=True)
+
+                        st.markdown("#### Tabela Detalhada do Estoque")
+                        st.dataframe(df_lub)
+                    else:
+                        st.info("Nenhum lubrificante cadastrado.")
+
+                    st.markdown("---")
+
+                    # ----------- Registro de Entrada/Saída -----------
+                    st.subheader("Registrar Entrada/Saída de Lubrificantes")
+                    if not df_lub.empty:
+                        with st.form("form_mov_lub", clear_on_submit=True):
+                            lubs = df_lub['nome'].tolist()
+                            lub_sel = st.selectbox("Lubrificante", lubs)
+                            tipo_mov = st.selectbox("Tipo", ["entrada", "saida"])
+                            quantidade = st.number_input("Quantidade", min_value=0.01, format="%.2f")
+                            data_mov = st.date_input("Data", value=date.today())
+                            cod_equip = st.number_input("Código da Máquina (opcional)", min_value=0, step=1)
+                            obs_mov = st.text_input("Observações")
+                            submitted = st.form_submit_button("Registrar Movimentação")
+                            if submitted:
+                                id_lub = df_lub[df_lub['nome'] == lub_sel]['id'].iloc[0]
+                                ok, msg = movimentar_lubrificante(id_lub, tipo_mov, quantidade, data_mov.strftime("%Y-%m-%d"), cod_equip if cod_equip > 0 else None, obs_mov)
+                                st.success(msg) if ok else st.error(msg)
+                                st.rerun()
+                    else:
+                        st.info("Cadastre lubrificantes para registrar movimentações.")
+
+                    st.markdown("---")
+
+                    # ----------- Histórico de Movimentações -----------
                     st.subheader("Histórico de Movimentações")
-                    st.dataframe(df_mov)
+                    if not df_mov.empty:
+                        df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                        df_mov = df_mov.sort_values('data', ascending=False)
+                        # Junta nome do lubrificante
+                        df_mov = df_mov.merge(df_lub[['id', 'nome', 'tipo']], left_on='id_lubrificante', right_on='id', how='left')
+                        df_mov_display = df_mov[['data', 'nome', 'tipo', 'tipo_x', 'quantidade', 'cod_equip', 'observacoes']]
+                        df_mov_display = df_mov_display.rename(columns={'data': 'Data', 'nome': 'Lubrificante', 'tipo': 'Tipo', 'tipo_x': 'Movimentação', 'quantidade': 'Quantidade', 'cod_equip': 'Máquina', 'observacoes': 'Observações'})
+                        st.dataframe(df_mov_display.head(30))
+                    else:
+                        st.info("Nenhuma movimentação registrada.")
 
                     conn.close()
 
