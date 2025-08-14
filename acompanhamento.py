@@ -1964,54 +1964,36 @@ def main():
                 kpi4.metric("Frota Mais Eficiente", "N/A")
                 kpi5.metric("Frota Menos Eficiente", "N/A")
 
-               st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
-                    if 'Media' in df.columns and not df['Media'].dropna().empty:
-                        media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
-                        ranking_df = df.copy()
-                        ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
-                        ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
-                    
-                        ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
-                        ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
-                    
-                        # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
-                        ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
-                    
-                        # NOVO: Adiciona coluna de ranking
-                        ranking['Ranking'] = ranking['Eficiência (%)'].rank(ascending=False, method='min').astype(int)
-                    
-                        def formatar_eficiencia(val):
-                            if pd.isna(val): return "N/A"
-                            if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
-                            if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
-                            return f"⚪ {val:+.2f}%".replace('.',',')
-                        ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
-                    
-                        # Exibe a tabela com ranking
-                        st.dataframe(ranking[['Ranking', 'Equipamento', 'Eficiência (%)']])
-                    
-                        # NOVO: Gráfico de barras horizontal dos 10 mais eficientes
-                        import plotly.express as px
-                        ranking_grafico = ranking.copy()
-                        # Remove emojis para o gráfico
-                        ranking_grafico['Eficiência Num'] = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).values
-                        fig = px.bar(
-                            ranking_grafico.head(10),
-                            x='Eficiência Num',
-                            y='Equipamento',
-                            orientation='h',
-                            color='Eficiência Num',
-                            color_continuous_scale='RdYlGn',
-                            title="Top 10 Equipamentos Mais Eficientes"
-                        )
-                        fig.update_layout(xaxis_title="Eficiência (%)", yaxis_title="Equipamento", height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                        # Botão de Exportação para o Ranking
-                        csv_ranking = para_csv(ranking)
-                        st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
-                    else:
-                        st.info("Não há dados de consumo médio para gerar o ranking.")
+            st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
+            if 'Media' in df.columns and not df['Media'].dropna().empty:
+                media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
+                ranking_df = df.copy()
+                ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
+                ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
+                
+                ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
+                ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
+                
+                # --- INÍCIO DA CORREÇÃO ---
+                # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
+                ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
+                # --- FIM DA CORREÇÃO ---
+            
+                def formatar_eficiencia(val):
+                    if pd.isna(val): return "N/A"
+                    if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
+                    if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
+                    return f"⚪ {val:+.2f}%".replace('.',',')
+                
+                ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
+                
+                # Exibe a nova coluna "Equipamento" formatada
+                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
+                            # NOVO: Botão de Exportação para o Ranking
+                csv_ranking = para_csv(ranking)
+                st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
+            else:
+                    st.info("Não há dados de consumo médio para gerar o ranking.")
                     
             st.markdown("---")
             st.subheader("📈 Tendência de Consumo Mensal")
