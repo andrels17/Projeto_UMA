@@ -670,7 +670,6 @@ def add_tipo_combustivel_column():
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
 
-@st.cache_data(ttl=120)
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
     # Garante que a coluna de data é do tipo datetime
     df['Data'] = pd.to_datetime(df['Data'])
@@ -689,6 +688,16 @@ def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
         df_filtrado = df_filtrado[df_filtrado["Safra"].isin(opts["safras"])]
         
     return df_filtrado.copy()
+
+@st.cache_data(show_spinner="Calculando plano de manutenção...", ttl=300)
+def build_component_maintenance_plan_cached(ver_frotas: int, ver_abast: int, ver_comp_regras: int, ver_comp_hist: int):
+    # Reconstroi a partir de dados já em session_state
+    return build_component_maintenance_plan(
+        st.session_state['_df_frotas'],
+        st.session_state['_df_abastecimentos'],
+        st.session_state['_df_componentes_regras'],
+        st.session_state['_df_componentes_historico']
+    )
 
 @st.cache_data(show_spinner="Calculando plano de manutenção...", ttl=300)
 def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimentos: pd.DataFrame, _df_componentes_regras: pd.DataFrame, _df_componentes_historico: pd.DataFrame) -> pd.DataFrame:
@@ -1438,6 +1447,9 @@ def consulta_gasto_por_motorista(db_path: str) -> pd.DataFrame:
             df = pd.read_sql_query(sql2, conn)
     return df
 
+@st.cache_data(ttl=180)
+def consulta_gasto_por_motorista_cached(ver_token: int) -> pd.DataFrame:
+    return consulta_gasto_por_motorista(DB_PATH)
 
 def main():
     # Garante que o esquema do banco esteja correto
@@ -1540,7 +1552,15 @@ def main():
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
-        
+        # Armazenar em session_state para reuso por funções cacheadas por versão
+        st.session_state['_df_abastecimentos'] = df
+        st.session_state['_df_frotas'] = df_frotas
+        st.session_state['_df_manutencoes'] = df_manutencoes
+        st.session_state['_df_componentes_regras'] = df_comp_regras
+        st.session_state['_df_componentes_historico'] = df_comp_historico
+        st.session_state['_df_checklist_regras'] = df_checklist_regras
+        st.session_state['_df_checklist_itens'] = df_checklist_itens
+        st.session_state['_df_checklist_historico'] = df_checklist_historico
 
 
         if 'intervalos_por_classe' not in st.session_state:
@@ -1630,7 +1650,7 @@ def main():
     #----------------------------------------------------- aba principal --------------------------------------
         st.session_state['opts_sidebar'] = opts
         df_f = df.copy()
-        plan_df = build_component_maintenance_plan(df_frotas, df, df_comp_regras, df_comp_historico)
+        plan_df = build_component_maintenance_plan_cached(ver_frotas, ver_frotas, ver_frotas, ver_frotas)
 
 
         abas_visualizacao = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
@@ -2206,7 +2226,7 @@ def main():
             st.markdown("---")
             st.subheader("💸 Gasto por Motorista (com base no preço do combustível)")
             try:
-                df_gasto = consulta_gasto_por_motorista(DB_PATH)
+                df_gasto = consulta_gasto_por_motorista_cached(ver_frotas)
                 if not df_gasto.empty:
                     # Formatação
                     df_show = df_gasto.copy()
