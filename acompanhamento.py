@@ -890,6 +890,12 @@ def ensure_lubrificantes_schema():
                     observacoes TEXT
                 )
             """)
+            # Adicione aqui para garantir a coluna 'tipo'
+            cursor.execute("PRAGMA table_info(lubrificantes)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'tipo' not in cols:
+                cursor.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
+            # ...continua o restante da função...
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS lubrificantes_movimentacoes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2510,15 +2516,60 @@ def main():
                 df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
 
                 st.write("**Estoque Atual de Lubrificantes:**")
-                st.dataframe(df_lub)
-
                 if not df_lub.empty:
-                    st.bar_chart(df_lub.groupby("viscosidade")["quantidade_estoque"].sum())
+                        # Separar por tipo
+                        df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                        df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
 
-                st.write("**Movimentações Recentes:**")
-                df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
-                df_mov = df_mov.sort_values('data', ascending=False)
-                st.dataframe(df_mov.head(20))
+                        col_o, col_g = st.columns(2)
+                        with col_o:
+                            st.markdown("#### Estoque de Óleos")
+                            if not df_oleos.empty:
+                                fig_oleos = px.bar(
+                                    df_oleos,
+                                    x='nome',
+                                    y='quantidade_estoque',
+                                    color='viscosidade',
+                                    text='quantidade_estoque',
+                                    title="Óleos - Estoque Atual",
+                                    labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
+                                )
+                                st.plotly_chart(fig_oleos, use_container_width=True)
+                            else:
+                                st.info("Nenhum óleo cadastrado.")
+
+                        with col_g:
+                            st.markdown("#### Estoque de Graxas")
+                            if not df_graxas.empty:
+                                fig_graxas = px.bar(
+                                    df_graxas,
+                                    x='nome',
+                                    y='quantidade_estoque',
+                                    color='viscosidade',
+                                    text='quantidade_estoque',
+                                    title="Graxas - Estoque Atual",
+                                    labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                                )
+                                st.plotly_chart(fig_graxas, use_container_width=True)
+                            else:
+                                st.info("Nenhuma graxa cadastrada.")
+
+                        # Pizza geral
+                        df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                        fig_pizza = px.pie(
+                            df_lub,
+                            names='tipo',
+                            values='quantidade_estoque',
+                            title="Proporção de Estoque: Óleos vs Graxas"
+                        )
+                        st.plotly_chart(fig_pizza, use_container_width=True)
+
+                        st.write("**Movimentações Recentes:**")
+                        df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                        df_mov = df_mov.sort_values('data', ascending=False)
+                        st.dataframe(df_mov.head(20))
+                else:
+                        st.info("Nenhum lubrificante cadastrado.")
 
                 conn.close()
         
@@ -4144,8 +4195,8 @@ def main():
                         
         with tab_importar:
                     st.header("📤 Importar Dados")
-                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus = st.tabs(
-                        ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus"]
+                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes = st.tabs(
+                        ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes"]
                     )
 
                     with sub_tab_abastec:
@@ -4327,6 +4378,63 @@ def main():
                                             st.error(f"Erro ao excluir pneu: {e}")
                             else:
                                 st.info("Nenhum registro de pneus para esta frota.")
+                    with sub_tab_lubrificantes:
+                        st.subheader("Importar Lubrificantes por Planilha")
+                        st.info("Colunas obrigatórias: nome, tipo (graxa/óleo), viscosidade, quantidade_estoque, unidade, observacoes")
+                        arquivo_lub = st.file_uploader("Selecione a planilha de lubrificantes", type=['xlsx'], key="upl_lub")
+                        if arquivo_lub is not None:
+                            try:
+                                df_lub_import = pd.read_excel(arquivo_lub)
+                                st.dataframe(df_lub_import.head())
+                                if st.button("Confirmar e Inserir Lubrificantes", type="primary"):
+                                    # Adiciona coluna tipo se não existir
+                                    with sqlite3.connect(DB_PATH) as conn:
+                                        cur = conn.cursor()
+                                        cur.execute("PRAGMA table_info(lubrificantes)")
+                                        cols = [c[1] for c in cur.fetchall()]
+                                        if 'tipo' not in cols:
+                                            cur.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
+                                        for _, row in df_lub_import.iterrows():
+                                            cur.execute(
+                                                "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                                                (
+                                                    row.get('nome'),
+                                                    row.get('tipo', 'óleo'),
+                                                    row.get('viscosidade'),
+                                                    row.get('quantidade_estoque', 0),
+                                                    row.get('unidade', 'L'),
+                                                    row.get('observacoes', '')
+                                                )
+                                            )
+                                        conn.commit()
+                                    st.success("Lubrificantes importados com sucesso!")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao importar lubrificantes: {e}")
+
+                        st.markdown("---")
+                        st.subheader("Cadastrar Lubrificante Manualmente")
+                        with st.form("form_add_lub", clear_on_submit=True):
+                            nome = st.text_input("Nome")
+                            tipo = st.selectbox("Tipo", ["óleo", "graxa"])
+                            viscosidade = st.text_input("Viscosidade")
+                            quantidade = st.number_input("Quantidade Inicial", min_value=0.0, format="%.2f")
+                            unidade = st.selectbox("Unidade", ["L", "kg", "gal"])
+                            obs = st.text_area("Observações")
+                            if st.form_submit_button("Salvar Lubrificante"):
+                                with sqlite3.connect(DB_PATH) as conn:
+                                    cur = conn.cursor()
+                                    cur.execute("PRAGMA table_info(lubrificantes)")
+                                    cols = [c[1] for c in cur.fetchall()]
+                                    if 'tipo' not in cols:
+                                        cur.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
+                                    cur.execute(
+                                        "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                                        (nome, tipo, viscosidade, quantidade, unidade, obs)
+                                    )
+                                    conn.commit()
+                                st.success("Lubrificante cadastrado!")
+                                st.rerun()
                             
         with tab_saude:
                     st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
