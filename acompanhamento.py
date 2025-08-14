@@ -1831,8 +1831,27 @@ def main():
                     df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
                     df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
                     
-                    # Top 10 gastos por frota individual
-                    gastos_por_frota = df_gastos.groupby('Cod_Equip').agg({
+                    # Adicionar informações da frota para filtro
+                    df_gastos_com_info = df_gastos.merge(
+                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Classe_Operacional']], 
+                        on='Cod_Equip', 
+                        how='left'
+                    )
+                    
+                    # Filtro para excluir usinas por padrão
+                    mostrar_usinas = st.checkbox("🏭 Incluir Usinas no Top 10 de Gastos por Frota", value=False)
+                    
+                    if not mostrar_usinas:
+                        # Excluir usinas do DataFrame
+                        classes_usina = ['USINA', 'USINA MOBILE', 'USINA FIXA']
+                        df_gastos_filtrado = df_gastos_com_info[
+                            ~df_gastos_com_info['Classe_Operacional'].str.upper().isin(classes_usina)
+                        ]
+                    else:
+                        df_gastos_filtrado = df_gastos_com_info
+                    
+                    # Top 10 gastos por frota individual (após filtro)
+                    gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
                         'custo': 'sum',
                         'Qtde_Litros': 'sum'
                     }).sort_values('custo', ascending=False).head(10).reset_index()
@@ -1861,6 +1880,15 @@ def main():
                     
                     with col_gastos1:
                         st.subheader("🏭 Top 10 Gastos por Frota")
+                        
+                        # Mostrar informação sobre filtro de usinas
+                        if not mostrar_usinas:
+                            usinas_excluidas = df_gastos_com_info[
+                                df_gastos_com_info['Classe_Operacional'].str.upper().isin(['USINA', 'USINA MOBILE', 'USINA FIXA'])
+                            ]['Cod_Equip'].nunique()
+                            if usinas_excluidas > 0:
+                                st.info(f"ℹ️ {usinas_excluidas} usina(s) excluída(s) do ranking. Marque a caixa acima para incluí-las.")
+                        
                         if not gastos_por_frota.empty:
                             fig_gastos_frota = px.bar(
                                 gastos_por_frota,
@@ -1926,10 +1954,15 @@ def main():
                             formatar_brasileiro(df_gastos['custo'].sum(), 'R$ ')
                         )
                     with col_resumo2:
-                        st.metric(
-                            "Frota com Maior Gasto", 
-                            f"{gastos_por_frota.iloc[0]['Cod_Equip'] if not gastos_por_frota.empty else 'N/A'}"
-                        )
+                        if not gastos_por_frota.empty:
+                            frota_maior_gasto = gastos_por_frota.iloc[0]
+                            st.metric(
+                                "Frota com Maior Gasto", 
+                                f"{frota_maior_gasto['Cod_Equip']}",
+                                f"{frota_maior_gasto['custo_formatado']}"
+                            )
+                        else:
+                            st.metric("Frota com Maior Gasto", "N/A")
                     with col_resumo3:
                         st.metric(
                             "Classe com Maior Gasto", 
