@@ -2769,7 +2769,7 @@ def main():
                                 marker=dict(
                                     size=8,
                                     color='#e74c3c',
-                                    line=dict(width=2, color='#c0392b')
+                                    line=dict(width=2, color='#edf5fc')
                                 ),
                                 line=dict(width=3, color='#e74c3c')
                             )
