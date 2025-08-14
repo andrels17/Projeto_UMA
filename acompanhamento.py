@@ -1489,9 +1489,9 @@ def main():
 
         # Cabeçalho com logo + título
         if os.path.exists("logo.png"):
-            col_logo, col_title = st.columns([1, 6])
+            col_logo, col_title = st.columns([1, 8])
             with col_logo:
-                st.image("logo.png", width=72)
+                st.image("logo.png", width=80)
             with col_title:
                 st.title("📊 Dashboard de Frotas e Abastecimentos")
         else:
@@ -1612,11 +1612,11 @@ def main():
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"] {
-            gap: 4px;
+            gap: 8px;
             overflow-x: auto;
             scrollbar-width: thin;
             scrollbar-color: #00D4AA #E8F5F2;
-            padding: 4px 0;
+            padding: 8px 0;
         }
         
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
@@ -1768,7 +1768,18 @@ def main():
         with tab_painel:
             st.header("Visão Geral da Frota")
             
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            # Calcular gasto total com combustível
+            precos_map = get_precos_combustivel_map()
+            gasto_total_combustivel = 0
+            if precos_map:
+                df_gastos_total = df.copy()
+                df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+                df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
+                df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
+                gasto_total_combustivel = df_gastos_total['custo'].sum()
+            
+            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
             
             # KPI 1: Frotas Ativas
             total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
@@ -1778,7 +1789,10 @@ def main():
             frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
             kpi2.metric("Frotas com Alerta", frotas_com_alerta)
             
-            # KPIs 3 e 4: Frotas Mais e Menos Eficientes
+            # KPI 3: Gasto Total com Combustível
+            kpi3.metric("💰 Gasto com Combustível", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
+            
+            # KPIs 4 e 5: Frotas Mais e Menos Eficientes
             df_sem_filtro = df.copy()
             df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
             if not df_media_geral.empty:
@@ -1790,13 +1804,17 @@ def main():
                     cod_mais_eficiente = media_por_equip.index[0][0]
                     media_mais_eficiente = media_por_equip.iloc[0]
                     # Exibe o CÓDIGO no KPI
-                    kpi3.metric("Frota Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
+                    kpi4.metric("Frota Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
             
                     # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
                     cod_menos_eficiente = media_por_equip.index[-1][0]
                     media_menos_eficiente = media_por_equip.iloc[-1]
                     # Exibe o CÓDIGO no KPI
-                    kpi4.metric("Frota Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
+                    kpi5.metric("Frota Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
+            else:
+                # Se não há dados de eficiência, mostrar mensagem
+                kpi4.metric("Frota Mais Eficiente", "N/A")
+                kpi5.metric("Frota Menos Eficiente", "N/A")
 
             st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
             if 'Media' in df.columns and not df['Media'].dropna().empty:
@@ -2280,15 +2298,11 @@ def main():
         with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
             # Permitir consulta direta por código (Cód Equipamento)
-            cod_input = st.text_input("Cód Equipamento (pressione Enter)")
+            cod_input = st.text_input("Digite o código da frota")
             if cod_input and cod_input.isdigit() and int(cod_input) in df_frotas['Cod_Equip'].values:
                 equip_label = df_frotas.loc[df_frotas['Cod_Equip'] == int(cod_input)].iloc[0]['label']
             else:
-                equip_label = st.selectbox(
-                    "Selecione o Equipamento", 
-                    options=df_frotas.sort_values("Cod_Equip")["label"], 
-                    key="consulta_equip"
-                )
+                equip_label = None
         
             if equip_label:
                 cod_sel = int(equip_label.split(" - ")[0])
