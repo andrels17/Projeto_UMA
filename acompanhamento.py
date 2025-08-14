@@ -2505,6 +2505,7 @@ def main():
                                     # Usa o nome da coluna padronizado ('Classe_Operacional' com underscore)
                                     classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe_Operacional'].iloc[0]
                                     # --- FIM DA CORREÇÃO ---
+                                    pessoa_motorista_escolhida = None
                     
                                     dados_novos = {
                                         'cod_equip': cod_equip,
@@ -2514,7 +2515,7 @@ def main():
                                         'safra': safra,
                                         'mes': data_abastecimento.month,
                                         'classe_operacional': classe_op,
-                                        'pessoa_motorista': pessoa_motorista_escolhida
+                                        'pessoa_motorista': pessoa_motorista_escolhida or None
                                     }
                                     if inserir_abastecimento(DB_PATH, dados_novos):
                                         st.success("Abastecimento salvo com sucesso!")
