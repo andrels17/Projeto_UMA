@@ -2442,6 +2442,7 @@ def main():
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
                 else:
                     st.warning("Não há dados suficientes para análise por combustível.")
+                    
 
                 st.markdown("---")
                 st.subheader("📊 Demonstrativos Detalhados dos Pneus")
