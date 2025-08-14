@@ -166,6 +166,18 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         
         # Cria a coluna "label" no dataframe de frotas para uso em seletores
         df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
+
+        # Vincula informações de motorista aos abastecimentos (merge durante o load)
+        try:
+            with sqlite3.connect(db_path, check_same_thread=False) as conn:
+                df_motoristas = pd.read_sql_query("SELECT codigo_pessoa, matricula, nome FROM motoristas", conn)
+            if not df_motoristas.empty:
+                df_merged = df_merged.merge(
+                    df_motoristas.rename(columns={"codigo_pessoa": "Cod_Pessoa", "matricula": "Matricula", "nome": "Nome_Motorista"}),
+                    on=["Cod_Pessoa", "Matricula"], how="left"
+                )
+        except Exception:
+            pass
         
         # Garante que a classe operacional em df_frotas está atualizada
         classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
@@ -174,15 +186,12 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-            st.info("Coluna de tipo de combustível criada com valor padrão 'Diesel S500'")
         
         # Garantir que a coluna existe e tem valores válidos
         if 'tipo_combustivel' in df_frotas.columns:
             # Preencher valores nulos com padrão
             df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
-            st.info(f"Coluna tipo_combustivel verificada. Valores únicos: {df_frotas['tipo_combustivel'].unique()}")
         else:
-            st.error("Erro: Coluna tipo_combustivel não foi criada corretamente")
             df_frotas['tipo_combustivel'] = 'Diesel S500'
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
@@ -220,8 +229,8 @@ def inserir_abastecimento(db_path: str, dados: dict) -> bool:
         sql = """
             INSERT INTO abastecimentos (
                 "Cód. Equip.", Data, "Qtde Litros", Hod_Hor_Atual,
-                Safra, "Mês", "Classe Operacional"
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                Safra, "Mês", "Classe Operacional", Matricula, Cod_Pessoa
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         valores = (
             dados['cod_equip'],
@@ -230,7 +239,9 @@ def inserir_abastecimento(db_path: str, dados: dict) -> bool:
             dados['hod_hor_atual'],
             dados['safra'],
             dados['mes'],
-            dados['classe_operacional']
+            dados['classe_operacional'],
+            dados.get('matricula'),
+            dados.get('cod_pessoa')
         )
         cursor.execute(sql, valores)
         conn.commit()
@@ -420,10 +431,13 @@ def editar_abastecimento(db_path: str, rowid: int, dados: dict) -> bool:
         cursor = conn.cursor()
         sql = """
             UPDATE abastecimentos SET
-                "Cód. Equip." = ?, Data = ?, "Qtde Litros" = ?, Hod_Hor_Atual = ?, Safra = ?
+                "Cód. Equip." = ?, Data = ?, "Qtde Litros" = ?, Hod_Hor_Atual = ?, Safra = ?, Matricula = ?, Cod_Pessoa = ?
             WHERE rowid = ?
         """
-        valores = (dados['cod_equip'], dados['data'], dados['qtde_litros'], dados['hod_hor_atual'], dados['safra'], rowid)
+        valores = (
+            dados['cod_equip'], dados['data'], dados['qtde_litros'], dados['hod_hor_atual'], dados['safra'],
+            dados.get('matricula'), dados.get('cod_pessoa'), rowid
+        )
         cursor.execute(sql, valores)
         conn.commit()
         conn.close()
@@ -479,11 +493,10 @@ def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
         return False
 
 def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tuple[int, int, str]:
-    """Lê uma planilha, verifica por duplicados, e insere os novos dados."""
+    """Lê uma planilha, verifica por duplicados, e insere os novos dados. Aceita opcionalmente as colunas Matricula e Cod_Pessoa."""
     try:
         df_novo = pd.read_excel(arquivo_carregado)
         
-        # Mapeamento das colunas (ajuste se necessário)
         mapa_colunas = {
             "Cód. Equip.": "Cód. Equip.",
             "Data": "Data",
@@ -491,11 +504,14 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
             "Hod. Hor. Atual": "Hod_Hor_Atual",
             "Safra": "Safra",
             "Mês": "Mês",
-            "Classe Operacional": "Classe Operacional"
+            "Classe Operacional": "Classe Operacional",
+            "Matricula": "Matricula",
+            "Cod_Pessoa": "Cod_Pessoa",
         }
-        df_novo = df_novo.rename(columns=mapa_colunas)
+        df_novo = df_novo.rename(columns={k: v for k, v in mapa_colunas.items() if k in df_novo.columns})
 
-        colunas_necessarias = list(mapa_colunas.values())
+        colunas_necessarias = ["Cód. Equip.", "Data", "Qtde Litros", "Hod_Hor_Atual", "Safra", "Mês", "Classe Operacional"]
+        colunas_opcionais = ["Matricula", "Cod_Pessoa"]
         colunas_faltando = [col for col in colunas_necessarias if col not in df_novo.columns]
         if colunas_faltando:
             return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
@@ -515,11 +531,13 @@ def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tupl
         if df_para_inserir.empty:
             return 0, num_duplicados, "Nenhum registo novo para importar. Todos os registos da planilha já existem na base de dados."
 
-        df_para_inserir_final = df_para_inserir[colunas_necessarias]
+        colunas_insert = colunas_necessarias + [c for c in colunas_opcionais if c in df_para_inserir.columns]
+        df_para_inserir_final = df_para_inserir[colunas_insert]
         registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
         
         cursor = conn.cursor()
-        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_necessarias)}) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        placeholders = ", ".join(["?"] * len(colunas_insert))
+        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
         cursor.executemany(sql, registros)
         
         conn.commit()
@@ -656,6 +674,138 @@ def add_tipo_combustivel_column():
                 return True, "Coluna tipo_combustivel já existe"
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
+
+
+def ensure_motoristas_schema():
+    """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS motoristas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    codigo_pessoa TEXT,
+                    matricula TEXT UNIQUE,
+                    nome TEXT,
+                    ativo TEXT DEFAULT 'ATIVO'
+                )
+                """
+            )
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_matricula ON motoristas(matricula)")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_codigo_pessoa ON motoristas(codigo_pessoa)")
+
+            cursor.execute("PRAGMA table_info(abastecimentos)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'Matricula' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Matricula TEXT")
+            if 'Cod_Pessoa' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Cod_Pessoa TEXT")
+            conn.commit()
+        return True, "Esquema de motoristas verificado"
+    except Exception as e:
+        return False, f"Erro ao verificar esquema de motoristas: {e}"
+
+
+def get_all_motoristas() -> pd.DataFrame:
+    """Retorna o DataFrame de motoristas."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM motoristas", conn)
+    except Exception:
+        return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
+
+
+def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
+    """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
+    try:
+        df_mot = pd.read_excel(arquivo_carregado)
+        df_mot.columns = [c.strip() for c in df_mot.columns]
+        renomeios = {
+            'Matrícula': 'Matricula', 'matricula': 'Matricula', 'MATRICULA': 'Matricula',
+            'Nome': 'Nome', 'nome': 'Nome', 'NOME': 'Nome',
+            'Cod_Pessoa': 'Cod_Pessoa', 'Código Pessoa': 'Cod_Pessoa', 'codigo_pessoa': 'Cod_Pessoa', 'CODIGO_PESSOA': 'Cod_Pessoa'
+        }
+        df_mot.rename(columns={k: v for k, v in renomeios.items() if k in df_mot.columns}, inplace=True)
+        obrig = ['Matricula', 'Nome']
+        faltando = [c for c in obrig if c not in df_mot.columns]
+        if faltando:
+            return 0, 0, f"Erro: Colunas obrigatórias não encontradas: {', '.join(faltando)}"
+        if 'Cod_Pessoa' not in df_mot.columns:
+            df_mot['Cod_Pessoa'] = None
+        df_mot = df_mot.dropna(subset=['Matricula', 'Nome']).copy()
+        df_mot['Matricula'] = df_mot['Matricula'].astype(str).str.strip()
+        df_mot['Nome'] = df_mot['Nome'].astype(str).str.strip()
+        df_mot['Cod_Pessoa'] = df_mot['Cod_Pessoa'].astype(str).str.strip()
+        df_mot = df_mot.drop_duplicates(subset=['Matricula'])
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            existentes = pd.read_sql_query("SELECT matricula FROM motoristas", conn)
+            set_exist = set(existentes['matricula'].astype(str)) if not existentes.empty else set()
+            df_novos = df_mot[~df_mot['Matricula'].isin(set_exist)].copy()
+            if df_novos.empty:
+                return 0, len(df_mot), "Nenhum motorista novo para importar. Todos já existem."
+            registros = [
+                (row.get('Cod_Pessoa', None), row['Matricula'], row['Nome'], 'ATIVO')
+                for _, row in df_novos.iterrows()
+            ]
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO motoristas (codigo_pessoa, matricula, nome, ativo) VALUES (?, ?, ?, ?)",
+                registros
+            )
+            conn.commit()
+            inseridos = cur.rowcount if cur.rowcount is not None else len(registros)
+            duplicados = len(df_mot) - len(df_novos)
+            return inseridos, duplicados, f"{inseridos} motoristas importados com sucesso. {duplicados} já existiam."
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação de motoristas: {e}"
+
+
+def ensure_precos_combustivel_schema():
+    """Garante a existência da tabela de preços por tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS precos_combustivel (
+                    tipo_combustivel TEXT PRIMARY KEY,
+                    preco REAL
+                )
+                """
+            )
+            tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+            for t in tipos:
+                cur.execute("INSERT OR IGNORE INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?)", (t, NULL))
+            conn.commit()
+        return True, "Tabela de preços verificada"
+    except Exception as e:
+        return False, f"Erro ao verificar tabela de preços: {e}"
+
+
+def get_precos_combustivel_map() -> dict:
+    """Retorna um dicionário {tipo_combustivel: preco}."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            dfp = pd.read_sql_query("SELECT tipo_combustivel, preco FROM precos_combustivel", conn)
+        return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
+    except Exception:
+        return {}
+
+
+def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
+    """Cria/atualiza preço para um tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?) ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco",
+                (tipo, preco)
+            )
+            conn.commit()
+        return True, f"Preço atualizado para {tipo}"
+    except Exception as e:
+        return False, f"Erro ao atualizar preço: {e}"
 
 @st.cache_data(ttl=120)
 def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
@@ -1351,12 +1501,12 @@ def main():
         auto_restore_backup_on_startup()
         
         # Adicionar coluna de tipo de combustível se não existir
-        success, message = add_tipo_combustivel_column()
-        if success:
-            st.info(f"Status da coluna de combustível: {message}")
-        else:
-            st.warning(f"Aviso: {message}")
+        add_tipo_combustivel_column()
         
+        # Setup de esquemas (motoristas, preços, combustível)
+        ensure_motoristas_schema()
+        ensure_precos_combustivel_schema()
+
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
@@ -1402,25 +1552,31 @@ def main():
             st.markdown("---")
 
         with st.sidebar:
-            st.header("📅 Filtros")
+            st.header("📅 Filtros (válidos apenas na aba Análise Geral)")
 
-            # --- Filtro de Período (Sempre Visível) ---
+            # Persistência de período
+            if 'filtro_data_inicio' not in st.session_state:
+                st.session_state['filtro_data_inicio'] = df['Data'].min().date()
+            if 'filtro_data_fim' not in st.session_state:
+                st.session_state['filtro_data_fim'] = df['Data'].max().date()
+
             st.subheader("Período de Análise")
             data_inicio = st.date_input(
                 "Data de Início", 
-                df['Data'].min().date(),
+                st.session_state['filtro_data_inicio'],
                 key='data_inicio'
             )
             data_fim = st.date_input(
                 "Data de Fim", 
-                df['Data'].max().date(),
+                st.session_state['filtro_data_fim'],
                 key='data_fim'
             )
+            st.session_state['filtro_data_inicio'] = data_inicio
+            st.session_state['filtro_data_fim'] = data_fim
 
             st.markdown("---")
             st.caption("Desenvolvido por André Luis")
 
-            # --- NOVO: Filtro de Classe em um Menu Expansível ---
             with st.expander("Filtrar por Classe Operacional"):
                 classe_opts = sorted(list(df["Classe_Operacional"].dropna().unique()))
                 sel_classes = st.multiselect(
@@ -1430,7 +1586,6 @@ def main():
                     key="sel_classes"
                 )
 
-            # --- NOVO: Filtro de Safra em um Menu Expansível ---
             with st.expander("Filtrar por Safra"):
                 safra_opts = sorted(list(df["Safra"].dropna().unique()))
                 sel_safras = st.multiselect(
@@ -1440,15 +1595,16 @@ def main():
                     key="sel_safras"
                 )
 
-            # Reúne todas as opções para a função de filtro
-            opts = {
+            # Só aplicaremos os filtros na aba "📈 Análise Geral" (guardaremos em sessão)
+            st.session_state['filtro_opts_analise'] = {
                 "data_inicio": data_inicio,
                 "data_fim": data_fim,
-                "classes_op": sel_classes, 
+                "classes_op": sel_classes,
                 "safras": sel_safras
             }
     #----------------------------------------------------- aba principal --------------------------------------
-        df_f = filtrar_dados(df, opts)
+        # df_f será calculado apenas para a aba Análise Geral
+        df_f = None
         plan_df = build_component_maintenance_plan(df_frotas, df, df_comp_regras, df_comp_historico)
 
 
@@ -1498,7 +1654,8 @@ def main():
             kpi2.metric("Frotas com Alerta", frotas_com_alerta)
             
             # KPIs 3 e 4: Frotas Mais e Menos Eficientes
-            df_media_geral = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)]
+            df_sem_filtro = df.copy()
+            df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
             if not df_media_geral.empty:
                 # Agrupa por Código e Descrição para ter acesso a ambos
                 media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
@@ -1571,6 +1728,10 @@ def main():
         with tab_analise:
             st.header("📈 Análise Gráfica de Consumo")
 
+            # Aplica filtros apenas nesta aba
+            opts = st.session_state.get('filtro_opts_analise', None)
+            df_f = filtrar_dados(df, opts) if opts else df.copy()
+
             if not df_f.empty:
                 if 'Media' in df_f.columns:
                     k1, k2 = st.columns(2)
@@ -1596,20 +1757,52 @@ def main():
 
                 with c2:
                     st.subheader("Top 10 Equipamentos com Maior Consumo")
-                    consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum', 'DESCRICAO_EQUIPAMENTO': 'first'}).dropna()
+                    consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
                     consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
                     consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
 
                     if not consumo_por_equip.empty:
-                        consumo_por_equip['label_grafico'] = consumo_por_equip['DESCRICAO_EQUIPAMENTO'].str.strip() + " (" + consumo_por_equip.index.astype(str) + ")"
+                        consumo_por_equip['label_grafico'] = consumo_por_equip.index.astype(str)
                         consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
-                        fig_top10 = px.bar(consumo_por_equip, x='Qtde_Litros', y='label_grafico', orientation='h', text='texto_formatado', labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"})
+                        fig_top10 = px.bar(consumo_por_equip, x='Qtde_Litros', y='label_grafico', orientation='h', text='texto_formatado', labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Matrícula"})
                         fig_top10.update_traces(texttemplate='%{text} L', textposition='outside')
-                        fig_top10.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Equipamento")
+                        fig_top10.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Matrícula")
                         st.plotly_chart(fig_top10, use_container_width=True)
-                
+
                 st.markdown("---")
                 st.subheader("Média de Consumo por Classe Operacional")
+
+                # Novo: Total de Gasto por Motorista (usa preços por tipo de combustível)
+                st.markdown("---")
+                st.subheader("💰 Total de Gasto por Motorista")
+                precos_map = get_precos_combustivel_map()
+                if precos_map:
+                    # Vincula combustível por frota e multiplica litros por preço
+                    df_tmp = df_f.copy()
+                    df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                    df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                    df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                    # Agrupar por matrícula
+                    if 'Matricula' in df_tmp.columns:
+                        gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                        gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
+                        if not gasto_motorista.empty:
+                            gasto_motorista = gasto_motorista.reset_index()
+                            gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                            gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
+                            try:
+                                fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
+                                st.plotly_chart(fig_gasto, use_container_width=True)
+                            except Exception:
+                                pass
+                        else:
+                            st.info("Sem dados suficientes de custo (verifique preços cadastrados).")
+                    else:
+                        st.info("Não há coluna de matrícula nos abastecimentos para calcular o gasto por motorista.")
+                else:
+                    st.info("Cadastre os preços de combustível na aba Importar > Preços.")
 
                 df_media = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)].copy()
 
@@ -1656,60 +1849,19 @@ def main():
             # Verificar se a coluna tipo_combustivel existe em df_frotas
             if 'tipo_combustivel' in df_frotas.columns:
                 try:
-                    # Criar uma cópia segura dos dados de frotas
                     frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
                     frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
-                    
                     df_consumo_combustivel = df_consumo_combustivel.merge(
                         frotas_combustivel, 
                         on='Cod_Equip', 
                         how='left'
                     )
-                    
-                    # Verificar se a coluna foi criada no merge
-                    if 'tipo_combustivel' in df_consumo_combustivel.columns:
-                        df_consumo_combustivel['tipo_combustivel'] = df_consumo_combustivel['tipo_combustivel'].fillna('Diesel S500')
-                        st.info(f"Merge realizado com sucesso. Colunas: {list(df_consumo_combustivel.columns)}")
-                    else:
-                        # Se o merge não criou a coluna, criar manualmente
+                    if 'tipo_combustivel' not in df_consumo_combustivel.columns:
                         df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                        st.warning("Merge não criou a coluna. Criando manualmente.")
-                except Exception as e:
-                    st.warning(f"Erro no merge: {e}. Criando coluna com valor padrão.")
+                except Exception:
                     df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
             else:
-                # Se a coluna não existe, criar com valor padrão
                 df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                st.info("Coluna tipo_combustivel não encontrada em df_frotas. Criando com valor padrão.")
-            
-            # Garantir que a coluna tipo_combustivel existe
-            if 'tipo_combustivel' not in df_consumo_combustivel.columns:
-                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                st.info("Coluna de tipo de combustível criada com valor padrão 'Diesel S500'")
-            
-            # Verificação final - garantir que a coluna existe
-            if 'tipo_combustivel' not in df_consumo_combustivel.columns:
-                st.error("Erro crítico: Coluna tipo_combustivel não pode ser criada")
-                st.stop()
-            else:
-                st.success(f"Coluna tipo_combustivel criada com sucesso. Total de registros: {len(df_consumo_combustivel)}")
-                st.info(f"Colunas disponíveis: {list(df_consumo_combustivel.columns)}")
-                st.info(f"Primeiras linhas: {df_consumo_combustivel[['Cod_Equip', 'tipo_combustivel']].head()}")
-            
-            # Debug: mostrar informações sobre o DataFrame
-            st.info(f"DataFrame df_consumo_combustivel criado com {len(df_consumo_combustivel)} registros")
-            st.info(f"Colunas do DataFrame: {list(df_consumo_combustivel.columns)}")
-            
-            # Verificação adicional de segurança
-            try:
-                # Tentar acessar a coluna para verificar se está funcionando
-                teste_coluna = df_consumo_combustivel['tipo_combustivel'].iloc[0] if len(df_consumo_combustivel) > 0 else 'Diesel S500'
-                st.success(f"✅ Coluna tipo_combustivel acessível. Primeiro valor: {teste_coluna}")
-            except Exception as e:
-                st.error(f"❌ Erro ao acessar coluna tipo_combustivel: {e}")
-                # Criar a coluna novamente se houver erro
-                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                st.success("✅ Coluna recriada com sucesso")
             
             col_grafico1, col_grafico2 = st.columns(2)
             
@@ -1743,9 +1895,6 @@ def main():
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
                     except Exception as e:
                         st.error(f"Erro ao criar gráfico de classe: {e}")
-                        st.info("Verificando dados disponíveis...")
-                        st.write(f"Colunas disponíveis: {list(df_consumo_classe_macro.columns)}")
-                        st.write(f"Primeiras linhas: {df_consumo_classe_macro.head()}")
                 else:
                     st.warning("Não há dados suficientes para análise por classe.")
             
@@ -1770,10 +1919,7 @@ def main():
                         # Mostrar totais
                         st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
-                    except Exception as e:
-                        st.error(f"Erro ao criar gráfico de combustível: {e}")
-                        st.info("Usando dados padrão para análise de combustível")
-                        # Criar dados padrão se houver erro
+                    except Exception:
                         df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
                         consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
@@ -1782,11 +1928,16 @@ def main():
         
         with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
-            equip_label = st.selectbox(
-                "Selecione o Equipamento", 
-                options=df_frotas.sort_values("Cod_Equip")["label"], 
-                key="consulta_equip"
-            )
+            # Permitir consulta direta por código (Cód Equipamento)
+            cod_input = st.text_input("Cód Equipamento (pressione Enter)")
+            if cod_input and cod_input.isdigit() and int(cod_input) in df_frotas['Cod_Equip'].values:
+                equip_label = df_frotas.loc[df_frotas['Cod_Equip'] == int(cod_input)].iloc[0]['label']
+            else:
+                equip_label = st.selectbox(
+                    "Selecione o Equipamento", 
+                    options=df_frotas.sort_values("Cod_Equip")["label"], 
+                    key="consulta_equip"
+                )
         
             if equip_label:
                 cod_sel = int(equip_label.split(" - ")[0])
@@ -1970,8 +2121,9 @@ def main():
                 # O seu histórico de abastecimentos continua igual
                 historico_abast_display = consumo_eq.sort_values("Data", ascending=False)
                 if not historico_abast_display.empty:
-                    colunas_abast = ["Data", "Qtde_Litros", "Media", "Hod_Hor_Atual"]
-                    st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display]])
+                    # Mostra matrícula (Cod_Equip) e nome do motorista quando disponível
+                    colunas_abast = ["Data", "Qtde_Litros", "Media", "Hod_Hor_Atual", "Matricula", "Nome_Motorista"]
+                    st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display.columns]])
                 else:
                     st.info("Nenhum registo de abastecimento para este equipamento.")
                             
@@ -2179,24 +2331,33 @@ def main():
                                 options=df_frotas.sort_values("label")["label"],
                                 key="add_abast_equip"
                             )
+                            # Seleção de motorista (matrícula)
+                            df_mot_all = get_all_motoristas()
+                            matriculas_opts = [m for m in df_mot_all['matricula'].astype(str).tolist()] if not df_mot_all.empty else []
+                            matricula_sel = st.selectbox("Matrícula do Motorista", options=[""] + matriculas_opts)
+
                             data_abastecimento = st.date_input("Data do Abastecimento")
                             qtde_litros = st.number_input("Quantidade de Litros", min_value=0.01, format="%.2f")
                             hod_hor_atual = st.number_input("Hodômetro/Horímetro Atual", min_value=0.01, format="%.2f")
                             safra = st.text_input("Safra (Ex: 2023/2024)")
-                    
+
                             submitted = st.form_submit_button("Salvar Abastecimento")
-                    
+
                             if submitted:
                                 if not all([equip_selecionado_label, data_abastecimento, qtde_litros, hod_hor_atual, safra]):
                                     st.warning("Por favor, preencha todos os campos.")
                                 else:
                                     cod_equip = int(equip_selecionado_label.split(" - ")[0])
                                     
-                                    # --- INÍCIO DA CORREÇÃO ---
                                     # Usa o nome da coluna padronizado ('Classe_Operacional' com underscore)
                                     classe_op = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip, 'Classe_Operacional'].iloc[0]
-                                    # --- FIM DA CORREÇÃO ---
-                    
+
+                                    cod_pessoa_val = None
+                                    if matricula_sel:
+                                        df_mot_sel = df_mot_all[df_mot_all['matricula'].astype(str) == str(matricula_sel)] if not df_mot_all.empty else pd.DataFrame()
+                                        if not df_mot_sel.empty:
+                                            cod_pessoa_val = df_mot_sel.iloc[0].get('codigo_pessoa')
+
                                     dados_novos = {
                                         'cod_equip': cod_equip,
                                         'data': data_abastecimento.strftime("%Y-%m-%d %H:%M:%S"),
@@ -2204,13 +2365,15 @@ def main():
                                         'hod_hor_atual': hod_hor_atual,
                                         'safra': safra,
                                         'mes': data_abastecimento.month,
-                                        'classe_operacional': classe_op
+                                        'classe_operacional': classe_op,
+                                        'matricula': matricula_sel if matricula_sel else None,
+                                        'cod_pessoa': cod_pessoa_val
                                     }
-                    
+
                                     if inserir_abastecimento(DB_PATH, dados_novos):
                                         st.success("Abastecimento salvo com sucesso!")
                                         rerun_keep_tab("⚙️ Gerir Lançamentos")
-        
+
                     elif acao == "Excluir Lançamento":
                                 st.subheader("🗑️ Excluir um Lançamento")
                                 
@@ -2379,46 +2542,59 @@ def main():
                                     if label_selecionado:
                                         rowid_selecionado = map_label_to_rowid[label_selecionado]
                                         dados_atuais = df[df['rowid'] == rowid_selecionado].iloc[0]
-                                    with st.form("form_edit_abastecimento"):
-                                        st.write(f"**Editando:** {label_selecionado}")
-                                        
-                                        # Encontra o índice do equipamento atual para pré-selecionar no selectbox
-                                        lista_labels_frotas = df_frotas['label'].tolist()
-                                        index_equip_atual = lista_labels_frotas.index(df_frotas[df_frotas['Cod_Equip'] == dados_atuais['Cod_Equip']]['label'].iloc[0])
-        
-                                        # --- Campos do formulário pré-preenchidos ---
-                                        novo_equip_label = st.selectbox(
-                                            "Equipamento", 
-                                            options=lista_labels_frotas, 
-                                            index=index_equip_atual
-                                        )
-                                        nova_data = st.date_input(
-                                            "Data", 
-                                            value=pd.to_datetime(dados_atuais['Data']).date()
-                                        )
-                                        nova_qtde = st.number_input(
-                                            "Qtde Litros", 
-                                            value=float(dados_atuais['Qtde_Litros']), 
-                                            format="%.2f"
-                                        )
-                                        novo_hod = st.number_input(
-                                            "Hod./Hor. Atual", 
-                                            value=float(dados_atuais['Hod_Hor_Atual']), 
-                                            format="%.2f"
-                                        )
-                                        nova_safra = st.text_input(
-                                            "Safra", 
-                                            value=dados_atuais['Safra']
-                                        )
-        
+                                        with st.form("form_edit_abastecimento"):
+                                            st.write(f"**Editando:** {label_selecionado}")
+
+                                            # Encontra o índice do equipamento atual para pré-selecionar no selectbox
+                                            lista_labels_frotas = df_frotas['label'].tolist()
+                                            index_equip_atual = lista_labels_frotas.index(df_frotas[df_frotas['Cod_Equip'] == dados_atuais['Cod_Equip']]['label'].iloc[0])
+
+                                            # --- Campos do formulário pré-preenchidos ---
+                                            novo_equip_label = st.selectbox(
+                                                "Equipamento", 
+                                                options=lista_labels_frotas, 
+                                                index=index_equip_atual
+                                            )
+                                            # Motorista: matrícula e nome (mostra matrícula na UI e guarda ambos)
+                                            df_mot_all = get_all_motoristas()
+                                            matriculas_opts = [m for m in df_mot_all['matricula'].astype(str).tolist()] if not df_mot_all.empty else []
+                                            matricula_sel = st.selectbox("Matrícula do Motorista", options=[""] + matriculas_opts)
+
+                                            nova_data = st.date_input(
+                                                "Data", 
+                                                value=pd.to_datetime(dados_atuais['Data']).date()
+                                            )
+                                            nova_qtde = st.number_input(
+                                                "Qtde Litros", 
+                                                value=float(dados_atuais['Qtde_Litros']), 
+                                                format="%.2f"
+                                            )
+                                            novo_hod = st.number_input(
+                                                "Hod./Hor. Atual", 
+                                                value=float(dados_atuais['Hod_Hor_Atual']), 
+                                                format="%.2f"
+                                            )
+                                            nova_safra = st.text_input(
+                                                "Safra", 
+                                                value=dados_atuais['Safra']
+                                            )
+
                                         submitted = st.form_submit_button("Salvar Alterações")
                                         if submitted:
+                                            # map matricula -> cod_pessoa/nome
+                                            cod_pessoa_val = None
+                                            if matricula_sel:
+                                                df_mot_sel = df_mot_all[df_mot_all['matricula'].astype(str) == str(matricula_sel)] if not df_mot_all.empty else pd.DataFrame()
+                                                if not df_mot_sel.empty:
+                                                    cod_pessoa_val = df_mot_sel.iloc[0].get('codigo_pessoa')
                                             dados_editados = {
                                                 'cod_equip': int(novo_equip_label.split(" - ")[0]),
                                                 'data': nova_data.strftime("%Y-%m-%d %H:%M:%S"), 
                                                 'qtde_litros': nova_qtde,
                                                 'hod_hor_atual': novo_hod,
-                                                'safra': nova_safra
+                                                'safra': nova_safra,
+                                                'matricula': matricula_sel if matricula_sel else None,
+                                                'cod_pessoa': cod_pessoa_val
                                             }
                                             if editar_abastecimento(DB_PATH, rowid_selecionado, dados_editados):
                                                 st.success("Abastecimento atualizado com sucesso!")
@@ -2906,37 +3082,80 @@ def main():
                             st.warning("Por favor, preencha todos os campos obrigatórios.")
                         
         with tab_importar:
-                    st.header("📤 Importar Novos Abastecimentos de uma Planilha")
-                    st.info("Esta funcionalidade permite carregar múltiplos abastecimentos de uma vez a partir de um arquivo Excel (.xlsx).")
-                    st.warning("**Atenção:** Certifique-se de que a sua planilha contém as seguintes colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`.")
-            
-                    arquivo_carregado = st.file_uploader(
-                        "Selecione a sua planilha de abastecimentos",
-                        type=['xlsx']
-                    )
-            
-                    if arquivo_carregado is not None:
-                        st.markdown("---")
-                        st.write("**Pré-visualização dos dados a serem importados:**")
-                        
-                        try:
-                            df_preview = pd.read_excel(arquivo_carregado)
-                            st.dataframe(df_preview.head())
-            
-                            if st.button("Confirmar e Inserir Dados no Banco de Dados", type="primary"):
-                                with st.spinner("Importando dados... por favor, aguarde."):
-                                    num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
-                                
-                                if num_inseridos > 0:
-                                    msg_sucesso = f"**Sucesso!** {num_inseridos} registos foram importados."
-                                    if num_duplicados > 0:
-                                        msg_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
-                                    st.success(msg_sucesso + " O dashboard será atualizado.")
-                                    rerun_keep_tab("📤 Importar Dados")
+                    st.header("📤 Importar Dados")
+                    # Abas internas: Abastecimentos e Motoristas
+                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos = st.tabs(["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível"])
+
+                    with sub_tab_abastec:
+                        st.subheader("Importar Novos Abastecimentos de uma Planilha")
+                        st.info("Carregue múltiplos abastecimentos de uma vez (Excel .xlsx). Colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`, opcional `Matricula`, `Cod_Pessoa`.")
+                        arquivo_carregado = st.file_uploader(
+                            "Selecione a sua planilha de abastecimentos",
+                            type=['xlsx'], key="upl_abast"
+                        )
+                        if arquivo_carregado is not None:
+                            st.markdown("---")
+                            st.write("Pré-visualização:")
+                            try:
+                                df_preview = pd.read_excel(arquivo_carregado)
+                                st.dataframe(df_preview.head())
+                                if st.button("Confirmar e Inserir Dados", type="primary"):
+                                    with st.spinner("Importando dados..."):
+                                        num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
+                                    if num_inseridos > 0:
+                                        msg_sucesso = f"{num_inseridos} registos importados."
+                                        if num_duplicados > 0:
+                                            msg_sucesso += f" {num_duplicados} duplicados ignorados."
+                                        st.success(msg_sucesso)
+                                        rerun_keep_tab("📤 Importar Dados")
+                                    else:
+                                        st.error(mensagem)
+                            except Exception as e:
+                                st.error(f"Não foi possível ler a planilha: {e}")
+
+                    with sub_tab_motoristas:
+                        st.subheader("Importar Motoristas por Planilha")
+                        st.info("Colunas esperadas: `Matricula`, `Nome`, opcional `Cod_Pessoa`. A matrícula será exibida nos gráficos; na consulta será mostrada matrícula e nome.")
+                        arquivo_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upl_motoristas")
+                        if arquivo_motoristas is not None:
+                            try:
+                                df_prev = pd.read_excel(arquivo_motoristas)
+                                st.dataframe(df_prev.head())
+                                if st.button("Confirmar e Inserir Motoristas", type="primary"):
+                                    with st.spinner("Importando motoristas..."):
+                                        ensure_motoristas_schema()
+                                        inseridos, duplicados, msg = importar_motoristas_de_planilha(DB_PATH, arquivo_motoristas)
+                                    if inseridos > 0:
+                                        st.success(f"{msg}")
+                                        rerun_keep_tab("📤 Importar Dados")
+                                    else:
+                                        st.error(msg)
+                            except Exception as e:
+                                st.error(f"Erro ao ler planilha: {e}")
+
+                    with sub_tab_precos:
+                        st.subheader("Definir Preços por Tipo de Combustível")
+                        ok, msg = ensure_precos_combustivel_schema()
+                        if not ok:
+                            st.warning(msg)
+                        precos_map = get_precos_combustivel_map()
+                        tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                        cols = st.columns(5)
+                        novos_precos = {}
+                        for i, t in enumerate(tipos):
+                            with cols[i % 5]:
+                                valor = st.number_input(f"{t}", min_value=0.0, format="%.3f", value=float(precos_map.get(t) or 0.0), key=f"preco_{t}")
+                                novos_precos[t] = valor
+                        if st.button("Salvar Preços", type="secondary"):
+                            with st.spinner("Salvando preços..."):
+                                ok_all = True
+                                for t, p in novos_precos.items():
+                                    ok, _ = upsert_preco_combustivel(t, float(p) if p is not None else None)
+                                    ok_all = ok_all and ok
+                                if ok_all:
+                                    st.success("Preços atualizados.")
                                 else:
-                                    st.error(mensagem)
-                        except Exception as e:
-                            st.error(f"Não foi possível ler a planilha. Verifique se o arquivo está no formato correto. Detalhes do erro: {e}")
+                                    st.warning("Alguns preços podem não ter sido salvos.")
                             
         with tab_saude:
                     st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
