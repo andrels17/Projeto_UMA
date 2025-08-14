@@ -1675,40 +1675,33 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        abas_visualizacao = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
-        abas_admin = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists", "💾 Backup"]
+        # Definição das abas por grupo
+        abas_principal = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
+        abas_gerir = ["⚙️ Gerir Lançamentos", "⚙️ Gerir Frotas", "👤 Gerir Utilizadores", "✅ Gerir Checklists"]
+        abas_dados = ["📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "💾 Backup"]
 
         if st.session_state.role == 'admin':
-            tabs_para_mostrar = abas_visualizacao + abas_admin
-            active_idx = st.session_state.get('active_tab_index', 0)
-            active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
-            try:
-                abas = st.tabs(tabs_para_mostrar, default_index=active_idx)
-            except TypeError:
-                abas = st.tabs(tabs_para_mostrar)
-            (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
-            tab_gerir_lanc, tab_gerir_frotas, tab_importar, tab_config, tab_saude, 
-            tab_gerir_users, tab_gerir_checklists, tab_backup) = abas
+            # Para admins, mostrar todas as abas agrupadas
+            st.markdown("### 🏠 Página Principal")
+            tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(abas_principal)
+            
+            st.markdown("### ⚙️ Gestão e Administração")
+            tab_gerir_lanc, tab_gerir_frotas, tab_gerir_users, tab_gerir_checklists = st.tabs(abas_gerir)
+            
+            st.markdown("### 📊 Dados e Configurações")
+            tab_importar, tab_config, tab_saude, tab_backup = st.tabs(abas_dados)
         else:
-            tabs_para_mostrar = abas_visualizacao
-            active_idx = st.session_state.get('active_tab_index', 0)
-            active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
-            try:
-                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar, default_index=active_idx)
-            except TypeError:
-                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar)
+            # Para usuários comuns, apenas abas principais
+            st.markdown("### 🏠 Página Principal")
+            tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(abas_principal)
 
         def rerun_keep_tab(tab_title: str, clear_cache: bool = True):
             if clear_cache:
                 st.cache_data.clear()
-            try:
-                st.session_state['active_tab_index'] = tabs_para_mostrar.index(tab_title)
-            except Exception:
-                pass
             st.rerun()
         
-        # Navegação rápida para abas principais (apenas para admins com muitas abas)
-        if st.session_state.role == 'admin' and len(tabs_para_mostrar) > 8:
+        # Navegação rápida para abas principais (apenas para admins)
+        if st.session_state.role == 'admin':
             st.markdown("---")
             
             # CSS para melhorar os botões de navegação
@@ -2560,6 +2553,114 @@ def main():
                         """)
                 else:
                     st.warning("⚠️ Para visualizar os gastos com combustível, configure os preços na aba 'Importar Dados > Preços de Combustível'.")
+                
+                # NOVA SEÇÃO: Consumo Total da Frota
+                st.markdown("---")
+                st.subheader("⛽ Consumo Total da Frota")
+                
+                if not consumo_eq.empty:
+                    # Calcular consumo total em litros
+                    consumo_total_litros = consumo_eq['Qtde_Litros'].sum()
+                    
+                    # Calcular consumo por período (últimos 30, 90, 365 dias)
+                    hoje = pd.Timestamp.now()
+                    periodos = {
+                        'Últimos 30 dias': 30,
+                        'Últimos 90 dias': 90,
+                        'Últimos 365 dias': 365
+                    }
+                    
+                    consumos_periodo = {}
+                    for nome_periodo, dias in periodos.items():
+                        data_limite = hoje - pd.Timedelta(days=dias)
+                        consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
+                        consumos_periodo[nome_periodo] = consumo_periodo
+                    
+                    # Métricas de consumo
+                    col_consumo1, col_consumo2, col_consumo3, col_consumo4 = st.columns(4)
+                    
+                    with col_consumo1:
+                        st.metric(
+                            "📊 Consumo Total", 
+                            f"{formatar_brasileiro_int(consumo_total_litros)} L",
+                            help="Total de litros consumidos por esta frota"
+                        )
+                    
+                    with col_consumo2:
+                        st.metric(
+                            "📅 Últimos 30 dias", 
+                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 30 dias'])} L"
+                        )
+                    
+                    with col_consumo3:
+                        st.metric(
+                            "📅 Últimos 90 dias", 
+                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 90 dias'])} L"
+                        )
+                    
+                    with col_consumo4:
+                        st.metric(
+                            "📅 Últimos 365 dias", 
+                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 365 dias'])} L"
+                        )
+                    
+                    # Gráfico de consumo por período
+                    df_consumo_periodo = pd.DataFrame({
+                        'Período': list(consumos_periodo.keys()),
+                        'Consumo (L)': list(consumos_periodo.values())
+                    })
+                    
+                    fig_consumo_periodo = px.bar(
+                        df_consumo_periodo,
+                        x='Período',
+                        y='Consumo (L)',
+                        title=f"Consumo de Combustível por Período - Frota {cod_sel}",
+                        text=df_consumo_periodo['Consumo (L)'].apply(formatar_brasileiro_int),
+                        color='Consumo (L)',
+                        color_continuous_scale='Blues'
+                    )
+                    fig_consumo_periodo.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text} L'
+                    )
+                    fig_consumo_periodo.update_layout(
+                        height=400,
+                        showlegend=False,
+                        xaxis_title="Período",
+                        yaxis_title="Consumo (Litros)"
+                    )
+                    st.plotly_chart(fig_consumo_periodo, use_container_width=True)
+                    
+                    # Gráfico de evolução mensal do consumo
+                    if len(consumo_eq) > 1:
+                        consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                        
+                        if not consumo_mensal_frota.empty:
+                            fig_evolucao = px.line(
+                                consumo_mensal_frota,
+                                x='AnoMes',
+                                y='Qtde_Litros',
+                                title=f"Evolução Mensal do Consumo - Frota {cod_sel}",
+                                labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
+                                markers=True
+                            )
+                            fig_evolucao.update_layout(
+                                height=400,
+                                xaxis_title="Mês/Ano",
+                                yaxis_title="Litros Consumidos"
+                            )
+                            st.plotly_chart(fig_evolucao, use_container_width=True)
+                    
+                    # Resumo informativo
+                    st.info(f"""
+                    **📈 Resumo do Consumo:**
+                    - **Total histórico:** {formatar_brasileiro_int(consumo_total_litros)} litros
+                    - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde_Litros'].mean())} litros
+                    - **Total de abastecimentos:** {len(consumo_eq)} registros
+                    - **Período de operação:** {consumo_eq['Data'].min().strftime('%d/%m/%Y')} a {consumo_eq['Data'].max().strftime('%d/%m/%Y')}
+                    """)
+                else:
+                    st.info("Não há dados de consumo para este equipamento.")
                 
                 st.markdown("---")
                 
