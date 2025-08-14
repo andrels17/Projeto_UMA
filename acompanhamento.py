@@ -2654,7 +2654,7 @@ def main():
                         texttemplate='%{text}',
                         textfont=dict(
                             size=14,
-                            color='#2c3e50',
+                            color='#edf5fc',
                             family='Arial, sans-serif'
                         ),
                         hovertemplate='<b>%{x}</b><br>' +
@@ -2667,14 +2667,14 @@ def main():
                         showlegend=False,
                         xaxis_title="Período",
                         yaxis_title="Consumo (Litros)",
-                        title_font=dict(size=18, color='#2c3e50'),
+                        title_font=dict(size=18, color='#edf5fc'),
                         xaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d')
+                            title_font=dict(size=14, color='#edf5fc'),
+                            tickfont=dict(size=12, color='#edf5fc')
                         ),
                         yaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d'),
+                            title_font=dict(size=14, color='#edf5fc'),
+                            tickfont=dict(size=12, color='#edf5fc'),
                             tickformat=',.0f'
                         ),
                         plot_bgcolor='rgba(0,0,0,0)',
