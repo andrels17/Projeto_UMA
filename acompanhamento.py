@@ -1531,11 +1531,11 @@ def main():
         auto_restore_backup_on_startup()
         
         # Adicionar coluna de tipo de combustível se não existir
-        success, message = add_tipo_combustivel_column()
-        if success:
-            st.info(f"Status da coluna de combustível: {message}")
-        else:
-            st.warning(f"Aviso: {message}")
+        # Executa uma vez silenciosamente para garantir a coluna; evita mensagens a cada carregamento
+        try:
+            add_tipo_combustivel_column()
+        except Exception:
+            pass
         
         # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
@@ -1656,7 +1656,7 @@ def main():
             except TypeError:
                 tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar)
 
-        def rerun_keep_tab(tab_title: str, clear_cache: bool = True):
+        def rerun_keep_tab(tab_title: str, clear_cache: bool = False):
             if clear_cache:
                 st.cache_data.clear()
             try:
