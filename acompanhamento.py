@@ -1572,7 +1572,7 @@ def main():
                     
         with st.sidebar:
             if os.path.exists("logo.png"):
-                st.image("logo.png", use_container_width=True)
+                st.image("logo.png", use_column_width=True)
             st.write(f"Bem-vindo, **{st.session_state.username}**!")
             if st.button("Sair"):
                 st.session_state.authenticated = False
