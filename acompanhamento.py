@@ -1924,59 +1924,15 @@ def main():
                 consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
 
                 if not consumo_mensal.empty:
-                    # Melhorar formatação dos dados para o gráfico
-                    consumo_mensal['Consumo_Formatado'] = consumo_mensal['Qtde_Litros'].apply(
-                        lambda x: f"{formatar_brasileiro_int(x)} L"
-                    )
-                    
                     fig_tendencia = px.line(
                         consumo_mensal,
                         x='AnoMes',
                         y='Qtde_Litros',
                         title="Evolução do Consumo de Combustível (Litros)",
                         labels={"AnoMes": "Mês", "Qtde_Litros": "Litros Consumidos"},
-                        markers=True,
-                        text='Consumo_Formatado'
+                        markers=True # Adiciona marcadores para cada mês
                     )
-                    
-                    # Melhorar a aparência dos rótulos e marcadores
-                    fig_tendencia.update_traces(
-                        textposition='top center',
-                        textfont=dict(
-                            size=12,
-                            color='#2c3e50',
-                            family='Arial, sans-serif'
-                        ),
-                        hovertemplate='<b>%{x}</b><br>' +
-                                     'Consumo: <b>%{y:,.0f} L</b><br>' +
-                                     '<extra></extra>',
-                        marker=dict(
-                            size=8,
-                            color='#3498db',
-                            line=dict(width=2, color='#2980b9')
-                        ),
-                        line=dict(width=3, color='#3498db')
-                    )
-                    
-                    fig_tendencia.update_layout(
-                        height=450,
-                        xaxis_title="Mês/Ano",
-                        yaxis_title="Litros Consumidos",
-                        title_font=dict(size=18, color='#2c3e50'),
-                        xaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d'),
-                            tickangle=45
-                        ),
-                        yaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d'),
-                            tickformat=',.0f'
-                        ),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(t=80, b=80, l=80, r=80)
-                    )
+                    fig_tendencia.update_layout(xaxis_title="Mês/Ano", yaxis_title="Litros Consumidos")
                     st.plotly_chart(fig_tendencia, use_container_width=True)
                 else:
                     st.info("Não há dados suficientes para gerar o gráfico de tendência com os filtros selecionados.")
@@ -2010,53 +1966,10 @@ def main():
                     consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
 
                     if not consumo_por_classe.empty:
-                        # Melhorar formatação dos rótulos para o gráfico
-                        consumo_por_classe['Rótulo_Formatado'] = consumo_por_classe['Qtde_Litros'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
-                        )
-                        
-                        fig_classe = px.bar(
-                            consumo_por_classe, 
-                            x='Qtde_Litros', 
-                            y='Classe_Operacional', 
-                            orientation='h', 
-                            text='Rótulo_Formatado', 
-                            labels={"x": "Litros Consumidos", "y": "Classe Operacional"}
-                        )
-                        
-                        # Melhorar a aparência dos rótulos
-                        fig_classe.update_traces(
-                            texttemplate='%{text}',
-                            textposition='outside',
-                            textfont=dict(
-                                size=12,
-                                color='#2c3e50',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{y}</b><br>' +
-                                         'Consumo: <b>%{x:,.0f} L</b><br>' +
-                                         '<extra></extra>'
-                        )
-                        
-                        fig_classe.update_layout(
-                            yaxis={'categoryorder':'total ascending'}, 
-                            xaxis_title="Total Consumido (Litros)", 
-                            yaxis_title="Classe Operacional",
-                            height=450,
-                            title_font=dict(size=16, color='#2c3e50'),
-                            xaxis=dict(
-                                title_font=dict(size=14, color='#34495e'),
-                                tickfont=dict(size=12, color='#7f8c8d'),
-                                tickformat=',.0f'
-                            ),
-                            yaxis=dict(
-                                title_font=dict(size=14, color='#34495e'),
-                                tickfont=dict(size=12, color='#7f8c8d')
-                            ),
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            margin=dict(t=80, b=80, l=80, r=80)
-                        )
+                        consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
+                        fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
+                        fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
+                        fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
                         st.plotly_chart(fig_classe, use_container_width=True)
 
                 with c2:
@@ -2083,54 +1996,25 @@ def main():
 
                         consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
 
-                        # Melhorar formatação dos rótulos para o gráfico
-                        consumo_por_equip['Rótulo_Formatado'] = consumo_por_equip['Qtde_Litros'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
-                        )
-                        
                         fig_top10 = px.bar(
                             consumo_por_equip,
                             x='Qtde_Litros',
                             y='label_grafico',
                             orientation='h',
-                            text='Rótulo_Formatado',
+                            text='texto_formatado',
                             labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
                             title="Top 10 Equipamentos com Maior Consumo"
                         )
-                        
-                        # Melhorar a aparência dos rótulos
                         fig_top10.update_traces(
-                            texttemplate='%{text}',
+                            texttemplate='%{text} L',
                             textposition='outside',
-                            marker_color='#ff7f0e',
-                            textfont=dict(
-                                size=12,
-                                color='#2c3e50',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{y}</b><br>' +
-                                         'Consumo: <b>%{x:,.0f} L</b><br>' +
-                                         '<extra></extra>'
+                            marker_color='#ff7f0e'
                         )
-                        
                         fig_top10.update_layout(
                             yaxis={'categoryorder':'total ascending'},
                             xaxis_title="Total Consumido (Litros)",
                             yaxis_title="Equipamento",
-                            height=450,
-                            title_font=dict(size=18, color='#2c3e50'),
-                            xaxis=dict(
-                                title_font=dict(size=14, color='#34495e'),
-                                tickfont=dict(size=12, color='#7f8c8d'),
-                                tickformat=',.0f'
-                            ),
-                            yaxis=dict(
-                                title_font=dict(size=14, color='#34495e'),
-                                tickfont=dict(size=12, color='#7f8c8d')
-                            ),
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            margin=dict(t=80, b=80, l=80, r=80)
+                            height=400
                         )
                         st.plotly_chart(fig_top10, use_container_width=True)
 
@@ -2218,56 +2102,27 @@ def main():
                         # Comentário removido para manter proporção dos gráficos
 
                         if not gastos_por_frota.empty:
-                            # Melhorar formatação dos rótulos para o gráfico
-                            gastos_por_frota['Rótulo_Formatado'] = gastos_por_frota['custo'].apply(
-                                lambda x: formatar_brasileiro(x, 'R$ ')
-                            )
-                            
                             fig_gastos_frota = px.bar(
                                 gastos_por_frota,
                                 x='custo',
                                 y='label_frota',
                                 orientation='h',
-                                text='Rótulo_Formatado',
+                                text='custo_formatado',
                                 title="Gastos por Frota Individual",
                                 labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
                                 color='custo',
                                 color_continuous_scale='Reds'
                             )
-                            
-                            # Melhorar a aparência dos rótulos
                             fig_gastos_frota.update_traces(
                                 textposition='outside',
-                                texttemplate='%{text}',
-                                textfont=dict(
-                                    size=12,
-                                    color='#2c3e50',
-                                    family='Arial, sans-serif'
-                                ),
-                                hovertemplate='<b>%{y}</b><br>' +
-                                             'Gasto: <b>%{x:,.2f} R$</b><br>' +
-                                             '<extra></extra>'
+                                texttemplate='%{text}'
                             )
-                            
                             fig_gastos_frota.update_layout(
                                 yaxis={'categoryorder':'total ascending'},
                                 xaxis_title="Custo Total (R$)",
                                 yaxis_title="Frota",
-                                height=450,
-                                showlegend=False,
-                                title_font=dict(size=16, color='#2c3e50'),
-                                xaxis=dict(
-                                    title_font=dict(size=14, color='#34495e'),
-                                    tickfont=dict(size=12, color='#7f8c8d'),
-                                    tickformat=',.0f'
-                                ),
-                                yaxis=dict(
-                                    title_font=dict(size=14, color='#34495e'),
-                                    tickfont=dict(size=12, color='#7f8c8d')
-                                ),
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                margin=dict(t=80, b=80, l=80, r=80)
+                                height=400,
+                                showlegend=False
                             )
                             st.plotly_chart(fig_gastos_frota, use_container_width=True)
                         else:
@@ -2276,56 +2131,27 @@ def main():
                     with col_gastos2:
                         st.subheader("🏗️ Top 10 Gastos por Classe")
                         if not gastos_por_classe.empty:
-                            # Melhorar formatação dos rótulos para o gráfico
-                            gastos_por_classe['Rótulo_Formatado'] = gastos_por_classe['custo'].apply(
-                                lambda x: formatar_brasileiro(x, 'R$ ')
-                            )
-                            
                             fig_gastos_classe = px.bar(
                                 gastos_por_classe,
                                 x='custo',
                                 y='Classe_Operacional',
                                 orientation='h',
-                                text='Rótulo_Formatado',
+                                text='custo_formatado',
                                 title="Gastos por Classe Operacional",
                                 labels={'custo': 'Custo (R$)', 'Classe_Operacional': 'Classe'},
                                 color='custo',
                                 color_continuous_scale='Blues'
                             )
-                            
-                            # Melhorar a aparência dos rótulos
                             fig_gastos_classe.update_traces(
                                 textposition='outside',
-                                texttemplate='%{text}',
-                                textfont=dict(
-                                    size=12,
-                                    color='#2c3e50',
-                                    family='Arial, sans-serif'
-                                ),
-                                hovertemplate='<b>%{y}</b><br>' +
-                                             'Gasto: <b>%{x:,.2f} R$</b><br>' +
-                                             '<extra></extra>'
+                                texttemplate='%{text}'
                             )
-                            
                             fig_gastos_classe.update_layout(
                                 yaxis={'categoryorder':'total ascending'},
                                 xaxis_title="Custo Total (R$)",
                                 yaxis_title="Classe Operacional",
-                                height=450,
-                                showlegend=False,
-                                title_font=dict(size=16, color='#2c3e50'),
-                                xaxis=dict(
-                                    title_font=dict(size=14, color='#34495e'),
-                                    tickfont=dict(size=12, color='#7f8c8d'),
-                                    tickformat=',.0f'
-                                ),
-                                yaxis=dict(
-                                    title_font=dict(size=14, color='#34495e'),
-                                    tickfont=dict(size=12, color='#7f8c8d')
-                                ),
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                margin=dict(t=80, b=80, l=80, r=80)
+                                height=400,
+                                showlegend=False
                             )
                             st.plotly_chart(fig_gastos_classe, use_container_width=True)
                         else:
@@ -2377,52 +2203,22 @@ def main():
                         lambda x: formatar_brasileiro(x)
                     )
 
-                    # Melhorar formatação dos rótulos para o gráfico
-                    df_media_grafico['Rótulo_Formatado'] = df_media_grafico['Media'].apply(
-                        lambda x: f"{formatar_brasileiro(x)} L/100km"
-                    )
-                    
                     # Cria o gráfico de barras
                     fig_media_classe = px.bar(
                         df_media_grafico,
                         x='Media',
                         y='Classe_Operacional',
                         orientation='h',
-                        title="Média de Consumo (L/100km) por Classe",
-                        text='Rótulo_Formatado'
+                        title="Média de Consumo (L/h ou Km/L) por Classe",
+                        text='texto_formatado'
                     )
-                    
-                    # Melhorar a aparência dos rótulos
                     fig_media_classe.update_traces(
                         textposition='outside',
-                        marker_color='#3498db',
-                        textfont=dict(
-                            size=12,
-                            color='#2c3e50',
-                            family='Arial, sans-serif'
-                        ),
-                        hovertemplate='<b>%{y}</b><br>' +
-                                     'Média: <b>%{x:.2f} L/100km</b><br>' +
-                                     '<extra></extra>'
+                        marker_color='#1f77b4'
                     )
-                    
                     fig_media_classe.update_layout(
-                        height=450,
                         yaxis_title="Classe Operacional",
-                        xaxis_title="Média de Consumo (L/100km)",
-                        title_font=dict(size=16, color='#2c3e50'),
-                        xaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d'),
-                            tickformat='.2f'
-                        ),
-                        yaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d')
-                        ),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(t=80, b=80, l=80, r=80)
+                        xaxis_title="Média de Consumo"
                     )
                     st.plotly_chart(fig_media_classe, use_container_width=True)
                 else:
@@ -2462,55 +2258,7 @@ def main():
                             gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
                             st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
                             try:
-                                # Melhorar formatação dos rótulos para o gráfico
-                                gasto_motorista_top10 = gasto_motorista.head(10).copy()
-                                gasto_motorista_top10['Rótulo_Formatado'] = gasto_motorista_top10['custo'].apply(
-                                    lambda x: formatar_brasileiro(x, 'R$ ')
-                                )
-                                
-                                fig_gasto = px.bar(
-                                    gasto_motorista_top10, 
-                                    x='custo', 
-                                    y='Matricula', 
-                                    orientation='h', 
-                                    text='Rótulo_Formatado', 
-                                    labels={'custo':'Custo (R$)','Matricula':'Matrícula'},
-                                    title="Top 10 Gastos por Motorista"
-                                )
-                                
-                                # Melhorar a aparência dos rótulos
-                                fig_gasto.update_traces(
-                                    textposition='outside',
-                                    marker_color='#e74c3c',
-                                    textfont=dict(
-                                        size=12,
-                                        color='#2c3e50',
-                                        family='Arial, sans-serif'
-                                    ),
-                                    hovertemplate='<b>%{y}</b><br>' +
-                                                 'Gasto: <b>%{x:,.2f} R$</b><br>' +
-                                                 '<extra></extra>'
-                                )
-                                
-                                fig_gasto.update_layout(
-                                    height=450,
-                                    title_font=dict(size=16, color='#2c3e50'),
-                                    xaxis_title="Custo Total (R$)",
-                                    yaxis_title="Matrícula",
-                                    xaxis=dict(
-                                        title_font=dict(size=14, color='#34495e'),
-                                        tickfont=dict(size=12, color='#7f8c8d'),
-                                        tickformat=',.0f'
-                                    ),
-                                    yaxis=dict(
-                                        title_font=dict(size=14, color='#34495e'),
-                                        tickfont=dict(size=12, color='#7f8c8d')
-                                    ),
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    margin=dict(t=80, b=80, l=80, r=80)
-                                )
-                                
+                                fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
                                 st.plotly_chart(fig_gasto, use_container_width=True)
                             except Exception:
                                 pass
@@ -2568,11 +2316,6 @@ def main():
                     try:
                         consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
 
-                        # Melhorar formatação dos dados para o gráfico
-                        consumo_por_classe_macro['Consumo_Formatado'] = consumo_por_classe_macro['Qtde_Litros'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
-                        )
-                        
                         # Criar gráfico de pizza
                         fig_pizza_classe = px.pie(
                             consumo_por_classe_macro,
@@ -2581,34 +2324,8 @@ def main():
                             title="Proporção de Consumo por Classe",
                             hole=0.3
                         )
-                        
-                        # Melhorar a aparência dos rótulos
-                        fig_pizza_classe.update_traces(
-                            textposition='inside',
-                            textinfo='percent+label',
-                            textfont=dict(
-                                size=14,
-                                color='white',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{label}</b><br>' +
-                                         'Consumo: <b>%{value:,.0f} L</b><br>' +
-                                         'Percentual: <b>%{percent:.1%}</b><br>' +
-                                         '<extra></extra>'
-                        )
-                        
-                        fig_pizza_classe.update_layout(
-                            height=450,
-                            title_font=dict(size=18, color='#2c3e50'),
-                            showlegend=True,
-                            legend=dict(
-                                font=dict(size=12, color='#34495e'),
-                                bgcolor='rgba(255,255,255,0.8)',
-                                bordercolor='#bdc3c7',
-                                borderwidth=1
-                            ),
-                            margin=dict(t=80, b=80, l=80, r=80)
-                        )
+                        fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_pizza_classe.update_layout(height=400)
                         st.plotly_chart(fig_pizza_classe, use_container_width=True)
 
                         # Mostrar totais
@@ -2625,11 +2342,6 @@ def main():
                     try:
                         consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
 
-                        # Melhorar formatação dos dados para o gráfico
-                        consumo_por_combustivel['Consumo_Formatado'] = consumo_por_combustivel['Qtde_Litros'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
-                        )
-                        
                         # Criar gráfico de pizza
                         fig_pizza_combustivel = px.pie(
                             consumo_por_combustivel,
@@ -2638,34 +2350,8 @@ def main():
                             title="Proporção de Consumo por Combustível",
                             hole=0.3
                         )
-                        
-                        # Melhorar a aparência dos rótulos
-                        fig_pizza_combustivel.update_traces(
-                            textposition='inside',
-                            textinfo='percent+label',
-                            textfont=dict(
-                                size=14,
-                                color='white',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{label}</b><br>' +
-                                         'Consumo: <b>%{value:,.0f} L</b><br>' +
-                                         'Percentual: <b>%{percent:.1%}</b><br>' +
-                                         '<extra></extra>'
-                        )
-                        
-                        fig_pizza_combustivel.update_layout(
-                            height=450,
-                            title_font=dict(size=18, color='#2c3e50'),
-                            showlegend=True,
-                            legend=dict(
-                                font=dict(size=12, color='#34495e'),
-                                bgcolor='rgba(255,255,255,0.8)',
-                                bordercolor='#bdc3c7',
-                                borderwidth=1
-                            ),
-                            margin=dict(t=80, b=80, l=80, r=80)
-                        )
+                        fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_pizza_combustivel.update_layout(height=400)
                         st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
 
                         # Mostrar totais
@@ -2747,54 +2433,22 @@ def main():
 
                         # Gráfico de consumo por motorista
                         st.subheader("📈 Consumo por Motorista")
-                        
-                        # Melhorar formatação dos rótulos para o gráfico
-                        top_motoristas['Rótulo_Formatado'] = top_motoristas['Qtde_Litros'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
-                        )
-                        
                         fig_motoristas = px.bar(
                             top_motoristas,
                             x='Qtde_Litros',
                             y='Matricula',
                             orientation='h',
-                            text='Rótulo_Formatado',
+                            text='Consumo (L)',
                             title="Consumo de Combustível por Motorista",
                             labels={'Qtde_Litros': 'Litros Consumidos', 'Matricula': 'Matrícula'}
                         )
-                        
-                        # Melhorar a aparência dos rótulos
                         fig_motoristas.update_traces(
                             textposition='outside',
-                            marker_color='#27ae60',
-                            textfont=dict(
-                                size=12,
-                                color='#2c3e50',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{y}</b><br>' +
-                                         'Consumo: <b>%{x:,.0f} L</b><br>' +
-                                         '<extra></extra>'
+                            marker_color='#2ca02c'
                         )
-                        
                         fig_motoristas.update_layout(
                             yaxis={'categoryorder':'total ascending'},
-                            height=450,
-                            title_font=dict(size=16, color='#2c3e50'),
-                            xaxis_title="Litros Consumidos",
-                            yaxis_title="Matrícula",
-                            xaxis=dict(
-                                title_font=dict(size=14, color='#34495e'),
-                                tickfont=dict(size=12, color='#7f8c8d'),
-                                tickformat=',.0f'
-                            ),
-                            yaxis=dict(
-                                title_font=dict(size=14, color='#34495e'),
-                                tickfont=dict(size=12, color='#7f8c8d')
-                            ),
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            margin=dict(t=80, b=80, l=80, r=80)
+                            height=400
                         )
                         st.plotly_chart(fig_motoristas, use_container_width=True)
 
@@ -2939,11 +2593,6 @@ def main():
                             'Gasto (R$)': [gasto_frota, gasto_classe_total - gasto_frota]
                         })
 
-                        # Melhorar formatação dos rótulos para o gráfico de gastos
-                        df_comparacao_gastos['Gasto_Formatado'] = df_comparacao_gastos['Gasto (R$)'].apply(
-                            lambda x: formatar_brasileiro(x, 'R$ ')
-                        )
-                        
                         fig_gastos = px.pie(
                             df_comparacao_gastos,
                             values='Gasto (R$)',
@@ -2954,34 +2603,12 @@ def main():
                                 'Outras Frotas da Classe': '#1f77b4'
                             }
                         )
-                        
-                        # Melhorar a aparência dos rótulos
                         fig_gastos.update_traces(
                             textposition='inside',
                             textinfo='percent+label',
-                            textfont=dict(
-                                size=16,
-                                color='white',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{label}</b><br>' +
-                                         'Gasto: <b>%{value:,.2f} R$</b><br>' +
-                                         'Percentual: <b>%{percent:.1%}</b><br>' +
-                                         '<extra></extra>'
+                            textfont_size=14
                         )
-                        
-                        fig_gastos.update_layout(
-                            height=450,
-                            title_font=dict(size=18, color='#2c3e50'),
-                            showlegend=True,
-                            legend=dict(
-                                font=dict(size=14, color='#34495e'),
-                                bgcolor='rgba(255,255,255,0.8)',
-                                bordercolor='#bdc3c7',
-                                borderwidth=1
-                            ),
-                            margin=dict(t=80, b=80, l=80, r=80)
-                        )
+                        fig_gastos.update_layout(height=400)
                         st.plotly_chart(fig_gastos, use_container_width=True)
 
                         # Informações adicionais
@@ -3066,53 +2693,24 @@ def main():
                         'Consumo (L)': list(consumos_periodo.values())
                     })
 
-                    # Melhorar formatação dos rótulos para o gráfico
-                    df_consumo_periodo['Rótulo_Formatado'] = df_consumo_periodo['Consumo (L)'].apply(
-                        lambda x: f"{formatar_brasileiro_int(x)} L" if x > 0 else "0 L"
-                    )
-                    
                     fig_consumo_periodo = px.bar(
                         df_consumo_periodo,
                         x='Período',
                         y='Consumo (L)',
                         title=f"Consumo de Combustível por Período - Frota {cod_sel}",
-                        text='Rótulo_Formatado',
+                        text=df_consumo_periodo['Consumo (L)'].apply(formatar_brasileiro_int),
                         color='Consumo (L)',
                         color_continuous_scale='Blues'
                     )
-                    
-                    # Melhorar a aparência dos rótulos
                     fig_consumo_periodo.update_traces(
                         textposition='outside',
-                        texttemplate='%{text}',
-                        textfont=dict(
-                            size=14,
-                            color='#2c3e50',
-                            family='Arial, sans-serif'
-                        ),
-                        hovertemplate='<b>%{x}</b><br>' +
-                                     'Consumo: <b>%{y:,.0f} L</b><br>' +
-                                     '<extra></extra>'
+                        texttemplate='%{text} L'
                     )
-                    
                     fig_consumo_periodo.update_layout(
-                        height=450,
+                        height=400,
                         showlegend=False,
                         xaxis_title="Período",
-                        yaxis_title="Consumo (Litros)",
-                        title_font=dict(size=18, color='#2c3e50'),
-                        xaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d')
-                        ),
-                        yaxis=dict(
-                            title_font=dict(size=14, color='#34495e'),
-                            tickfont=dict(size=12, color='#7f8c8d'),
-                            tickformat=',.0f'
-                        ),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(t=80, b=80, l=80, r=80)
+                        yaxis_title="Consumo (Litros)"
                     )
                     st.plotly_chart(fig_consumo_periodo, use_container_width=True)
 
@@ -3123,11 +2721,6 @@ def main():
                             'Consumo (L)': [consumo_total_litros, consumo_classe_total - consumo_total_litros]
                         })
 
-                        # Melhorar formatação dos rótulos para o gráfico de pizza
-                        df_comparacao_consumo['Rótulo_Formatado'] = df_comparacao_consumo['Consumo (L)'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
-                        )
-                        
                         fig_consumo_classe = px.pie(
                             df_comparacao_consumo,
                             values='Consumo (L)',
@@ -3138,34 +2731,12 @@ def main():
                                 'Outras Frotas da Classe': '#1f77b4'
                             }
                         )
-                        
-                        # Melhorar a aparência dos rótulos
                         fig_consumo_classe.update_traces(
                             textposition='inside',
                             textinfo='percent+label',
-                            textfont=dict(
-                                size=16,
-                                color='white',
-                                family='Arial, sans-serif'
-                            ),
-                            hovertemplate='<b>%{label}</b><br>' +
-                                         'Consumo: <b>%{value:,.0f} L</b><br>' +
-                                         'Percentual: <b>%{percent:.1%}</b><br>' +
-                                         '<extra></extra>'
+                            textfont_size=14
                         )
-                        
-                        fig_consumo_classe.update_layout(
-                            height=450,
-                            title_font=dict(size=18, color='#2c3e50'),
-                            showlegend=True,
-                            legend=dict(
-                                font=dict(size=14, color='#34495e'),
-                                bgcolor='rgba(255,255,255,0.8)',
-                                bordercolor='#bdc3c7',
-                                borderwidth=1
-                            ),
-                            margin=dict(t=80, b=80, l=80, r=80)
-                        )
+                        fig_consumo_classe.update_layout(height=400)
                         st.plotly_chart(fig_consumo_classe, use_container_width=True)
 
                     # Gráfico de evolução mensal do consumo
@@ -3173,58 +2744,18 @@ def main():
                         consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
 
                         if not consumo_mensal_frota.empty:
-                            # Melhorar formatação dos dados para o gráfico
-                            consumo_mensal_frota['Consumo_Formatado'] = consumo_mensal_frota['Qtde_Litros'].apply(
-                                lambda x: f"{formatar_brasileiro_int(x)} L"
-                            )
-                            
                             fig_evolucao = px.line(
                                 consumo_mensal_frota,
                                 x='AnoMes',
                                 y='Qtde_Litros',
                                 title=f"Evolução Mensal do Consumo - Frota {cod_sel}",
                                 labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
-                                markers=True,
-                                text='Consumo_Formatado'
+                                markers=True
                             )
-                            
-                            # Melhorar a aparência dos rótulos e marcadores
-                            fig_evolucao.update_traces(
-                                textposition='top center',
-                                textfont=dict(
-                                    size=12,
-                                    color='#2c3e50',
-                                    family='Arial, sans-serif'
-                                ),
-                                hovertemplate='<b>%{x}</b><br>' +
-                                             'Consumo: <b>%{y:,.0f} L</b><br>' +
-                                             '<extra></extra>',
-                                marker=dict(
-                                    size=8,
-                                    color='#e74c3c',
-                                    line=dict(width=2, color='#c0392b')
-                                ),
-                                line=dict(width=3, color='#e74c3c')
-                            )
-                            
                             fig_evolucao.update_layout(
-                                height=450,
+                                height=400,
                                 xaxis_title="Mês/Ano",
-                                yaxis_title="Litros Consumidos",
-                                title_font=dict(size=18, color='#2c3e50'),
-                                xaxis=dict(
-                                    title_font=dict(size=14, color='#34495e'),
-                                    tickfont=dict(size=12, color='#7f8c8d'),
-                                    tickangle=45
-                                ),
-                                yaxis=dict(
-                                    title_font=dict(size=14, color='#34495e'),
-                                    tickfont=dict(size=12, color='#7f8c8d'),
-                                    tickformat=',.0f'
-                                ),
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                margin=dict(t=80, b=80, l=80, r=80)
+                                yaxis_title="Litros Consumidos"
                             )
                             st.plotly_chart(fig_evolucao, use_container_width=True)
 
@@ -3289,54 +2820,24 @@ def main():
                                 })
                                 df_comp['texto_formatado'] = df_comp['Média Consumo'].apply(lambda x: formatar_brasileiro(x))
 
-                                # Melhorar formatação dos rótulos para o gráfico de eficiência
-                                df_comp['Rótulo_Formatado'] = df_comp['Média Consumo'].apply(
-                                    lambda x: f"{formatar_brasileiro(x)} L/100km"
-                                )
-                                
                                 fig_comp = px.bar(
                                     df_comp,
                                     x='Categoria',
                                     y='Média Consumo',
-                                    text='Rótulo_Formatado',
+                                    text='texto_formatado',
                                     title="Eficiência de Consumo vs. Meta",
                                     color='Categoria',
+                                    # 2. Atualiza o mapa de cores com os novos nomes
                                     color_discrete_map={
-                                        nome_frota: '#3498db',
-                                        nome_classe: '#95a5a6',
-                                        'Meta Definida': '#e74c3c'
+                                        nome_frota: 'royalblue',
+                                        nome_classe: 'lightgrey',
+                                        'Meta Definida': 'lightcoral'
                                     }
                                 )
-                                
-                                # Melhorar a aparência dos rótulos
-                                fig_comp.update_traces(
-                                    textposition='outside',
-                                    width=0.6,
-                                    textfont=dict(
-                                        size=14,
-                                        color='#2c3e50',
-                                        family='Arial, sans-serif'
-                                    ),
-                                    hovertemplate='<b>%{x}</b><br>' +
-                                                 'Média: <b>%{y:.2f} L/100km</b><br>' +
-                                                 '<extra></extra>'
-                                )
-                                
-                                fig_comp.update_layout(
-                                    height=500,
-                                    showlegend=False,
-                                    xaxis_title=None,
-                                    yaxis_title="Média de Consumo (L/100km)",
-                                    title_font=dict(size=18, color='#2c3e50'),
-                                    yaxis=dict(
-                                        title_font=dict(size=14, color='#34495e'),
-                                        tickfont=dict(size=12, color='#7f8c8d'),
-                                        tickformat='.2f'
-                                    ),
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    margin=dict(t=80, b=80, l=80, r=80)
-                                )
+                                # --- FIM DA CORREÇÃO ---
+
+                                fig_comp.update_traces(textposition='outside', width=0.5)
+                                fig_comp.update_layout(height=500, showlegend=False, xaxis_title=None, yaxis_title="Média de Consumo")
                                 st.plotly_chart(fig_comp, use_container_width=True)
                         else:
                             col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
