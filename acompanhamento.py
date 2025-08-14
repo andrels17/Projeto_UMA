@@ -759,7 +759,75 @@ def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
             return inseridos, duplicados, f"{inseridos} motoristas importados com sucesso. {duplicados} já existiam."
     except Exception as e:
         return 0, 0, f"Ocorreu um erro inesperado durante a importação de motoristas: {e}"
+    
+def ensure_pneus_schema():
+    """Garante a existência da tabela de histórico de pneus."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pneus_historico (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Cod_Equip INTEGER,
+                    posicao TEXT,
+                    marca TEXT,
+                    modelo TEXT,
+                    data_instalacao TEXT,
+                    hodometro_instalacao REAL,
+                    vida_util_km REAL,
+                    observacoes TEXT,
+                    status TEXT DEFAULT 'Ativo',
+                    vida_atual INTEGER DEFAULT 1
+                )
+            """)
+            # Adiciona colunas se não existirem
+            cursor.execute("PRAGMA table_info(pneus_historico)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'status' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN status TEXT DEFAULT 'Ativo'")
+            if 'vida_atual' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN vida_atual INTEGER DEFAULT 1")
+            conn.commit()
+        return True, "Tabela de pneus verificada"
+    except Exception as e:
+        return False, f"Erro ao criar tabela de pneus: {e}"
 
+def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
+    """Importa histórico de pneus de uma planilha Excel."""
+    try:
+        df_pneus = pd.read_excel(arquivo_carregado)
+        df_pneus.columns = [c.strip() for c in df_pneus.columns]
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        faltando = [c for c in obrig if c not in df_pneus.columns]
+        if faltando:
+            return 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        if 'observacoes' not in df_pneus.columns:
+            df_pneus['observacoes'] = ""
+        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao'])
+        registros = [tuple(row) for row in df_pneus[obrig + ['observacoes']].fillna('').to_numpy()]
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, data_instalacao, hodometro_instalacao, vida_util_km, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                registros
+            )
+            conn.commit()
+        return len(registros), "Importação concluída"
+    except Exception as e:
+        return 0, f"Erro ao importar pneus: {e}"
+
+def get_pneus_historico(cod_equip=None):
+    """Retorna o histórico de pneus, opcionalmente filtrando por frota."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            query = "SELECT * FROM pneus_historico"
+            params = ()
+            if cod_equip:
+                query += " WHERE Cod_Equip = ?"
+                params = (cod_equip,)
+            return pd.read_sql_query(query, conn, params=params)
+    except Exception:
+        return pd.DataFrame()
 
 def ensure_precos_combustivel_schema():
     """Garante a existência da tabela de preços por tipo de combustível."""
@@ -2304,6 +2372,70 @@ def main():
                         st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
                 else:
                     st.warning("Não há dados suficientes para análise por combustível.")
+
+                st.markdown("---")
+                st.subheader("📊 Demonstrativos Detalhados dos Pneus")
+
+                df_pneus_all = get_pneus_historico()
+                if not df_pneus_all.empty:
+                    # Adicione colunas de status e vida se não existirem
+                    if 'status' not in df_pneus_all.columns:
+                        df_pneus_all['status'] = 'Ativo'
+                    if 'vida_atual' not in df_pneus_all.columns:
+                        df_pneus_all['vida_atual'] = 1
+
+                    total_pneus = len(df_pneus_all)
+                    ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
+                    sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
+                    reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
+                    vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
+                    marcas = df_pneus_all['marca'].value_counts()
+                    modelos = df_pneus_all['modelo'].value_counts()
+                    posicoes = df_pneus_all['posicao'].value_counts()
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total de Pneus", total_pneus)
+                    col2.metric("Ativos", ativos)
+                    col3.metric("Sucateados", sucateados)
+                    col4.metric("Reformados", reformados)
+
+                    st.markdown("#### Distribuição por Vida Atual")
+                    vidas_df = vidas.reset_index()
+                    vidas_df.columns = ["Vida", "Quantidade"]
+                    st.dataframe(vidas_df)
+
+                    st.markdown("#### Distribuição por Status")
+                    status_df = df_pneus_all['status'].value_counts().reset_index()
+                    status_df.columns = ["Status", "Quantidade"]
+                    st.dataframe(status_df)
+
+                    st.markdown("#### Distribuição por Marca")
+                    st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
+
+                    st.markdown("#### Distribuição por Modelo")
+                    st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
+
+                    st.markdown("#### Distribuição por Posição")
+                    st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
+
+                    # Gráficos
+                    fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
+                    st.plotly_chart(fig_status, use_container_width=True)
+
+                    fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
+                    st.plotly_chart(fig_vidas, use_container_width=True)
+
+                    fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
+                    st.plotly_chart(fig_marcas, use_container_width=True)
+
+                    fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
+                    st.plotly_chart(fig_modelos, use_container_width=True)
+
+                    fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
+                    st.plotly_chart(fig_posicoes, use_container_width=True)
+
+                else:
+                    st.info("Nenhum pneu cadastrado para demonstrativo.")
         
         with tab_consulta:
             st.header("🔎 Ficha Individual do Equipamento")
@@ -3017,7 +3149,6 @@ def main():
                 componente_servico = st.selectbox("Componente que recebeu manutenção", options=componentes_disponiveis)
                 data_servico = st.date_input("Data do Serviço")
                 hod_hor_servico = st.number_input("Leitura no Momento do Serviço", min_value=0.0, format="%.2f")
-                observacoes = st.text_area("Observações (opcional)")
 
                 if st.form_submit_button("Salvar Manutenção de Componente"):
                     if equip_label and componente_servico:
@@ -3888,8 +4019,9 @@ def main():
                         
         with tab_importar:
                     st.header("📤 Importar Dados")
-                    # Abas internas: Abastecimentos e Motoristas
-                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos = st.tabs(["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível"])
+                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus = st.tabs(
+                        ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus"]
+                    )
 
                     with sub_tab_abastec:
                         st.subheader("Importar Novos Abastecimentos de uma Planilha")
@@ -3961,6 +4093,115 @@ def main():
                                     st.success("Preços atualizados.")
                                 else:
                                     st.warning("Alguns preços podem não ter sido salvos.")
+                                    
+                    with sub_tab_pneus:
+                        st.subheader("Importar Histórico de Pneus")
+                        st.info(
+                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `data_instalacao`, `hodometro_instalacao`, `vida_util_km`. Opcional: `observacoes`.\n"
+                            "Cada pneu será vinculado à frota pelo campo `Cod_Equip`."
+                        )
+                        arquivo_pneus = st.file_uploader("Selecione a planilha de pneus", type=['xlsx'], key="upl_pneus")
+                        if arquivo_pneus is not None:
+                            try:
+                                df_prev = pd.read_excel(arquivo_pneus)
+                                st.dataframe(df_prev.head())
+                                if st.button("Confirmar e Inserir Pneus", type="primary"):
+                                    ensure_pneus_schema()
+                                    inseridos, msg = importar_pneus_de_planilha(DB_PATH, arquivo_pneus)
+                                    if inseridos > 0:
+                                        st.success(f"{msg} ({inseridos} registros)")
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                            except Exception as e:
+                                st.error(f"Erro ao ler planilha: {e}")
+
+                        st.markdown("---")
+                        st.subheader("Cadastrar Pneus Manualmente")
+                        with st.form("form_add_pneu", clear_on_submit=True):
+                            cod_equip = st.number_input("Código da Frota", min_value=1, step=1)
+                            posicao = st.text_input("Posição do Pneu (ex: Dianteiro Esquerdo)")
+                            marca = st.text_input("Marca")
+                            modelo = st.text_input("Modelo")
+                            data_instalacao = st.date_input("Data de Instalação")
+                            hodometro_instalacao = st.number_input("Leitura na Instalação", min_value=0.0, format="%.2f")
+                            vida_util_km = st.number_input("Vida Útil Estimada (km)", min_value=0.0, format="%.2f")
+                            observacoes = st.text_area("Observações", height=50)
+                            status = st.selectbox("Status do Pneu", ["Ativo", "Sucateado", "Reformado"])
+                            vida_atual = st.number_input("Vida Atual do Pneu", min_value=1, step=1, value=1)
+                            if st.form_submit_button("Salvar Pneu"):
+                                ensure_pneus_schema()
+                                try:
+                                    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                        cur = conn.cursor()
+                                        cur.execute(
+                                            "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, data_instalacao, hodometro_instalacao, vida_util_km, observacoes, status, vida_atual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                            (cod_equip, posicao, marca, modelo, data_instalacao.strftime("%Y-%m-%d"), hodometro_instalacao, vida_util_km, observacoes, status, vida_atual)
+                                        )
+                                        conn.commit()
+                                    st.success("Pneu cadastrado com sucesso!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao cadastrar pneu: {e}")
+
+                        st.markdown("---")
+                        st.subheader("Consultar Histórico de Pneus por Frota")
+                        cod_equip_pneu = st.number_input("Código da Frota para consulta", min_value=1, step=1)
+                        filtro_marca = st.text_input("Filtrar por Marca (opcional)")
+                        filtro_posicao = st.text_input("Filtrar por Posição (opcional)")
+                        if cod_equip_pneu:
+                            df_hist_pneus = get_pneus_historico(cod_equip_pneu)
+                            if filtro_marca:
+                                df_hist_pneus = df_hist_pneus[df_hist_pneus['marca'].str.contains(filtro_marca, case=False, na=False)]
+                            if filtro_posicao:
+                                df_hist_pneus = df_hist_pneus[df_hist_pneus['posicao'].str.contains(filtro_posicao, case=False, na=False)]
+                            if not df_hist_pneus.empty:
+                                st.dataframe(df_hist_pneus)
+                                # Edição e exclusão
+                                st.markdown("### Editar ou Excluir Pneus")
+                                df_hist_pneus['label'] = (
+                                    df_hist_pneus['id'].astype(str) + " | " +
+                                    df_hist_pneus['posicao'] + " | " +
+                                    df_hist_pneus['marca'] + " | " +
+                                    df_hist_pneus['modelo']
+                                )
+                                pneu_sel = st.selectbox("Selecione o pneu para editar/excluir", options=df_hist_pneus['label'])
+                                if pneu_sel:
+                                    pneu_row = df_hist_pneus[df_hist_pneus['label'] == pneu_sel].iloc[0]
+                                    with st.expander("Editar Pneu"):
+                                        with st.form("form_edit_pneu", clear_on_submit=True):
+                                            nova_posicao = st.text_input("Posição", value=pneu_row['posicao'])
+                                            nova_marca = st.text_input("Marca", value=pneu_row['marca'])
+                                            novo_modelo = st.text_input("Modelo", value=pneu_row['modelo'])
+                                            nova_data = st.date_input("Data de Instalação", value=pd.to_datetime(pneu_row['data_instalacao']))
+                                            novo_hod = st.number_input("Leitura na Instalação", value=float(pneu_row['hodometro_instalacao']), format="%.2f")
+                                            nova_vida = st.number_input("Vida Útil Estimada (km)", value=float(pneu_row['vida_util_km']), format="%.2f")
+                                            novas_obs = st.text_area("Observações", value=pneu_row['observacoes'], height=50)
+                                            if st.form_submit_button("Salvar Alterações"):
+                                                try:
+                                                    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                        cur = conn.cursor()
+                                                        cur.execute(
+                                                            "UPDATE pneus_historico SET posicao=?, marca=?, modelo=?, data_instalacao=?, hodometro_instalacao=?, vida_util_km=?, observacoes=? WHERE id=?",
+                                                            (nova_posicao, nova_marca, novo_modelo, nova_data.strftime("%Y-%m-%d"), novo_hod, nova_vida, novas_obs, pneu_row['id'])
+                                                        )
+                                                        conn.commit()
+                                                    st.success("Pneu atualizado com sucesso!")
+                                                    st.rerun()
+                                                except Exception as e:
+                                                    st.error(f"Erro ao editar pneu: {e}")
+                                    if st.button("Excluir Pneu Selecionado", type="primary"):
+                                        try:
+                                            with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                cur = conn.cursor()
+                                                cur.execute("DELETE FROM pneus_historico WHERE id=?", (pneu_row['id'],))
+                                                conn.commit()
+                                            st.success("Pneu excluído com sucesso!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Erro ao excluir pneu: {e}")
+                            else:
+                                st.info("Nenhum registro de pneus para esta frota.")
                             
         with tab_saude:
                     st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
