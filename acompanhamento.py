@@ -1960,28 +1960,109 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        abas_visualizacao = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
-        abas_admin = ["⚙️ Gerir Lançamentos", "🛢️ Gestão de Lubrificantes", "⚙️ Gerir Frotas", "📤 Importar Dados", "⚙️ Configurações", "⚕️ Saúde dos Dados", "👤 Gerir Utilizadores", "✅ Gerir Checklists", "💾 Backup"]
+        # Definição dos grupos de abas
+        abas_pagina_inicial = ["📊 Painel de Controle", "📈 Análise Geral", "🛠️ Controle de Manutenção", "🔎 Consulta Individual", "✅ Checklists Diários"]
+        abas_gerir = ["⚙️ Gerir Lançamentos", "🛢️ Gestão de Lubrificantes", "⚙️ Gerir Frotas", "✅ Gerir Checklists"]
+        abas_dados = ["📤 Importar Dados", "⚕️ Saúde dos Dados", "💾 Backup", "👤 Gerir Utilizadores", "⚙️ Configurações"]
 
+        # Determinar quais grupos mostrar baseado no papel do usuário
         if st.session_state.role == 'admin':
-            tabs_para_mostrar = abas_visualizacao + abas_admin
-            active_idx = st.session_state.get('active_tab_index', 0)
-            active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
-            try:
-                abas = st.tabs(tabs_para_mostrar, default_index=active_idx)
-            except TypeError:
-                abas = st.tabs(tabs_para_mostrar)
-            (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
-            tab_gerir_lanc, tab_gerir_lub, tab_gerir_frotas, tab_importar, tab_config, tab_saude, 
-            tab_gerir_users, tab_gerir_checklists, tab_backup) = abas
+            # Para admins, mostrar todos os grupos
+            tabs_para_mostrar = abas_pagina_inicial + abas_gerir + abas_dados
         else:
-            tabs_para_mostrar = abas_visualizacao
-            active_idx = st.session_state.get('active_tab_index', 0)
-            active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
-            try:
-                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar, default_index=active_idx)
-            except TypeError:
-                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = st.tabs(tabs_para_mostrar)
+            # Para usuários comuns, mostrar apenas página inicial
+            tabs_para_mostrar = abas_pagina_inicial
+
+        # Sistema de navegação por grupos
+        st.markdown("### 🎯 Navegação por Grupos")
+        
+        # Mostrar informações sobre os grupos disponíveis
+        if st.session_state.role == 'admin':
+            st.info("""
+            **🏠 Página Inicial:** Visualizações, análises e consultas principais | 
+            **⚙️ Gerir:** Gestão de lançamentos, frotas e checklists | 
+            **📊 Dados:** Importações, backup e saúde dos dados
+            """)
+        else:
+            st.info("**🏠 Página Inicial:** Visualizações, análises e consultas principais")
+        
+        # CSS para os botões de grupo
+        st.markdown("""
+        <style>
+        .group-nav-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 20px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(102,126,234,0.3);
+            margin: 4px;
+            cursor: pointer;
+        }
+        
+        .group-nav-button:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(102,126,234,0.4);
+        }
+        
+        .group-nav-button.active {
+            background: linear-gradient(135deg, #00D4AA 0%, #00B8A9 100%);
+            box-shadow: 0 4px 12px rgba(0,212,170,0.3);
+        }
+        
+        .group-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 8px 0;
+            border: 1px solid #dee2e6;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Botões de navegação por grupos
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🏠 Página Inicial", key="nav_pagina_inicial", help="Visualizações e análises principais"):
+                st.session_state['active_group'] = 'pagina_inicial'
+                st.session_state['active_tab_index'] = 0
+                st.rerun()
+        
+        if st.session_state.role == 'admin':
+            with col2:
+                if st.button("⚙️ Gerir", key="nav_gerir", help="Gestão de lançamentos, frotas e checklists"):
+                    st.session_state['active_group'] = 'gerir'
+                    st.session_state['active_tab_index'] = len(abas_pagina_inicial)
+                    st.rerun()
+            
+            with col3:
+                if st.button("📊 Dados", key="nav_dados", help="Importações, backup e saúde dos dados"):
+                    st.session_state['active_group'] = 'dados'
+                    st.session_state['active_tab_index'] = len(abas_pagina_inicial) + len(abas_gerir)
+                    st.rerun()
+
+        # Determinar índice ativo
+        active_idx = st.session_state.get('active_tab_index', 0)
+        active_idx = max(0, min(active_idx, len(tabs_para_mostrar) - 1))
+        
+        # Criar as abas
+        try:
+            abas = st.tabs(tabs_para_mostrar, default_index=active_idx)
+        except TypeError:
+            abas = st.tabs(tabs_para_mostrar)
+
+        # Atribuir as abas baseado no papel do usuário
+        if st.session_state.role == 'admin':
+            (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
+             tab_gerir_lanc, tab_gerir_lub, tab_gerir_frotas, tab_gerir_checklists,
+             tab_importar, tab_saude, tab_backup, tab_gerir_users, tab_config) = abas
+        else:
+            tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = abas
 
         def rerun_keep_tab(tab_title: str, clear_cache: bool = True):
             if clear_cache:
@@ -1992,63 +2073,7 @@ def main():
                 pass
             st.rerun()
         
-        # Navegação rápida para abas principais (apenas para admins com muitas abas)
-        if st.session_state.role == 'admin' and len(tabs_para_mostrar) > 8:
-            st.markdown("---")
-            
-            # CSS para melhorar os botões de navegação
-            st.markdown("""
-            <style>
-            .stButton > button {
-                background: linear-gradient(135deg, #00D4AA 0%, #00B8A9 100%);
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-weight: 600;
-                font-size: 14px;
-                transition: all 0.3s ease;
-                box-shadow: 0 2px 8px rgba(0,212,170,0.3);
-            }
-            
-            .stButton > button:hover {
-                background: linear-gradient(135deg, #00B8A9 0%, #00A896 100%);
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(0,212,170,0.4);
-            }
-            
-            .stButton > button:active {
-                background: linear-gradient(135deg, #00A896 0%, #009688 100%);
-                transform: translateY(0);
-                box-shadow: 0 2px 4px rgba(0,212,170,0.5);
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("### 🚀 Navegação Rápida")
-            col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
-            
-            with col_nav1:
-                if st.button("📊 Painel", key="nav_painel"):
-                    rerun_keep_tab("📊 Painel de Controle")
-            
-            with col_nav2:
-                if st.button("📈 Análise", key="nav_analise"):
-                    rerun_keep_tab("📈 Análise Geral")
-            
-            with col_nav3:
-                if st.button("🛠️ Manutenção", key="nav_manut"):
-                    rerun_keep_tab("🛠️ Controle de Manutenção")
-            
-            with col_nav4:
-                if st.button("🔎 Consulta", key="nav_consulta"):
-                    rerun_keep_tab("🔎 Consulta Individual")
-            
-            with col_nav5:
-                if st.button("✅ Checklists", key="nav_checklists"):
-                    rerun_keep_tab("✅ Checklists Diários")
-            
-            st.markdown("---")
+
                 
         with tab_painel:
             st.header("Visão Geral da Frota")
