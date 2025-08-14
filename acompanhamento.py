@@ -16,8 +16,13 @@ def _download_bytes(df: pd.DataFrame, kind: str = 'csv'):
         return data, mime
     elif kind == 'xlsx':
         bio = BytesIO()
-        with pd.ExcelWriter(bio, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='dados')
+        # Tenta usar xlsxwriter; se não estiver instalado, usa openpyxl
+        try:
+            with pd.ExcelWriter(bio, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='dados')
+        except ModuleNotFoundError:
+            with pd.ExcelWriter(bio, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='dados')
         bio.seek(0)
         return bio.read(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     return None, None
