@@ -1846,19 +1846,12 @@ def main():
                     if 'Classe_Operacional' not in df_gastos_com_info.columns:
                         df_gastos_com_info['Classe_Operacional'] = 'N/A'
                     
-                    # Filtro para excluir usinas por padrão
-                    mostrar_usinas = st.checkbox("🏭 Incluir Usinas no Top 10 de Gastos por Frota", value=False)
+                    # Filtro para excluir a frota 550 (usina) por padrão
+                    mostrar_usinas = st.checkbox("🏭 Incluir Frota 550 (Usina) no Top 10 de Gastos por Frota", value=False)
                     
                     if not mostrar_usinas:
-                        # Excluir usinas do DataFrame
-                        classes_usina = ['USINA', 'USINA MOBILE', 'USINA FIXA']
-                        # Verificar se a coluna existe antes de filtrar
-                        if 'Classe_Operacional' in df_gastos_com_info.columns:
-                            df_gastos_filtrado = df_gastos_com_info[
-                                ~df_gastos_com_info['Classe_Operacional'].str.upper().isin(classes_usina)
-                            ]
-                        else:
-                            df_gastos_filtrado = df_gastos_com_info
+                        # Excluir a frota 550 (usina) do DataFrame
+                        df_gastos_filtrado = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] != 550]
                     else:
                         df_gastos_filtrado = df_gastos_com_info
                     
@@ -1893,16 +1886,12 @@ def main():
                     with col_gastos1:
                         st.subheader("🏭 Top 10 Gastos por Frota")
                         
-                        # Mostrar informação sobre filtro de usinas
-                        if not mostrar_usinas and 'Classe_Operacional' in df_gastos_com_info.columns:
-                            try:
-                                usinas_excluidas = df_gastos_com_info[
-                                    df_gastos_com_info['Classe_Operacional'].str.upper().isin(['USINA', 'USINA MOBILE', 'USINA FIXA'])
-                                ]['Cod_Equip'].nunique()
-                                if usinas_excluidas > 0:
-                                    st.info(f"ℹ️ {usinas_excluidas} usina(s) excluída(s) do ranking. Marque a caixa acima para incluí-las.")
-                            except Exception:
-                                pass
+                        # Mostrar informação sobre filtro da frota 550
+                        if not mostrar_usinas:
+                            # Verificar se a frota 550 existe nos dados
+                            frota_550_existe = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] == 550].shape[0] > 0
+                            if frota_550_existe:
+                                st.info("ℹ️ Frota 550 (Usina) excluída do ranking. Marque a caixa acima para incluí-la.")
                         
                         if not gastos_por_frota.empty:
                             fig_gastos_frota = px.bar(
