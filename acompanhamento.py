@@ -1746,7 +1746,11 @@ def main():
                 with c1:
                     st.subheader("Consumo por Classe Operacional")
                     classes_a_excluir = ['VEICULOS LEVES', 'MOTOCICLETA', 'MINI CARREGADEIRA', 'USINA']
-                    df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
+                    # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                    if 'Classe_Operacional' in df_f.columns:
+                        df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
+                    else:
+                        df_consumo_classe = df_f
                     consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
 
                     if not consumo_por_classe.empty:
@@ -1838,15 +1842,23 @@ def main():
                         how='left'
                     )
                     
+                    # Garantir que a coluna Classe_Operacional existe
+                    if 'Classe_Operacional' not in df_gastos_com_info.columns:
+                        df_gastos_com_info['Classe_Operacional'] = 'N/A'
+                    
                     # Filtro para excluir usinas por padrão
                     mostrar_usinas = st.checkbox("🏭 Incluir Usinas no Top 10 de Gastos por Frota", value=False)
                     
                     if not mostrar_usinas:
                         # Excluir usinas do DataFrame
                         classes_usina = ['USINA', 'USINA MOBILE', 'USINA FIXA']
-                        df_gastos_filtrado = df_gastos_com_info[
-                            ~df_gastos_com_info['Classe_Operacional'].str.upper().isin(classes_usina)
-                        ]
+                        # Verificar se a coluna existe antes de filtrar
+                        if 'Classe_Operacional' in df_gastos_com_info.columns:
+                            df_gastos_filtrado = df_gastos_com_info[
+                                ~df_gastos_com_info['Classe_Operacional'].str.upper().isin(classes_usina)
+                            ]
+                        else:
+                            df_gastos_filtrado = df_gastos_com_info
                     else:
                         df_gastos_filtrado = df_gastos_com_info
                     
@@ -1882,12 +1894,15 @@ def main():
                         st.subheader("🏭 Top 10 Gastos por Frota")
                         
                         # Mostrar informação sobre filtro de usinas
-                        if not mostrar_usinas:
-                            usinas_excluidas = df_gastos_com_info[
-                                df_gastos_com_info['Classe_Operacional'].str.upper().isin(['USINA', 'USINA MOBILE', 'USINA FIXA'])
-                            ]['Cod_Equip'].nunique()
-                            if usinas_excluidas > 0:
-                                st.info(f"ℹ️ {usinas_excluidas} usina(s) excluída(s) do ranking. Marque a caixa acima para incluí-las.")
+                        if not mostrar_usinas and 'Classe_Operacional' in df_gastos_com_info.columns:
+                            try:
+                                usinas_excluidas = df_gastos_com_info[
+                                    df_gastos_com_info['Classe_Operacional'].str.upper().isin(['USINA', 'USINA MOBILE', 'USINA FIXA'])
+                                ]['Cod_Equip'].nunique()
+                                if usinas_excluidas > 0:
+                                    st.info(f"ℹ️ {usinas_excluidas} usina(s) excluída(s) do ranking. Marque a caixa acima para incluí-las.")
+                            except Exception:
+                                pass
                         
                         if not gastos_por_frota.empty:
                             fig_gastos_frota = px.bar(
@@ -1977,7 +1992,11 @@ def main():
 
                 classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
 
-                df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
+                # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                if 'Classe_Operacional' in df_media.columns:
+                    df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
+                else:
+                    df_media_filtrado = df_media
 
                 if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
                     media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
@@ -2087,10 +2106,14 @@ def main():
                 st.subheader("📊 Consumo por Classe (Visão Macro)")
                 # Excluir "Usina" e frotas sem classe, usar Classe_Operacional
                 classes_a_excluir_macro = ['USINA', 'USINA MOBILE', 'USINA FIXA']
-                df_consumo_classe_macro = df_consumo_combustivel[
-                    (df_consumo_combustivel['Classe_Operacional'].notna()) & 
-                    (~df_consumo_combustivel['Classe_Operacional'].str.upper().isin(classes_a_excluir_macro))
-                ]
+                # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                if 'Classe_Operacional' in df_consumo_combustivel.columns:
+                    df_consumo_classe_macro = df_consumo_combustivel[
+                        (df_consumo_combustivel['Classe_Operacional'].notna()) & 
+                        (~df_consumo_combustivel['Classe_Operacional'].str.upper().isin(classes_a_excluir_macro))
+                    ]
+                else:
+                    df_consumo_classe_macro = df_consumo_combustivel
                 
                 if not df_consumo_classe_macro.empty:
                     try:
