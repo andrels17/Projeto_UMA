@@ -1758,17 +1758,56 @@ def main():
 
                 with c2:
                     st.subheader("Top 10 Equipamentos com Maior Consumo")
+                    # Melhorar o gráfico com informações mais claras
                     consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
                     consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
                     consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
 
                     if not consumo_por_equip.empty:
-                        consumo_por_equip['label_grafico'] = consumo_por_equip.index.astype(str)
+                        # Adicionar informações da frota para melhor identificação
+                        consumo_por_equip = consumo_por_equip.reset_index()
+                        consumo_por_equip = consumo_por_equip.merge(
+                            df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
+                            on='Cod_Equip', 
+                            how='left'
+                        )
+                        
+                        # Criar label mais informativo: Código - Descrição (Placa)
+                        consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
+                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                            axis=1
+                        )
+                        
                         consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
-                        fig_top10 = px.bar(consumo_por_equip, x='Qtde_Litros', y='label_grafico', orientation='h', text='texto_formatado', labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Matrícula"})
-                        fig_top10.update_traces(texttemplate='%{text} L', textposition='outside')
-                        fig_top10.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Matrícula")
+                        
+                        fig_top10 = px.bar(
+                            consumo_por_equip, 
+                            x='Qtde_Litros', 
+                            y='label_grafico', 
+                            orientation='h', 
+                            text='texto_formatado', 
+                            labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
+                            title="Top 10 Equipamentos com Maior Consumo"
+                        )
+                        fig_top10.update_traces(
+                            texttemplate='%{text} L', 
+                            textposition='outside',
+                            marker_color='#ff7f0e'
+                        )
+                        fig_top10.update_layout(
+                            yaxis={'categoryorder':'total ascending'}, 
+                            xaxis_title="Total Consumido (Litros)", 
+                            yaxis_title="Equipamento",
+                            height=500
+                        )
                         st.plotly_chart(fig_top10, use_container_width=True)
+                        
+                        # Adicionar tabela resumo abaixo do gráfico
+                        st.subheader("📋 Resumo dos Top 10")
+                        resumo_top10 = consumo_por_equip[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Qtde_Litros']].copy()
+                        resumo_top10['Consumo (L)'] = resumo_top10['Qtde_Litros'].apply(formatar_brasileiro_int)
+                        resumo_top10 = resumo_top10[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Consumo (L)']]
+                        st.dataframe(resumo_top10, use_container_width=True)
 
                 st.markdown("---")
                 st.subheader("📈 Média de Consumo por Classe Operacional")
@@ -1951,6 +1990,75 @@ def main():
                 c1.metric("Status", dados_eq.get("ATIVO", "–"))
                 c2.metric("Placa", dados_eq.get("PLACA", "–"))
                 c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
+
+                # Análise do motorista com uso mais frequente
+                st.markdown("---")
+                st.subheader("👤 Análise de Uso por Motorista")
+                
+                if not consumo_eq.empty and 'Matricula' in consumo_eq.columns:
+                    # Análise por motorista (matrícula)
+                    uso_por_motorista = consumo_eq.groupby('Matricula').agg({
+                        'Qtde_Litros': 'sum',
+                        'Data': 'count'
+                    }).rename(columns={'Data': 'Abastecimentos'}).sort_values('Qtde_Litros', ascending=False)
+                    
+                    if not uso_por_motorista.empty:
+                        # Top 5 motoristas com maior consumo
+                        top_motoristas = uso_por_motorista.head(5).reset_index()
+                        top_motoristas['Consumo (L)'] = top_motoristas['Qtde_Litros'].apply(formatar_brasileiro_int)
+                        top_motoristas['Abastecimentos'] = top_motoristas['Abastecimentos'].astype(int)
+                        
+                        col_motorista1, col_motorista2 = st.columns(2)
+                        
+                        with col_motorista1:
+                            st.subheader("🏆 Top 5 Motoristas por Consumo")
+                            st.dataframe(
+                                top_motoristas[['Matricula', 'Consumo (L)', 'Abastecimentos']], 
+                                use_container_width=True
+                            )
+                        
+                        with col_motorista2:
+                            st.subheader("📊 Motorista com Maior Uso")
+                            motorista_mais_frequente = top_motoristas.iloc[0]
+                            st.metric(
+                                "Motorista Principal", 
+                                f"Matrícula {motorista_mais_frequente['Matricula']}",
+                                f"{motorista_mais_frequente['Consumo (L)']} L"
+                            )
+                            st.metric(
+                                "Total de Abastecimentos", 
+                                motorista_mais_frequente['Abastecimentos']
+                            )
+                            st.metric(
+                                "Percentual do Total", 
+                                f"{(motorista_mais_frequente['Qtde_Litros'] / uso_por_motorista['Qtde_Litros'].sum() * 100):.1f}%"
+                            )
+                        
+                        # Gráfico de consumo por motorista
+                        st.subheader("📈 Consumo por Motorista")
+                        fig_motoristas = px.bar(
+                            top_motoristas,
+                            x='Qtde_Litros',
+                            y='Matricula',
+                            orientation='h',
+                            text='Consumo (L)',
+                            title="Consumo de Combustível por Motorista",
+                            labels={'Qtde_Litros': 'Litros Consumidos', 'Matricula': 'Matrícula'}
+                        )
+                        fig_motoristas.update_traces(
+                            textposition='outside',
+                            marker_color='#2ca02c'
+                        )
+                        fig_motoristas.update_layout(
+                            yaxis={'categoryorder':'total ascending'},
+                            height=400
+                        )
+                        st.plotly_chart(fig_motoristas, use_container_width=True)
+                        
+                    else:
+                        st.info("Não há dados de motoristas (matrículas) para este equipamento.")
+                else:
+                    st.info("Não há dados de consumo ou coluna de matrícula para análise de motoristas.")
 
                 # Indicadores: Checklists/Revisões executadas
                 col_filtro_a, col_filtro_b, col_filtro_c = st.columns([1, 1, 2])
