@@ -1788,7 +1788,6 @@ def main():
                         _b2, _m2 = _download_bytes(_rank_df, 'xlsx')
                         if _b2: st.download_button('Excel (Top N)', _b2, file_name=f'top{int(top_n)}.xlsx', mime=_m2, use_container_width=True)
                     try:
-                        import plotly.express as px
                         fig_top = px.bar(rank.reset_index(), x="Cod_Equip", y=col_litros, title=f"Top {int(top_n)} por Consumo")
                         fig_top.update_layout(xaxis_title="Cód. Equip.", yaxis_title="Consumo (L)")
                         st.plotly_chart(fig_top, use_container_width=True)
@@ -2225,7 +2224,6 @@ def main():
                         if _b2: st.download_button('Excel (Gasto por Motorista)', _b2, file_name='gasto_por_motorista.xlsx', mime=_m2, use_container_width=True)
 
                     try:
-                        import plotly.express as px
                         fig = px.bar(df_show, x='matricula_exibicao', y='gasto_total', title='Gasto Total por Motorista (por Matrícula)')
                         fig.update_layout(xaxis_title="Matrícula", yaxis_title="Gasto (R$)")
                         st.plotly_chart(fig, use_container_width=True)
