@@ -171,19 +171,11 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
         df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map).fillna(df_frotas.get('Classe_Operacional'))
 
-        # Adiciona coluna de tipo de combustível se não existir
+        # Garante coluna de tipo de combustível
         if 'tipo_combustivel' not in df_frotas.columns:
-            df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-            st.info("Coluna de tipo de combustível criada com valor padrão 'Diesel S500'")
-        
-        # Garantir que a coluna existe e tem valores válidos
-        if 'tipo_combustivel' in df_frotas.columns:
-            # Preencher valores nulos com padrão
-            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
-            st.info(f"Coluna tipo_combustivel verificada. Valores únicos: {df_frotas['tipo_combustivel'].unique()}")
-        else:
-            st.error("Erro: Coluna tipo_combustivel não foi criada corretamente")
             df_frotas['tipo_combustivel'] = 'Diesel S500'
+        else:
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -709,6 +701,11 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
         for _, regra in regras_da_classe.iterrows():
             componente = regra['nome_componente']
             intervalo = regra['intervalo_padrao']
+
+            intervalo_num = pd.to_numeric(intervalo, errors='coerce')
+            if pd.isna(intervalo_num) or not np.isfinite(intervalo_num) or float(intervalo_num) <= 0:
+                continue
+            intervalo = float(intervalo_num)
             
             historico_componente = _df_componentes_historico[
                 (_df_componentes_historico['Cod_Equip'] == cod_equip) &
@@ -1404,6 +1401,11 @@ def main():
         with st.sidebar:
             st.header("📅 Filtros")
 
+            # Interrompe se base estiver vazia
+            if df.empty:
+                st.warning("Base vazia. Importe dados na aba '📤 Importar Dados'.")
+                st.stop()
+
             # --- Filtro de Período (Sempre Visível) ---
             st.subheader("Período de Análise")
             data_inicio = st.date_input(
@@ -1978,45 +1980,7 @@ def main():
         with tab_manut:
             st.header("🛠️ Controle de Manutenção")
             
-            if not plan_df.empty:
-                st.subheader("🚨 Equipamentos com Alertas de Manutenção")
-                df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
-                if not df_com_alerta.empty:
-                    alert_cols = [col for col in df_com_alerta.columns if 'Alerta_' in col]
-                    df_com_alerta['Alertas'] = df_com_alerta[alert_cols].apply(lambda row: ', '.join([col.replace('Alerta_', '') for col, val in row.items() if val is True]), axis=1)
-                    display_cols = ['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Alertas']
 
-                    df_alertas_display = df_com_alerta[display_cols].copy()
-                    df_alertas_display['Leitura_Atual'] = df_alertas_display['Leitura_Atual'].apply(
-                        lambda x: formatar_brasileiro_int(x) if pd.notna(x) else ''
-                    )
-                    st.dataframe(
-                        df_alertas_display,
-                        column_config={"Cod_Equip": st.column_config.NumberColumn(format="%d")}
-                    )
-
-                else:
-                    st.success("✅ Nenhum equipamento com alerta no momento.")
-
-                with st.expander("Ver Plano de Manutenção Completo (Quanto Falta)"):
-                    cols_to_show = ['Cod_Equip', 'Equipamento', 'Leitura_Atual']
-                    for col in plan_df.columns:
-                        if 'Restante_' in col and plan_df[col].notna().any():
-                            cols_to_show.append(col)
-                    
-                    df_plano_display = plan_df[cols_to_show].copy()
-                    for col in df_plano_display.columns:
-                        if col not in ['Cod_Equip', 'Equipamento'] and pd.api.types.is_numeric_dtype(df_plano_display[col]):
-                            df_plano_display[col] = df_plano_display[col].apply(
-                                lambda x: formatar_brasileiro_int(x) if pd.notna(x) else ''
-                            )
-                    st.dataframe(
-                        df_plano_display,
-                        column_config={"Cod_Equip": st.column_config.NumberColumn(format="%d")}
-                    )
-
-            else:
-                st.info("Não há dados suficientes para gerar o plano de manutenção.")
 
             st.markdown("---")
             st.subheader("🛠️ Controle de Manutenção por Componentes")
