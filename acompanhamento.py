@@ -593,6 +593,31 @@ def add_component_rule(classe, componente, intervalo):
     except Exception as e:
         return False, f"Erro ao adicionar componente: {e}"
 
+def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca"):
+    """Adiciona uma nova regra de componente com informações de lubrificante e tipo de manutenção."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao) VALUES (?, ?, ?, ?, ?)",
+                (classe, componente, intervalo, lubrificante_id, tipo_manutencao)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
 def delete_component_rule(rule_id):
     """Remove uma regra de componente da base de dados."""
     try:
@@ -617,6 +642,87 @@ def add_component_service(cod_equip, componente, data, hod_hor, obs):
         return True, "Serviço de componente registado com sucesso."
     except Exception as e:
         return False, f"Erro ao registar serviço: {e}"
+
+def add_component_service_advanced(cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado=None, obs=""):
+    """Adiciona um novo registo de serviço de componente com informações detalhadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def get_component_status(cod_equip, componente):
+    """Obtém o status atual de um componente específico de um equipamento."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            # Buscar a última manutenção do componente
+            query = """
+            SELECT Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            ORDER BY Data DESC, Hod_Hor_No_Servico DESC
+            LIMIT 1
+            """
+            df_ultima = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            
+            # Buscar a regra do componente para obter o intervalo
+            query_regra = """
+            SELECT intervalo_padrao, lubrificante_id, tipo_manutencao
+            FROM componentes_regras cr
+            JOIN frotas f ON cr.classe_operacional = f."Classe Operacional"
+            WHERE f.COD_EQUIPAMENTO = ? AND cr.nome_componente = ?
+            """
+            df_regra = pd.read_sql_query(query_regra, conn, params=(cod_equip, componente))
+            
+            # Buscar o hodômetro/horímetro atual do equipamento
+            query_hod = """
+            SELECT Hod_Hor_Atual FROM abastecimentos 
+            WHERE Cod_Equip = ? 
+            ORDER BY Data DESC, Hod_Hor_Atual DESC 
+            LIMIT 1
+            """
+            df_hod = pd.read_sql_query(query_hod, conn, params=(cod_equip,))
+            
+            return df_ultima, df_regra, df_hod
+            
+    except Exception as e:
+        st.error(f"Erro ao obter status do componente: {e}")
+        return None, None, None
+
+def get_component_maintenance_count(cod_equip, componente):
+    """Obtém o número total de manutenções realizadas em um componente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT COUNT(*) as total_manutencoes,
+                   COUNT(CASE WHEN tipo_servico = 'Troca' THEN 1 END) as total_trocas,
+                   COUNT(CASE WHEN tipo_servico = 'Remonta' THEN 1 END) as total_remontas
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            """
+            df_count = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            return df_count.iloc[0] if not df_count.empty else {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+            
+    except Exception as e:
+        st.error(f"Erro ao obter contagem de manutenções: {e}")
+        return {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
 
 
 def get_frota_combustivel(cod_equip):
@@ -3383,13 +3489,125 @@ def main():
                     
                     # --- INÍCIO DA MELHORIA 2: Histórico de Manutenção por Componente ---
                     st.subheader("Histórico de Manutenções de Componentes")
-                    # Substitui a tabela de manutenções antigas pela nova
-                    historico_manut_display = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
                     
-                    if not historico_manut_display.empty:
-                        st.dataframe(historico_manut_display[['Data', 'nome_componente', 'Hod_Hor_No_Servico', 'Observacoes']])
+                    # Buscar componentes configurados para este equipamento
+                    classe_equip = df_frotas[df_frotas['Cod_Equip'] == cod_sel]['Classe_Operacional'].iloc[0]
+                    componentes_configurados = df_comp_regras[df_comp_regras['classe_operacional'] == classe_equip]
+                    
+                    if not componentes_configurados.empty:
+                        # Criar abas para cada componente
+                        componentes_nomes = componentes_configurados['nome_componente'].tolist()
+                        if componentes_nomes:
+                            tab_componentes = st.tabs(componentes_nomes)
+                            
+                            for i, componente in enumerate(componentes_nomes):
+                                with tab_componentes[i]:
+                                    # Buscar histórico do componente
+                                    historico_componente = df_comp_historico[
+                                        (df_comp_historico['Cod_Equip'] == cod_sel) & 
+                                        (df_comp_historico['nome_componente'] == componente)
+                                    ].sort_values("Data", ascending=False)
+                                    
+                                    # Buscar informações da regra do componente
+                                    regra_componente = componentes_configurados[componentes_configurados['nome_componente'] == componente].iloc[0]
+                                    intervalo_padrao = regra_componente['intervalo_padrao']
+                                    
+                                    # Buscar informações do lubrificante se existir
+                                    lubrificante_info = ""
+                                    if 'lubrificante_id' in regra_componente and regra_componente['lubrificante_id']:
+                                        conn = sqlite3.connect(DB_PATH)
+                                        df_lub = pd.read_sql("SELECT nome, viscosidade FROM lubrificantes WHERE id = ?", conn, params=(regra_componente['lubrificante_id'],))
+                                        conn.close()
+                                        if not df_lub.empty:
+                                            lub = df_lub.iloc[0]
+                                            lubrificante_info = f"{lub['nome']} ({lub['viscosidade']})"
+                                    
+                                    # Mostrar informações do componente
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Intervalo Padrão", f"{intervalo_padrao} {'km' if df_frotas[df_frotas['Cod_Equip'] == cod_sel]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h'}")
+                                    with col2:
+                                        if lubrificante_info:
+                                            st.metric("Lubrificante", lubrificante_info)
+                                        else:
+                                            st.metric("Lubrificante", "Não aplicável")
+                                    with col3:
+                                        # Contar manutenções
+                                        total_manutencoes = len(historico_componente)
+                                        st.metric("Total de Manutenções", total_manutencoes)
+                                    
+                                    # Mostrar status atual se houver histórico
+                                    if not historico_componente.empty:
+                                        ultima_manutencao = historico_componente.iloc[0]
+                                        hod_ultima = ultima_manutencao['Hod_Hor_No_Servico']
+                                        
+                                        # Buscar hodômetro atual
+                                        hod_atual = df[df['Cod_Equip'] == cod_sel]['Hod_Hor_Atual'].max()
+                                        if pd.notna(hod_atual):
+                                            km_restantes = (hod_ultima + intervalo_padrao) - hod_atual
+                                            
+                                            col_status1, col_status2 = st.columns(2)
+                                            with col_status1:
+                                                if km_restantes > 0:
+                                                    st.success(f"🟢 **{formatar_brasileiro_int(km_restantes)}** restantes")
+                                                else:
+                                                    st.error(f"🔴 **{formatar_brasileiro_int(abs(km_restantes))}** em atraso")
+                                            
+                                            with col_status2:
+                                                st.info(f"Última manutenção: {ultima_manutencao['Data']} ({formatar_brasileiro_int(hod_ultima)})")
+                                    
+                                    # Mostrar histórico detalhado
+                                    if not historico_componente.empty:
+                                        st.subheader("Histórico Detalhado")
+                                        # Selecionar colunas disponíveis
+                                        colunas_disponiveis = ['Data', 'Hod_Hor_No_Servico', 'Observacoes']
+                                        if 'tipo_servico' in historico_componente.columns:
+                                            colunas_disponiveis.insert(2, 'tipo_servico')
+                                        if 'lubrificante_utilizado' in historico_componente.columns:
+                                            colunas_disponiveis.insert(3, 'lubrificante_utilizado')
+                                        
+                                        st.dataframe(historico_componente[colunas_disponiveis])
+                                    else:
+                                        st.info("Nenhum histórico de manutenção para este componente.")
                     else:
-                        st.info("Nenhum histórico de manutenção de componentes para este equipamento.")
+                        st.info("Nenhum componente configurado para esta classe de equipamento.")
+                    
+                    # --- INÍCIO DA MELHORIA 3: Estatísticas de Manutenção ---
+                    st.markdown("---")
+                    st.subheader("📊 Estatísticas de Manutenção por Tipo")
+                    
+                    # Buscar todas as manutenções do equipamento
+                    todas_manutencoes = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel]
+                    
+                    if not todas_manutencoes.empty and 'tipo_servico' in todas_manutencoes.columns:
+                        # Contar por tipo de serviço
+                        contagem_tipos = todas_manutencoes['tipo_servico'].value_counts()
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            total_manut = len(todas_manutencoes)
+                            st.metric("Total de Manutenções", total_manut)
+                        
+                        with col2:
+                            total_trocas = contagem_tipos.get('Troca', 0)
+                            st.metric("Total de Trocas", total_trocas)
+                        
+                        with col3:
+                            total_remontas = contagem_tipos.get('Remonta', 0)
+                            st.metric("Total de Remontas", total_remontas)
+                        
+                        # Gráfico de pizza para tipos de manutenção
+                        if len(contagem_tipos) > 0:
+                            fig_tipos = px.pie(
+                                values=contagem_tipos.values,
+                                names=contagem_tipos.index,
+                                title="Distribuição por Tipo de Manutenção"
+                            )
+                            st.plotly_chart(fig_tipos, use_container_width=True)
+                    else:
+                        st.info("Nenhuma manutenção registrada ou dados de tipo de serviço não disponíveis.")
+                    # --- FIM DA MELHORIA 3 ---
                     # --- FIM DA MELHORIA 2 ---
 
                     st.subheader("Histórico de Abastecimentos")
@@ -3478,23 +3696,109 @@ def main():
                     )
 
                     componentes_disponiveis = []
+                    componente_info = {}
                     if equip_label:
                         cod_equip_selecionado = int(equip_label.split(" - ")[0])
                         classe_selecionada = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip_selecionado, 'Classe_Operacional'].iloc[0]
                         regras_classe = df_comp_regras[df_comp_regras['classe_operacional'] == classe_selecionada]
                         if not regras_classe.empty:
                             componentes_disponiveis = regras_classe['nome_componente'].tolist()
+                            # Criar dicionário com informações dos componentes
+                            for _, regra in regras_classe.iterrows():
+                                componente_info[regra['nome_componente']] = {
+                                    'intervalo': regra['intervalo_padrao'],
+                                    'lubrificante_id': regra.get('lubrificante_id'),
+                                    'tipo_manutencao': regra.get('tipo_manutencao', 'Troca')
+                                }
                     
                     componente_servico = st.selectbox("Componente que recebeu manutenção", options=componentes_disponiveis)
-                    data_servico = st.date_input("Data do Serviço")
-                    hod_hor_servico = st.number_input("Leitura no Momento do Serviço", min_value=0.0, format="%.2f")
+                    
+                    # Mostrar informações do componente selecionado
+                    if componente_servico and componente_servico in componente_info:
+                        info = componente_info[componente_servico]
+                        st.info(f"**Componente:** {componente_servico} | **Intervalo:** {info['intervalo']} | **Tipo:** {info['tipo_manutencao']}")
+                        
+                        # Buscar informações do lubrificante se existir
+                        if info['lubrificante_id']:
+                            conn = sqlite3.connect(DB_PATH)
+                            df_lub = pd.read_sql("SELECT nome, viscosidade FROM lubrificantes WHERE id = ?", conn, params=(info['lubrificante_id'],))
+                            conn.close()
+                            if not df_lub.empty:
+                                lub = df_lub.iloc[0]
+                                st.info(f"**Lubrificante associado:** {lub['nome']} ({lub['viscosidade']})")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        data_servico = st.date_input("Data do Serviço")
+                        hod_hor_servico = st.number_input("Leitura no Momento do Serviço", min_value=0.0, format="%.2f")
+                    
+                    with col2:
+                        # Tipo de serviço baseado na configuração do componente
+                        tipo_servico_opcoes = []
+                        if componente_servico and componente_servico in componente_info:
+                            tipo_config = componente_info[componente_servico]['tipo_manutencao']
+                            if tipo_config == "Troca":
+                                tipo_servico_opcoes = ["Troca"]
+                            elif tipo_config == "Remonta":
+                                tipo_servico_opcoes = ["Remonta"]
+                            elif tipo_config == "Ambos":
+                                tipo_servico_opcoes = ["Troca", "Remonta"]
+                        else:
+                            tipo_servico_opcoes = ["Troca", "Remonta"]
+                        
+                        tipo_servico = st.selectbox("Tipo de Serviço", options=tipo_servico_opcoes)
+                        
+                        # Lubrificante utilizado (se aplicável)
+                        lubrificante_utilizado = None
+                        if componente_servico and componente_servico in componente_info and info['lubrificante_id']:
+                            conn = sqlite3.connect(DB_PATH)
+                            df_lub = pd.read_sql("SELECT nome FROM lubrificantes WHERE id = ?", conn, params=(info['lubrificante_id'],))
+                            conn.close()
+                            if not df_lub.empty:
+                                lubrificante_utilizado = df_lub.iloc[0]['nome']
+                                st.info(f"Lubrificante: {lubrificante_utilizado}")
+                    
+                    observacoes = st.text_area("Observações (opcional)", placeholder="Detalhes do serviço realizado...")
 
                     if st.form_submit_button("Salvar Manutenção de Componente"):
                         if equip_label and componente_servico:
                             cod_equip = int(equip_label.split(" - ")[0])
-                            add_component_service(cod_equip, componente_servico, data_servico.strftime("%Y-%m-%d"), hod_hor_servico, observacoes)
-                            st.success(f"Manutenção do componente '{componente_servico}' para '{equip_label}' registrada com sucesso!")
-                            rerun_keep_tab("🛠️ Controle de Manutenção")
+                            
+                            # Usar a nova função avançada
+                            success, message = add_component_service_advanced(
+                                cod_equip, 
+                                componente_servico, 
+                                data_servico.strftime("%Y-%m-%d"), 
+                                hod_hor_servico, 
+                                tipo_servico, 
+                                lubrificante_utilizado, 
+                                observacoes
+                            )
+                            
+                            if success:
+                                st.success(f"Manutenção do componente '{componente_servico}' para '{equip_label}' registrada com sucesso!")
+                                
+                                # Atualizar estoque de lubrificante se aplicável
+                                if lubrificante_utilizado and tipo_servico == "Troca":
+                                    try:
+                                        conn = sqlite3.connect(DB_PATH)
+                                        cursor = conn.cursor()
+                                        # Reduzir estoque do lubrificante
+                                        cursor.execute(
+                                            "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque - 1 WHERE nome = ?",
+                                            (lubrificante_utilizado,)
+                                        )
+                                        conn.commit()
+                                        conn.close()
+                                        st.info(f"Estoque do lubrificante '{lubrificante_utilizado}' atualizado.")
+                                    except Exception as e:
+                                        st.warning(f"Não foi possível atualizar o estoque do lubrificante: {e}")
+                                
+                                # Atualizar cache para refletir mudanças
+                                st.cache_data.clear()
+                                rerun_keep_tab("🛠️ Controle de Manutenção")
+                            else:
+                                st.error(f"Erro ao salvar manutenção: {message}")
                         else:
                             st.warning("Por favor, selecione um equipamento e um componente.")
                                         
@@ -4393,32 +4697,93 @@ def main():
             with tab_config:
                 st.header("⚙️ Configurar Manutenções e Checklists")
                 
-                # --- Gestão de Componentes ---
+                # Informações sobre as novas funcionalidades
+                with st.expander("ℹ️ Sobre as Novas Funcionalidades de Componentes e Lubrificantes", expanded=False):
+                    st.info("""
+                    **🆕 Novas Funcionalidades Implementadas:**
+                    
+                    **1. Integração Componentes-Lubrificantes:**
+                    - Agora você pode associar lubrificantes específicos aos componentes
+                    - Defina intervalos de troca personalizados para cada componente
+                    - Escolha o tipo de manutenção: Troca, Remonta ou Ambos
+                    
+                    **2. Registro Avançado de Manutenção:**
+                    - Registre se foi uma troca ou remonta
+                    - Sistema automaticamente atualiza o estoque de lubrificantes
+                    - Histórico detalhado com tipo de serviço e lubrificante utilizado
+                    
+                    **3. Indicadores na Ficha Individual:**
+                    - Status atual de cada componente (km/horas restantes)
+                    - Contagem separada de trocas vs remontas
+                    - Informações do lubrificante associado
+                    - Gráficos de distribuição por tipo de manutenção
+                    
+                    **4. Gestão de Estoque Automática:**
+                    - Estoque de lubrificantes é atualizado automaticamente
+                    - Controle de entrada e saída integrado
+                    """)
+                
+                # --- Gestão de Componentes e Lubrificantes ---
                 exp_comp_open = st.session_state.get('open_expander_config_componentes', False)
-                with st.expander("Configurar Componentes de Manutenção por Classe", expanded=bool(exp_comp_open)):
+                with st.expander("Configurar Componentes e Lubrificantes por Classe", expanded=bool(exp_comp_open)):
                     classes_operacionais = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
                     df_comp_regras = get_component_rules() # Busca os dados mais recentes
+                    
+                    # Carregar lubrificantes disponíveis
+                    conn = sqlite3.connect(DB_PATH)
+                    df_lubrificantes = pd.read_sql("SELECT id, nome, tipo, viscosidade FROM lubrificantes ORDER BY nome", conn)
+                    conn.close()
 
                     for classe in classes_operacionais:
                         with st.container():
                             st.subheader(f"Classe: {classe}")
                             regras_atuais = df_comp_regras[df_comp_regras['classe_operacional'] == classe]
                             
-                            # Exibe as regras atuais com um botão para apagar
+                            # Exibe as regras atuais com informações de lubrificante
                             for _, regra in regras_atuais.iterrows():
-                                col1, col2, col3 = st.columns([2, 1, 1])
-                                col1.write(regra['nome_componente'])
+                                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                                col1.write(f"**{regra['nome_componente']}**")
+                                
+                                # Mostrar lubrificante associado se existir
+                                lubrificante_info = ""
+                                if 'lubrificante_id' in regra and regra['lubrificante_id']:
+                                    lub_info = df_lubrificantes[df_lubrificantes['id'] == regra['lubrificante_id']]
+                                    if not lub_info.empty:
+                                        lub = lub_info.iloc[0]
+                                        lubrificante_info = f"{lub['nome']} ({lub['viscosidade']})"
+                                
                                 col2.write(f"{regra['intervalo_padrao']} { 'km' if df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h' }")
-                                if col3.button("Remover", key=f"del_comp_{regra['id_regra']}"):
+                                col3.write(lubrificante_info if lubrificante_info else "Sem lubrificante")
+                                
+                                if col4.button("Remover", key=f"del_comp_{regra['id_regra']}"):
                                     delete_component_rule(regra['id_regra'])
                                     rerun_keep_tab("⚙️ Configurações")
 
                             with st.form(f"form_add_{classe}", clear_on_submit=True):
                                 st.write("**Adicionar Novo Componente**")
-                                novo_comp_nome = st.text_input("Nome do Componente", key=f"nome_{classe}")
-                                novo_comp_intervalo = st.number_input("Intervalo", min_value=1, step=50, key=f"int_{classe}")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    novo_comp_nome = st.text_input("Nome do Componente", key=f"nome_{classe}")
+                                    novo_comp_intervalo = st.number_input("Intervalo de Troca", min_value=1, step=50, key=f"int_{classe}")
+                                
+                                with col2:
+                                    # Seleção de lubrificante (opcional)
+                                    lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
+                                    lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, key=f"lub_{classe}")
+                                    
+                                    # Tipo de manutenção
+                                    tipo_manutencao = st.selectbox("Tipo de Manutenção", options=["Troca", "Remonta", "Ambos"], key=f"tipo_{classe}")
+                                
                                 if st.form_submit_button("Adicionar Componente"):
-                                    add_component_rule(classe, novo_comp_nome, novo_comp_intervalo)
+                                    # Obter ID do lubrificante se selecionado
+                                    lubrificante_id = None
+                                    if lubrificante_selecionado != "Sem lubrificante":
+                                        lub_info = df_lubrificantes[df_lubrificantes['nome'] == lubrificante_selecionado]
+                                        if not lub_info.empty:
+                                            lubrificante_id = lub_info.iloc[0]['id']
+                                    
+                                    add_component_rule_advanced(classe, novo_comp_nome, novo_comp_intervalo, lubrificante_id, tipo_manutencao)
                                     st.session_state['open_expander_config_componentes'] = True
                                     rerun_keep_tab("⚙️ Configurações")
                             st.markdown("---")
