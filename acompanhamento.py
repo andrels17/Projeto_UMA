@@ -724,6 +724,43 @@ def get_component_maintenance_count(cod_equip, componente):
         st.error(f"Erro ao obter contagem de manutenções: {e}")
         return {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
 
+def editar_manutencao_componente_advanced(DB_PATH, rowid, dados_editados):
+    """Edita uma manutenção de componente com informações avançadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_historico 
+                SET Cod_Equip = ?, nome_componente = ?, Data = ?, Hod_Hor_No_Servico = ?, 
+                    Observacoes = ?, tipo_servico = ?, lubrificante_utilizado = ?
+                WHERE rowid = ?
+            """, (
+                dados_editados['cod_equip'],
+                dados_editados['componente'],
+                dados_editados['data'],
+                dados_editados['hod_hor_servico'],
+                dados_editados['acao'],
+                dados_editados['tipo_servico'],
+                dados_editados['lubrificante_utilizado'],
+                rowid
+            ))
+            conn.commit()
+        return True, "Manutenção de componente atualizada com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar manutenção de componente: {e}"
+
 
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
@@ -3538,23 +3575,36 @@ def main():
                                     
                                     # Mostrar status atual se houver histórico
                                     if not historico_componente.empty:
-                                        ultima_manutencao = historico_componente.iloc[0]
-                                        hod_ultima = ultima_manutencao['Hod_Hor_No_Servico']
+                                        # Buscar a última TROCA (não remonta) para calcular km restantes
+                                        ultimas_trocas = historico_componente[
+                                            (historico_componente['tipo_servico'] == 'Troca') | 
+                                            (historico_componente['tipo_servico'].isna())  # Para registros antigos sem tipo
+                                        ]
                                         
-                                        # Buscar hodômetro atual
-                                        hod_atual = df[df['Cod_Equip'] == cod_sel]['Hod_Hor_Atual'].max()
-                                        if pd.notna(hod_atual):
-                                            km_restantes = (hod_ultima + intervalo_padrao) - hod_atual
+                                        if not ultimas_trocas.empty:
+                                            ultima_troca = ultimas_trocas.iloc[0]
+                                            hod_ultima_troca = ultima_troca['Hod_Hor_No_Servico']
                                             
-                                            col_status1, col_status2 = st.columns(2)
-                                            with col_status1:
-                                                if km_restantes > 0:
-                                                    st.success(f"🟢 **{formatar_brasileiro_int(km_restantes)}** restantes")
-                                                else:
-                                                    st.error(f"🔴 **{formatar_brasileiro_int(abs(km_restantes))}** em atraso")
-                                            
-                                            with col_status2:
-                                                st.info(f"Última manutenção: {ultima_manutencao['Data']} ({formatar_brasileiro_int(hod_ultima)})")
+                                            # Buscar hodômetro atual
+                                            hod_atual = df[df['Cod_Equip'] == cod_sel]['Hod_Hor_Atual'].max()
+                                            if pd.notna(hod_atual):
+                                                km_restantes = (hod_ultima_troca + intervalo_padrao) - hod_atual
+                                                
+                                                col_status1, col_status2 = st.columns(2)
+                                                with col_status1:
+                                                    if km_restantes > 0:
+                                                        st.success(f"🟢 **{formatar_brasileiro_int(km_restantes)}** restantes")
+                                                    else:
+                                                        st.error(f"🔴 **{formatar_brasileiro_int(abs(km_restantes))}** em atraso")
+                                                
+                                                with col_status2:
+                                                    st.info(f"Última troca: {ultima_troca['Data']} ({formatar_brasileiro_int(hod_ultima_troca)})")
+                                        else:
+                                            st.warning("⚠️ Nenhuma troca registrada. Remontas não reiniciam o contador.")
+                                        
+                                        # Mostrar última manutenção (qualquer tipo)
+                                        ultima_manutencao = historico_componente.iloc[0]
+                                        st.info(f"Última manutenção: {ultima_manutencao['Data']} - {ultima_manutencao.get('tipo_servico', 'N/A')}")
                                     
                                     # Mostrar histórico detalhado
                                     if not historico_componente.empty:
@@ -4290,14 +4340,29 @@ def main():
                                             desc_map = df_frotas_unique.set_index('Cod_Equip')['DESCRICAO_EQUIPAMENTO']
                                             df_comp_edit['DESCRICAO_EQUIPAMENTO'] = df_comp_edit['Cod_Equip'].map(desc_map).fillna('N/A')
 
-                                            # Ordena e cria os labels para seleção
+                                            # Ordena e cria os labels para seleção com informações melhoradas
                                             df_comp_edit.sort_values(by="Data", ascending=False, inplace=True)
+                                            
+                                            # Adicionar informações de tipo de serviço e lubrificante se disponíveis
+                                            tipo_servico_info = ""
+                                            if 'tipo_servico' in df_comp_edit.columns:
+                                                df_comp_edit['tipo_servico_info'] = df_comp_edit['tipo_servico'].fillna('N/A')
+                                            else:
+                                                df_comp_edit['tipo_servico_info'] = 'N/A'
+                                            
+                                            lubrificante_info = ""
+                                            if 'lubrificante_utilizado' in df_comp_edit.columns:
+                                                df_comp_edit['lubrificante_info'] = df_comp_edit['lubrificante_utilizado'].fillna('N/A')
+                                            else:
+                                                df_comp_edit['lubrificante_info'] = 'N/A'
+                                            
                                             df_comp_edit['label_edit'] = (
-                                                df_comp_edit['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
+                                                df_comp_edit['Data'].dt.strftime('%d/%m/%Y') + " | " +
                                                 df_comp_edit['Cod_Equip'].astype(str) + " - " +
                                                 df_comp_edit['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
                                                 df_comp_edit['nome_componente'] + " | " +
-                                                df_comp_edit['Observacoes'].fillna('N/A')
+                                                df_comp_edit['tipo_servico_info'] + " | " +
+                                                df_comp_edit['lubrificante_info']
                                             )
 
                                             # Cria o dicionário de label -> rowid
@@ -4321,15 +4386,30 @@ def main():
                                                     with st.form("form_edit_comp"):
                                                         st.write(f"**Editando:** {label_selecionado}")
 
-                                                        lista_labels_frotas = df_frotas.sort_values("label")['label'].tolist()
-                                                        equip_atual = df_frotas[df_frotas['Cod_Equip'] == dados_atuais['Cod_Equip']]['label'].iloc[0]
-                                                        index_equip_atual = lista_labels_frotas.index(equip_atual)
+                                                        col1, col2 = st.columns(2)
+                                                        
+                                                        with col1:
+                                                            lista_labels_frotas = df_frotas.sort_values("label")['label'].tolist()
+                                                            equip_atual = df_frotas[df_frotas['Cod_Equip'] == dados_atuais['Cod_Equip']]['label'].iloc[0]
+                                                            index_equip_atual = lista_labels_frotas.index(equip_atual)
 
-                                                        novo_equip_label = st.selectbox("Equipamento", options=lista_labels_frotas, index=index_equip_atual)
-                                                        novo_componente = st.text_input("Componente", value=dados_atuais['nome_componente'])
-                                                        nova_acao = st.text_input("Observações", value=dados_atuais.get('Observacoes', ''))
-                                                        nova_data = st.date_input("Data", value=pd.to_datetime(dados_atuais['Data']).date())
-                                                        novo_hod = st.number_input("Hod./Hor. no Serviço", value=float(dados_atuais.get('Hod_Hor_No_Servico', 0)), format="%.2f")
+                                                            novo_equip_label = st.selectbox("Equipamento", options=lista_labels_frotas, index=index_equip_atual)
+                                                            novo_componente = st.text_input("Componente", value=dados_atuais['nome_componente'])
+                                                            nova_data = st.date_input("Data", value=pd.to_datetime(dados_atuais['Data']).date())
+                                                            novo_hod = st.number_input("Hod./Hor. no Serviço", value=float(dados_atuais.get('Hod_Hor_No_Servico', 0)), format="%.2f")
+                                                        
+                                                        with col2:
+                                                            # Tipo de serviço
+                                                            tipo_servico_atual = dados_atuais.get('tipo_servico', 'Troca')
+                                                            tipo_servico_opcoes = ["Troca", "Remonta"]
+                                                            index_tipo = tipo_servico_opcoes.index(tipo_servico_atual) if tipo_servico_atual in tipo_servico_opcoes else 0
+                                                            novo_tipo_servico = st.selectbox("Tipo de Serviço", options=tipo_servico_opcoes, index=index_tipo)
+                                                            
+                                                            # Lubrificante utilizado
+                                                            lubrificante_atual = dados_atuais.get('lubrificante_utilizado', '')
+                                                            novo_lubrificante = st.text_input("Lubrificante Utilizado", value=lubrificante_atual)
+                                                            
+                                                            nova_acao = st.text_input("Observações", value=dados_atuais.get('Observacoes', ''))
 
                                                         submitted = st.form_submit_button("Salvar Alterações")
                                                         if submitted:
@@ -4339,8 +4419,10 @@ def main():
                                                                 'acao': nova_acao,
                                                                 'data': nova_data.strftime("%Y-%m-%d"),
                                                                 'hod_hor_servico': novo_hod,
+                                                                'tipo_servico': novo_tipo_servico,
+                                                                'lubrificante_utilizado': novo_lubrificante if novo_lubrificante else None,
                                                             }
-                                                            if editar_manutencao_componente(DB_PATH, rowid_selecionado, dados_editados):
+                                                            if editar_manutencao_componente_advanced(DB_PATH, rowid_selecionado, dados_editados):
                                                                 st.success("Manutenção de componente atualizada com sucesso!")
                                                                 rerun_keep_tab("⚙️ Gerir Lançamentos")
 
@@ -4734,48 +4816,96 @@ def main():
                     df_lubrificantes = pd.read_sql("SELECT id, nome, tipo, viscosidade FROM lubrificantes ORDER BY nome", conn)
                     conn.close()
 
-                    for classe in classes_operacionais:
-                        with st.container():
-                            st.subheader(f"Classe: {classe}")
-                            regras_atuais = df_comp_regras[df_comp_regras['classe_operacional'] == classe]
+                    # Selecionar classe para configurar
+                    classe_selecionada = st.selectbox(
+                        "Selecione a Classe Operacional para configurar:",
+                        options=classes_operacionais,
+                        key="classe_config_select"
+                    )
+                    
+                    if classe_selecionada:
+                        st.subheader(f"Configuração da Classe: {classe_selecionada}")
+                        
+                        # Mostrar componentes existentes em uma tabela compacta
+                        regras_atuais = df_comp_regras[df_comp_regras['classe_operacional'] == classe_selecionada]
+                        
+                        if not regras_atuais.empty:
+                            st.write("**Componentes Configurados:**")
                             
-                            # Exibe as regras atuais com informações de lubrificante
-                            for _, regra in regras_atuais.iterrows():
-                                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-                                col1.write(f"**{regra['nome_componente']}**")
+                            # Criar DataFrame para exibição
+                            df_display = regras_atuais.copy()
+                            df_display['Lubrificante'] = df_display['lubrificante_id'].apply(
+                                lambda x: df_lubrificantes[df_lubrificantes['id'] == x]['nome'].iloc[0] if x and not df_lubrificantes[df_lubrificantes['id'] == x].empty else "Sem lubrificante"
+                            )
+                            df_display['Unidade'] = 'km' if df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h'
+                            df_display['Intervalo'] = df_display['intervalo_padrao'].astype(str) + ' ' + df_display['Unidade']
+                            
+                            # Exibir tabela
+                            st.dataframe(
+                                df_display[['nome_componente', 'Intervalo', 'Lubrificante', 'tipo_manutencao']],
+                                column_config={
+                                    "nome_componente": "Componente",
+                                    "Intervalo": "Intervalo de Troca",
+                                    "Lubrificante": "Lubrificante",
+                                    "tipo_manutencao": "Tipo de Manutenção"
+                                },
+                                use_container_width=True
+                            )
+                            
+                            # Botões de remoção em linha
+                            col_acoes = st.columns(len(regras_atuais))
+                            for i, (_, regra) in enumerate(regras_atuais.iterrows()):
+                                with col_acoes[i]:
+                                    if st.button("🗑️ Remover", key=f"del_comp_{regra['id_regra']}"):
+                                        delete_component_rule(regra['id_regra'])
+                                        rerun_keep_tab("⚙️ Configurações")
+                        else:
+                            st.info("Nenhum componente configurado para esta classe.")
+                        
+                        st.markdown("---")
+                        
+                        # Formulário para adicionar novo componente
+                        with st.form(f"form_add_{classe_selecionada}", clear_on_submit=True):
+                            st.write("**➕ Adicionar Novo Componente**")
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                novo_comp_nome = st.text_input("Nome do Componente", key=f"nome_{classe_selecionada}")
+                                novo_comp_intervalo = st.number_input("Intervalo de Troca (km/h)", min_value=1, step=50, key=f"int_{classe_selecionada}")
+                            
+                            with col2:
+                                # Seleção de lubrificante (opcional)
+                                lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
+                                lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, key=f"lub_{classe_selecionada}")
                                 
-                                # Mostrar lubrificante associado se existir
-                                lubrificante_info = ""
-                                if 'lubrificante_id' in regra and regra['lubrificante_id']:
-                                    lub_info = df_lubrificantes[df_lubrificantes['id'] == regra['lubrificante_id']]
-                                    if not lub_info.empty:
-                                        lub = lub_info.iloc[0]
-                                        lubrificante_info = f"{lub['nome']} ({lub['viscosidade']})"
+                                # Tipo de manutenção
+                                tipo_manutencao = st.selectbox("Tipo de Manutenção", options=["Troca", "Remonta", "Ambos"], key=f"tipo_{classe_selecionada}")
+                            
+                            # Informações sobre tipos de manutenção
+                            with st.expander("💡 Sobre Tipos de Manutenção", expanded=False):
+                                st.info("""
+                                **🔄 Troca vs Remonta:**
                                 
-                                col2.write(f"{regra['intervalo_padrao']} { 'km' if df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h' }")
-                                col3.write(lubrificante_info if lubrificante_info else "Sem lubrificante")
+                                **Troca:**
+                                - Reinicia o contador de km/horas
+                                - Exemplos: troca de óleo, filtros, correias
+                                - Usado para manutenções que "zeram" o ciclo
                                 
-                                if col4.button("Remover", key=f"del_comp_{regra['id_regra']}"):
-                                    delete_component_rule(regra['id_regra'])
-                                    rerun_keep_tab("⚙️ Configurações")
-
-                            with st.form(f"form_add_{classe}", clear_on_submit=True):
-                                st.write("**Adicionar Novo Componente**")
-                                col1, col2 = st.columns(2)
+                                **Remonta:**
+                                - NÃO reinicia o contador de km/horas
+                                - Exemplos: ajuste, limpeza, reparo
+                                - Usado para manutenções complementares
                                 
-                                with col1:
-                                    novo_comp_nome = st.text_input("Nome do Componente", key=f"nome_{classe}")
-                                    novo_comp_intervalo = st.number_input("Intervalo de Troca", min_value=1, step=50, key=f"int_{classe}")
+                                **Ambos:**
+                                - Permite escolher entre troca ou remonta
+                                - Flexível para componentes que podem ter ambos os tipos
                                 
-                                with col2:
-                                    # Seleção de lubrificante (opcional)
-                                    lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
-                                    lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, key=f"lub_{classe}")
-                                    
-                                    # Tipo de manutenção
-                                    tipo_manutencao = st.selectbox("Tipo de Manutenção", options=["Troca", "Remonta", "Ambos"], key=f"tipo_{classe}")
-                                
-                                if st.form_submit_button("Adicionar Componente"):
+                                **⚠️ Importante:** Apenas TROCAS reiniciam o contador para calcular próxima manutenção!
+                                """)
+                            
+                            if st.form_submit_button("➕ Adicionar Componente"):
+                                if novo_comp_nome:
                                     # Obter ID do lubrificante se selecionado
                                     lubrificante_id = None
                                     if lubrificante_selecionado != "Sem lubrificante":
@@ -4783,10 +4913,15 @@ def main():
                                         if not lub_info.empty:
                                             lubrificante_id = lub_info.iloc[0]['id']
                                     
-                                    add_component_rule_advanced(classe, novo_comp_nome, novo_comp_intervalo, lubrificante_id, tipo_manutencao)
-                                    st.session_state['open_expander_config_componentes'] = True
-                                    rerun_keep_tab("⚙️ Configurações")
-                            st.markdown("---")
+                                    success, message = add_component_rule_advanced(classe_selecionada, novo_comp_nome, novo_comp_intervalo, lubrificante_id, tipo_manutencao)
+                                    if success:
+                                        st.success(message)
+                                        st.session_state['open_expander_config_componentes'] = True
+                                        rerun_keep_tab("⚙️ Configurações")
+                                    else:
+                                        st.error(message)
+                                else:
+                                    st.warning("Por favor, informe o nome do componente.")
 
                 # --- Gestão de Checklists ---
                 exp_chk_open = st.session_state.get('open_expander_config_checklists', True)
@@ -5054,114 +5189,6 @@ def main():
                                     conn.commit()
                                 st.success("Lubrificante cadastrado!")
                                 st.rerun()
-                            
-            if tab_saude is not None:
-                with tab_saude:
-                    st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
-                    st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
-
-                    st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
-                    df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
-                    df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
-
-                    erros_hodometro = df_abastecimentos_sorted[
-                            df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
-                        ]
-
-                    if not erros_hodometro.empty:
-                            st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
-                            st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
-                    else:
-                            st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
-
-                    st.markdown("---")
-                    st.subheader("2. Verificação de Frotas Inativas")
-
-                    data_limite = datetime.now() - pd.Timedelta(days=90)
-                    ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
-
-                    frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-                    frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
-
-                    frotas_inativas = frotas_ativas[
-                            (frotas_ativas['Ultimo_Abastecimento'].isna()) | 
-                            (frotas_ativas['Ultimo_Abastecimento'] < data_limite)
-                        ]
-
-                    if not frotas_inativas.empty:
-                            st.warning(f"**Atenção:** Foram encontradas {len(frotas_inativas)} frotas marcadas como 'ATIVAS' que não têm abastecimentos nos últimos 90 dias.")
-                            st.dataframe(frotas_inativas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Ultimo_Abastecimento']])
-                    else:
-                            st.success("✅ Todas as frotas ativas têm registos de abastecimento recentes.")
-                        
-        if tab_gerir_users is not None:
-            with tab_gerir_users:
-                        st.header("👤 Gestão de Usuários")
-                        
-                        acao_user = st.radio(
-                            "Selecione uma ação:",
-                            ("Adicionar Novo Usuário", "Editar Usuário", "Remover Usuário"),
-                            horizontal=True
-                        )
-
-                        st.markdown("---")
-                        df_users = get_all_users()
-
-                        if acao_user == "Adicionar Novo Usuário":
-                            with st.form("form_add_user", clear_on_submit=True):
-                                st.subheader("Adicionar Novo Usuário")
-                                novo_user = st.text_input("Nome de Usuário")
-                                nova_pass = st.text_input("Senha", type="password")
-                                novo_role = st.selectbox("Função (Role)", ("admin", "básico"))
-                                
-                                if st.form_submit_button("Adicionar Usuário"):
-                                    success, message = add_user(novo_user, nova_pass, novo_role)
-                                    if success:
-                                        st.success(message)
-                                        rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
-                                    else:
-                                        st.error(message)
-                        
-                        elif acao_user == "Editar Usuário":
-                            st.subheader("Editar Usuário Existente")
-                            user_a_editar = st.selectbox("Selecione o usuário para editar", options=df_users['username'])
-                            
-                            if user_a_editar:
-                                user_data = df_users[df_users['username'] == user_a_editar].iloc[0]
-                                
-                                with st.form("form_edit_user"):
-                                    st.write(f"A editar: **{user_data['username']}**")
-                                    novo_username = st.text_input("Novo nome de usuário", value=user_data['username'])
-                                    
-                                    roles = ["admin", "básico"]
-                                    role_index = roles.index(user_data['role']) if user_data['role'] in roles else 0
-                                    novo_role_edit = st.selectbox("Novo cargo", options=roles, index=role_index)
-                                    
-                                    if st.form_submit_button("Salvar Alterações"):
-                                        success, message = update_user(user_data['id'], novo_username, novo_role_edit)
-                                        if success:
-                                            st.success(message)
-                                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
-                                        else:
-                                            st.error(message)
-
-                        elif acao_user == "Remover Usuário":
-                            st.subheader("Remover Usuário")
-                            user_a_remover = st.selectbox("Selecione o usuário para remover", options=df_users['username'])
-                            
-                            if user_a_remover:
-                                if user_a_remover == st.session_state.username:
-                                    st.error("Não pode remover o seu próprio usuário enquanto estiver com a sessão iniciada.")
-                                else:
-                                    st.warning(f"**Atenção:** Tem a certeza de que deseja remover o usuário **{user_a_remover}**? Esta ação é irreversível.")
-                                    if st.button("Confirmar Remoção", type="primary"):
-                                        user_id_remover = df_users[df_users['username'] == user_a_remover].iloc[0]['id']
-                                        success, message = delete_user(user_id_remover)
-                                        if success:
-                                            st.success(message)
-                                            rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
-                                        else:
-                                            st.error(message)
         if tab_gerir_checklists is not None:
             with tab_gerir_checklists:
                     st.header("✅ Gerir Checklists")
