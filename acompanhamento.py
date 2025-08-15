@@ -593,7 +593,7 @@ def add_component_rule(classe, componente, intervalo):
     except Exception as e:
         return False, f"Erro ao adicionar componente: {e}"
 
-def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca"):
+def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca", capacidade_litros=0.0):
     """Adiciona uma nova regra de componente com informações de lubrificante e tipo de manutenção."""
     try:
         with sqlite3.connect(DB_PATH) as conn:
@@ -610,8 +610,8 @@ def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=N
                 cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
             
             cursor.execute(
-                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao) VALUES (?, ?, ?, ?, ?)",
-                (classe, componente, intervalo, lubrificante_id, tipo_manutencao)
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao, capacidade_litros) VALUES (?, ?, ?, ?, ?, ?)",
+                (classe, componente, intervalo, lubrificante_id, tipo_manutencao, capacidade_litros)
             )
             conn.commit()
         return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
@@ -1099,10 +1099,12 @@ def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
         return False, f"Erro ao atualizar preço: {e}"
     
 def ensure_lubrificantes_schema():
-    """Garante a existência da tabela de lubrificantes e movimentações."""
+    """Garante a existência da tabela de lubrificantes, movimentações e almoxarifados."""
     try:
         with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
             cursor = conn.cursor()
+            
+            # Tabela de lubrificantes
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS lubrificantes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1113,29 +1115,129 @@ def ensure_lubrificantes_schema():
                     observacoes TEXT
                 )
             """)
-            # Adicione aqui para garantir a coluna 'tipo'
+            
+            # Verificar e adicionar coluna 'tipo' se não existir
             cursor.execute("PRAGMA table_info(lubrificantes)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'tipo' not in cols:
                 cursor.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
-            # ...continua o restante da função...
+            
+            # Tabela de almoxarifados
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifados (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    tipo TEXT DEFAULT 'fixo', -- 'fixo' para oficina, 'movel' para caminhões
+                    localizacao TEXT,
+                    responsavel TEXT,
+                    observacoes TEXT,
+                    ativo BOOLEAN DEFAULT 1
+                )
+            """)
+            
+            # Tabela de estoque por almoxarifado
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifado_estoque (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_almoxarifado INTEGER,
+                    id_lubrificante INTEGER,
+                    quantidade_estoque REAL DEFAULT 0,
+                    unidade TEXT,
+                    data_atualizacao TEXT,
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id),
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    UNIQUE(id_almoxarifado, id_lubrificante)
+                )
+            """)
+            
+            # Tabela de movimentações (atualizada para incluir almoxarifado)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS lubrificantes_movimentacoes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     id_lubrificante INTEGER,
+                    id_almoxarifado INTEGER,
                     tipo TEXT, -- 'entrada' ou 'saida'
                     quantidade REAL,
                     data TEXT,
                     cod_equip INTEGER,
                     observacoes TEXT,
-                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id)
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id)
                 )
             """)
+            
+            # Verificar se a coluna id_almoxarifado existe na tabela de movimentações
+            cursor.execute("PRAGMA table_info(lubrificantes_movimentacoes)")
+            cols_mov = [c[1] for c in cursor.fetchall()]
+            if 'id_almoxarifado' not in cols_mov:
+                cursor.execute("ALTER TABLE lubrificantes_movimentacoes ADD COLUMN id_almoxarifado INTEGER")
+            
             conn.commit()
-        return True, "Tabelas de lubrificantes verificadas"
+        return True, "Tabelas de lubrificantes e almoxarifados verificadas"
     except Exception as e:
         return False, f"Erro ao criar tabelas de lubrificantes: {e}"
     
+def add_almoxarifado(nome, tipo="fixo", localizacao="", responsavel="", observacoes=""):
+    """Adiciona um novo almoxarifado."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO almoxarifados (nome, tipo, localizacao, responsavel, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, tipo, localizacao, responsavel, observacoes)
+            )
+            conn.commit()
+        return True, "Almoxarifado cadastrado com sucesso!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def get_almoxarifados():
+    """Retorna todos os almoxarifados ativos."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            df = pd.read_sql("SELECT * FROM almoxarifados WHERE ativo = 1 ORDER BY nome", conn)
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def get_estoque_por_almoxarifado(id_lubrificante):
+    """Retorna o estoque de um lubrificante distribuído por almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT 
+                a.nome as almoxarifado,
+                a.tipo,
+                COALESCE(ae.quantidade_estoque, 0) as quantidade,
+                COALESCE(ae.unidade, l.unidade) as unidade,
+                a.localizacao,
+                a.responsavel
+            FROM almoxarifados a
+            CROSS JOIN lubrificantes l
+            LEFT JOIN almoxarifado_estoque ae ON a.id = ae.id_almoxarifado AND l.id = ae.id_lubrificante
+            WHERE l.id = ? AND a.ativo = 1
+            ORDER BY a.nome
+            """
+            df = pd.read_sql(query, conn, params=(id_lubrificante,))
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def atualizar_estoque_almoxarifado(id_almoxarifado, id_lubrificante, quantidade, unidade):
+    """Atualiza o estoque de um lubrificante em um almoxarifado específico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO almoxarifado_estoque 
+                (id_almoxarifado, id_lubrificante, quantidade_estoque, unidade, data_atualizacao) 
+                VALUES (?, ?, ?, ?, ?)
+            """, (id_almoxarifado, id_lubrificante, quantidade, unidade, date.today().strftime("%Y-%m-%d")))
+            conn.commit()
+        return True, "Estoque atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao atualizar estoque: {e}"
+
 def add_lubrificante(nome, viscosidade, quantidade, unidade, observacoes=""):
     try:
         with sqlite3.connect(DB_PATH) as conn:
@@ -1257,8 +1359,8 @@ def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_ope
             'intervalo': 'intervalo_padrao',
             'lubrificante_nome': 'lubrificante_nome',
             'lubrificante': 'lubrificante_nome',
-            'tipo_manutencao': 'tipo_manutencao',
-            'tipo': 'tipo_manutencao'
+            'capacidade_litros': 'capacidade_litros',
+            'capacidade': 'capacidade_litros'
         }
         
         # Normalizar nomes de colunas
@@ -1275,8 +1377,8 @@ def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_ope
         # Adicionar colunas opcionais se não existirem
         if 'lubrificante_nome' not in df_comp.columns:
             df_comp['lubrificante_nome'] = None
-        if 'tipo_manutencao' not in df_comp.columns:
-            df_comp['tipo_manutencao'] = 'Troca'
+        if 'capacidade_litros' not in df_comp.columns:
+            df_comp['capacidade_litros'] = 0.0
         
         # Limpar e normalizar dados
         df_comp = df_comp.dropna(subset=['nome_componente'])
@@ -1284,13 +1386,7 @@ def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_ope
         df_comp['intervalo_padrao'] = pd.to_numeric(df_comp['intervalo_padrao'], errors='coerce')
         df_comp = df_comp.dropna(subset=['intervalo_padrao'])
         df_comp['lubrificante_nome'] = df_comp['lubrificante_nome'].astype(str).str.strip().replace('nan', None)
-        df_comp['tipo_manutencao'] = df_comp['tipo_manutencao'].astype(str).str.strip().fillna('Troca')
-        
-        # Validar tipo de manutenção
-        tipos_validos = ['Troca', 'Remonta', 'Ambos']
-        df_comp['tipo_manutencao'] = df_comp['tipo_manutencao'].apply(
-            lambda x: x if x in tipos_validos else 'Troca'
-        )
+        df_comp['capacidade_litros'] = pd.to_numeric(df_comp['capacidade_litros'], errors='coerce').fillna(0.0)
         
         # Remover duplicatas na própria planilha baseada no nome do componente
         df_comp = df_comp.drop_duplicates(subset=['nome_componente'])
@@ -1298,6 +1394,14 @@ def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_ope
         with sqlite3.connect(db_path, check_same_thread=False) as conn:
             # Garantir que as tabelas existem
             ensure_lubrificantes_schema()
+            
+            # Verificar se a tabela componentes_regras tem a coluna capacidade_litros
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'capacidade_litros' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN capacidade_litros REAL DEFAULT 0.0")
             
             # Buscar componentes existentes na classe
             df_existente = pd.read_sql_query(
@@ -1348,8 +1452,8 @@ def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_ope
                 # Inserir componente
                 cur = conn.cursor()
                 cur.execute(
-                    "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao) VALUES (?, ?, ?, ?, ?)",
-                    (classe_operacional, row['nome_componente'], row['intervalo_padrao'], lub_id, row['tipo_manutencao'])
+                    "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, capacidade_litros) VALUES (?, ?, ?, ?, ?)",
+                    (classe_operacional, row['nome_componente'], row['intervalo_padrao'], lub_id, row['capacidade_litros'])
                 )
             
             conn.commit()
@@ -3942,11 +4046,22 @@ def main():
                         # Buscar informações do lubrificante se existir
                         if info['lubrificante_id']:
                             conn = sqlite3.connect(DB_PATH)
-                            df_lub = pd.read_sql("SELECT nome, viscosidade FROM lubrificantes WHERE id = ?", conn, params=(info['lubrificante_id'],))
+                            df_lub = pd.read_sql("SELECT nome, viscosidade, quantidade_estoque, unidade FROM lubrificantes WHERE id = ?", conn, params=(info['lubrificante_id'],))
                             conn.close()
                             if not df_lub.empty:
                                 lub = df_lub.iloc[0]
-                                st.info(f"**Lubrificante associado:** {lub['nome']} ({lub['viscosidade']})")
+                                estoque_atual = lub.get('quantidade_estoque', 0)
+                                unidade = lub.get('unidade', 'L')
+                                
+                                # Determinar cor do estoque
+                                if estoque_atual > 10:
+                                    cor_estoque = "🟢"
+                                elif estoque_atual > 3:
+                                    cor_estoque = "🟡"
+                                else:
+                                    cor_estoque = "🔴"
+                                
+                                st.info(f"**Lubrificante associado:** {lub['nome']} ({lub['viscosidade']}) | **Estoque:** {cor_estoque} {estoque_atual} {unidade}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -3973,11 +4088,27 @@ def main():
                         lubrificante_utilizado = None
                         if componente_servico and componente_servico in componente_info and info['lubrificante_id']:
                             conn = sqlite3.connect(DB_PATH)
-                            df_lub = pd.read_sql("SELECT nome FROM lubrificantes WHERE id = ?", conn, params=(info['lubrificante_id'],))
+                            df_lub = pd.read_sql("SELECT nome, quantidade_estoque, unidade FROM lubrificantes WHERE id = ?", conn, params=(info['lubrificante_id'],))
                             conn.close()
                             if not df_lub.empty:
-                                lubrificante_utilizado = df_lub.iloc[0]['nome']
-                                st.info(f"Lubrificante: {lubrificante_utilizado}")
+                                lub = df_lub.iloc[0]
+                                lubrificante_utilizado = lub['nome']
+                                estoque_atual = lub.get('quantidade_estoque', 0)
+                                unidade = lub.get('unidade', 'L')
+                                
+                                # Determinar cor do estoque
+                                if estoque_atual > 10:
+                                    cor_estoque = "🟢"
+                                elif estoque_atual > 3:
+                                    cor_estoque = "🟡"
+                                else:
+                                    cor_estoque = "🔴"
+                                
+                                st.info(f"**Lubrificante:** {lubrificante_utilizado} | **Estoque:** {cor_estoque} {estoque_atual} {unidade}")
+                                
+                                # Aviso se estoque baixo
+                                if estoque_atual <= 3:
+                                    st.warning(f"⚠️ **Estoque baixo!** Considere repor o lubrificante '{lubrificante_utilizado}'")
                     
                     observacoes = st.text_area("Observações (opcional)", placeholder="Detalhes do serviço realizado...")
 
@@ -4000,18 +4131,48 @@ def main():
                                 st.success(f"Manutenção do componente '{componente_servico}' para '{equip_label}' registrada com sucesso!")
                                 
                                 # Atualizar estoque de lubrificante se aplicável
-                                if lubrificante_utilizado and tipo_servico == "Troca":
+                                if lubrificante_utilizado and tipo_servico in ["Troca", "Remonta"]:
                                     try:
                                         conn = sqlite3.connect(DB_PATH)
                                         cursor = conn.cursor()
-                                        # Reduzir estoque do lubrificante
+                                        
+                                        # Buscar a capacidade do componente
                                         cursor.execute(
-                                            "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque - 1 WHERE nome = ?",
-                                            (lubrificante_utilizado,)
+                                            "SELECT capacidade_litros FROM componentes_regras WHERE nome_componente = ? AND classe_operacional = (SELECT Classe_Operacional FROM frotas WHERE Cod_Equip = ?)",
+                                            (componente_servico, cod_equip)
+                                        )
+                                        result = cursor.fetchone()
+                                        capacidade = result[0] if result and result[0] else 1.0  # Padrão 1L se não definido
+                                        
+                                        # Reduzir estoque do lubrificante baseado na capacidade
+                                        cursor.execute(
+                                            "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque - ? WHERE nome = ?",
+                                            (capacidade, lubrificante_utilizado)
                                         )
                                         conn.commit()
                                         conn.close()
-                                        st.info(f"Estoque do lubrificante '{lubrificante_utilizado}' atualizado.")
+                                        # Buscar o novo estoque após a atualização
+                                        cursor.execute(
+                                            "SELECT quantidade_estoque, unidade FROM lubrificantes WHERE nome = ?",
+                                            (lubrificante_utilizado,)
+                                        )
+                                        result_estoque = cursor.fetchone()
+                                        novo_estoque = result_estoque[0] if result_estoque else 0
+                                        unidade_estoque = result_estoque[1] if result_estoque else 'L'
+                                        
+                                        # Determinar cor do novo estoque
+                                        if novo_estoque > 10:
+                                            cor_novo_estoque = "🟢"
+                                        elif novo_estoque > 3:
+                                            cor_novo_estoque = "🟡"
+                                        else:
+                                            cor_novo_estoque = "🔴"
+                                        
+                                        st.info(f"Estoque do lubrificante '{lubrificante_utilizado}' atualizado ({tipo_servico}) - {capacidade}L consumidos. **Novo estoque:** {cor_novo_estoque} {novo_estoque} {unidade_estoque}")
+                                        
+                                        # Aviso se estoque ficou baixo após a operação
+                                        if novo_estoque <= 3:
+                                            st.warning(f"⚠️ **Atenção!** Estoque do lubrificante '{lubrificante_utilizado}' está baixo ({novo_estoque} {unidade_estoque}). Considere repor.")
                                     except Exception as e:
                                         st.warning(f"Não foi possível atualizar o estoque do lubrificante: {e}")
                                 
@@ -4608,6 +4769,7 @@ def main():
                         conn = sqlite3.connect(DB_PATH)
                         df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
                         df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
+                        df_almoxarifados = get_almoxarifados()
 
                         # ----------- Visualização do Estoque Atual -----------
                         st.subheader("Visualização do Estoque Atual")
@@ -4667,40 +4829,449 @@ def main():
 
                         st.markdown("---")
 
+                        # ----------- KPI de Estoque Distribuído -----------
+                        st.subheader("📊 KPI de Estoque Distribuído por Almoxarifado")
+                        
+                        if not df_lub.empty and not df_almoxarifados.empty:
+                            # Seleção do lubrificante para análise
+                            lub_analise = st.selectbox(
+                                "Selecione o lubrificante para análise de estoque distribuído:",
+                                options=df_lub['nome'].tolist(),
+                                key="kpi_lubrificante"
+                            )
+                            
+                            if lub_analise:
+                                id_lub_analise = df_lub[df_lub['nome'] == lub_analise]['id'].iloc[0]
+                                df_estoque_distribuido = get_estoque_por_almoxarifado(id_lub_analise)
+                                
+                                if not df_estoque_distribuido.empty:
+                                    # Calcular totais
+                                    total_estoque = df_estoque_distribuido['quantidade'].sum()
+                                    total_almoxarifados = len(df_estoque_distribuido)
+                                    
+                                    # Métricas principais
+                                    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+                                    
+                                    with col_kpi1:
+                                        st.metric("Estoque Total", f"{total_estoque:.1f} {df_estoque_distribuido['unidade'].iloc[0]}")
+                                    
+                                    with col_kpi2:
+                                        st.metric("Almoxarifados", total_almoxarifados)
+                                    
+                                    with col_kpi3:
+                                        almoxarifados_com_estoque = len(df_estoque_distribuido[df_estoque_distribuido['quantidade'] > 0])
+                                        st.metric("Com Estoque", almoxarifados_com_estoque)
+                                    
+                                    with col_kpi4:
+                                        almoxarifados_sem_estoque = total_almoxarifados - almoxarifados_com_estoque
+                                        st.metric("Sem Estoque", almoxarifados_sem_estoque)
+                                    
+                                    # Gráfico de distribuição
+                                    col_grafico, col_tabela = st.columns([2, 1])
+                                    
+                                    with col_grafico:
+                                        # Preparar dados para o gráfico
+                                        df_grafico = df_estoque_distribuido[df_estoque_distribuido['quantidade'] > 0].copy()
+                                        if not df_grafico.empty:
+                                            df_grafico['percentual'] = (df_grafico['quantidade'] / total_estoque * 100).round(1)
+                                            
+                                            fig_distribuicao = px.pie(
+                                                df_grafico,
+                                                values='quantidade',
+                                                names='almoxarifado',
+                                                title=f"Distribuição de Estoque: {lub_analise}",
+                                                hover_data=['percentual', 'quantidade', 'unidade']
+                                            )
+                                            fig_distribuicao.update_traces(textposition='inside', textinfo='percent+label')
+                                            st.plotly_chart(fig_distribuicao, use_container_width=True)
+                                        else:
+                                            st.info("Nenhum almoxarifado possui estoque deste lubrificante.")
+                                    
+                                    with col_tabela:
+                                        st.write("**Detalhamento por Almoxarifado:**")
+                                        
+                                        # Preparar dados para tabela
+                                        df_tabela = df_estoque_distribuido.copy()
+                                        df_tabela['percentual'] = (df_tabela['quantidade'] / total_estoque * 100).round(1)
+                                        df_tabela['quantidade_formatada'] = df_tabela['quantidade'].astype(str) + ' ' + df_tabela['unidade']
+                                        
+                                        # Determinar cor baseada na quantidade
+                                        def get_color(quantidade, total):
+                                            if total == 0:
+                                                return "⚪"
+                                            percentual = (quantidade / total * 100) if total > 0 else 0
+                                            if percentual > 50:
+                                                return "🟢"
+                                            elif percentual > 20:
+                                                return "🟡"
+                                            else:
+                                                return "🔴"
+                                        
+                                        df_tabela['indicador'] = df_tabela.apply(
+                                            lambda row: get_color(row['quantidade'], total_estoque), axis=1
+                                        )
+                                        
+                                        # Exibir tabela
+                                        for _, row in df_tabela.iterrows():
+                                            if row['quantidade'] > 0:
+                                                st.write(f"{row['indicador']} **{row['almoxarifado']}**")
+                                                st.write(f"   {row['quantidade_formatada']} ({row['percentual']}%)")
+                                                if row['tipo'] == 'movel':
+                                                    st.write(f"   🚛 {row['localizacao']}")
+                                                else:
+                                                    st.write(f"   🏢 {row['localizacao']}")
+                                                st.write("---")
+                                            else:
+                                                st.write(f"⚪ **{row['almoxarifado']}**")
+                                                st.write(f"   Sem estoque")
+                                                st.write("---")
+                                    
+                                    # Gráfico de barras por tipo de almoxarifado
+                                    st.subheader("📈 Análise por Tipo de Almoxarifado")
+                                    
+                                    df_tipo = df_estoque_distribuido.groupby('tipo').agg({
+                                        'quantidade': 'sum',
+                                        'almoxarifado': 'count'
+                                    }).reset_index()
+                                    df_tipo['percentual'] = (df_tipo['quantidade'] / total_estoque * 100).round(1)
+                                    
+                                    col_barras1, col_barras2 = st.columns(2)
+                                    
+                                    with col_barras1:
+                                        fig_barras_tipo = px.bar(
+                                            df_tipo,
+                                            x='tipo',
+                                            y='quantidade',
+                                            title="Estoque por Tipo de Almoxarifado",
+                                            labels={'tipo': 'Tipo', 'quantidade': 'Quantidade'},
+                                            text='quantidade'
+                                        )
+                                        st.plotly_chart(fig_barras_tipo, use_container_width=True)
+                                    
+                                    with col_barras2:
+                                        fig_barras_contagem = px.bar(
+                                            df_tipo,
+                                            x='tipo',
+                                            y='almoxarifado',
+                                            title="Quantidade de Almoxarifados por Tipo",
+                                            labels={'tipo': 'Tipo', 'almoxarifado': 'Quantidade'},
+                                            text='almoxarifado'
+                                        )
+                                        st.plotly_chart(fig_barras_contagem, use_container_width=True)
+                                    
+                                else:
+                                    st.warning("Nenhum almoxarifado cadastrado para análise.")
+                        else:
+                            if df_lub.empty:
+                                st.warning("Cadastre lubrificantes para visualizar o KPI de estoque distribuído.")
+                            if df_almoxarifados.empty:
+                                st.warning("Cadastre almoxarifados para visualizar o KPI de estoque distribuído.")
+
+                        st.markdown("---")
+
                         # ----------- Registro de Entrada/Saída -----------
-                        st.subheader("Registrar Entrada/Saída de Lubrificantes")
+                        st.subheader("📦 Registrar Entrada/Saída de Lubrificantes")
+                        
+                        # Criar abas para entrada e saída
+                        tab_entrada, tab_saida = st.tabs(["➕ Entrada (Compra)", "➖ Saída (Consumo)"])
+                        
                         if not df_lub.empty:
-                            with st.form("form_mov_lub", clear_on_submit=True):
-                                lubs = df_lub['nome'].tolist()
-                                lub_sel = st.selectbox("Lubrificante", lubs)
-                                tipo_mov = st.selectbox("Tipo", ["entrada", "saida"])
-                                quantidade = st.number_input("Quantidade", min_value=0.01, format="%.2f")
-                                data_mov = st.date_input("Data", value=date.today())
-                                cod_equip = st.number_input("Código da Máquina (opcional)", min_value=0, step=1)
-                                obs_mov = st.text_input("Observações")
-                                submitted = st.form_submit_button("Registrar Movimentação")
-                                if submitted:
-                                    id_lub = df_lub[df_lub['nome'] == lub_sel]['id'].iloc[0]
-                                    ok, msg = movimentar_lubrificante(id_lub, tipo_mov, quantidade, data_mov.strftime("%Y-%m-%d"), cod_equip if cod_equip > 0 else None, obs_mov)
-                                    st.success(msg) if ok else st.error(msg)
-                                    st.rerun()
+                            # Aba de Entrada (Compra)
+                            with tab_entrada:
+                                st.info("💡 **Entrada:** Registre compras e reposições de lubrificantes no almoxarifado.")
+                                
+                                with st.form("form_entrada_lub", clear_on_submit=True):
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        lubs = df_lub['nome'].tolist()
+                                        lub_sel = st.selectbox("Lubrificante", lubs, key="entrada_lub")
+                                        
+                                        # Mostrar estoque atual do lubrificante selecionado
+                                        if lub_sel:
+                                            lub_info = df_lub[df_lub['nome'] == lub_sel].iloc[0]
+                                            estoque_atual = lub_info['quantidade_estoque']
+                                            unidade = lub_info['unidade']
+                                            
+                                            # Determinar cor do estoque
+                                            if estoque_atual > 10:
+                                                cor_estoque = "🟢"
+                                            elif estoque_atual > 3:
+                                                cor_estoque = "🟡"
+                                            else:
+                                                cor_estoque = "🔴"
+                                            
+                                            st.info(f"**Estoque atual:** {cor_estoque} {estoque_atual} {unidade}")
+                                        
+                                        quantidade = st.number_input("Quantidade a adicionar", min_value=0.01, step=0.5, format="%.2f", key="entrada_qtd")
+                                    
+                                    with col2:
+                                        data_mov = st.date_input("Data da compra", value=date.today(), key="entrada_data")
+                                        obs_mov = st.text_area("Observações (ex: fornecedor, nota fiscal)", placeholder="Ex: Compra da Petrobras, NF 123456", key="entrada_obs")
+                                    
+                                    submitted_entrada = st.form_submit_button("➕ Registrar Entrada", type="primary")
+                                    if submitted_entrada:
+                                        id_lub = df_lub[df_lub['nome'] == lub_sel]['id'].iloc[0]
+                                        ok, msg = movimentar_lubrificante(id_lub, "entrada", quantidade, data_mov.strftime("%Y-%m-%d"), None, obs_mov)
+                                        if ok:
+                                            st.success(f"✅ {msg}")
+                                            st.info(f"📦 **{quantidade} {unidade}** de '{lub_sel}' adicionados ao estoque.")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ {msg}")
+                            
+                            # Aba de Saída (Consumo)
+                            with tab_saida:
+                                st.info("💡 **Saída:** Registre consumos manuais de lubrificantes (para casos não registrados via manutenção de componentes).")
+                                
+                                with st.form("form_saida_lub", clear_on_submit=True):
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        lubs = df_lub['nome'].tolist()
+                                        lub_sel = st.selectbox("Lubrificante", lubs, key="saida_lub")
+                                        
+                                        # Mostrar estoque atual do lubrificante selecionado
+                                        if lub_sel:
+                                            lub_info = df_lub[df_lub['nome'] == lub_sel].iloc[0]
+                                            estoque_atual = lub_info['quantidade_estoque']
+                                            unidade = lub_info['unidade']
+                                            
+                                            # Determinar cor do estoque
+                                            if estoque_atual > 10:
+                                                cor_estoque = "🟢"
+                                            elif estoque_atual > 3:
+                                                cor_estoque = "🟡"
+                                            else:
+                                                cor_estoque = "🔴"
+                                            
+                                            st.info(f"**Estoque atual:** {cor_estoque} {estoque_atual} {unidade}")
+                                            
+                                            # Aviso se estoque baixo
+                                            if estoque_atual <= 3:
+                                                st.warning(f"⚠️ **Estoque baixo!** Considere repor '{lub_sel}'")
+                                        
+                                        quantidade = st.number_input("Quantidade consumida", min_value=0.01, step=0.5, format="%.2f", max_value=estoque_atual if lub_sel else 999, key="saida_qtd")
+                                    
+                                    with col2:
+                                        data_mov = st.date_input("Data do consumo", value=date.today(), key="saida_data")
+                                        cod_equip = st.number_input("Código da Máquina (opcional)", min_value=0, step=1, key="saida_equip")
+                                        obs_mov = st.text_area("Observações (ex: motivo do consumo)", placeholder="Ex: Consumo manual, vazamento, etc.", key="saida_obs")
+                                    
+                                    submitted_saida = st.form_submit_button("➖ Registrar Saída", type="secondary")
+                                    if submitted_saida:
+                                        id_lub = df_lub[df_lub['nome'] == lub_sel]['id'].iloc[0]
+                                        ok, msg = movimentar_lubrificante(id_lub, "saida", quantidade, data_mov.strftime("%Y-%m-%d"), cod_equip if cod_equip > 0 else None, obs_mov)
+                                        if ok:
+                                            st.success(f"✅ {msg}")
+                                            st.info(f"📉 **{quantidade} {unidade}** de '{lub_sel}' consumidos.")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ {msg}")
                         else:
                             st.info("Cadastre lubrificantes para registrar movimentações.")
 
                         st.markdown("---")
 
                         # ----------- Histórico de Movimentações -----------
-                        st.subheader("Histórico de Movimentações")
+                        st.subheader("📊 Histórico de Movimentações")
+                        
                         if not df_mov.empty:
                             df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
                             df_mov = df_mov.sort_values('data', ascending=False)
                             # Junta nome do lubrificante
-                            df_mov = df_mov.merge(df_lub[['id', 'nome', 'tipo']], left_on='id_lubrificante', right_on='id', how='left')
-                            df_mov_display = df_mov[['data', 'nome', 'tipo', 'tipo_x', 'quantidade', 'cod_equip', 'observacoes']]
-                            df_mov_display = df_mov_display.rename(columns={'data': 'Data', 'nome': 'Lubrificante', 'tipo': 'Tipo', 'tipo_x': 'Movimentação', 'quantidade': 'Quantidade', 'cod_equip': 'Máquina', 'observacoes': 'Observações'})
-                            st.dataframe(df_mov_display.head(30))
+                            df_mov = df_mov.merge(df_lub[['id', 'nome', 'tipo', 'unidade']], left_on='id_lubrificante', right_on='id', how='left')
+                            
+                            # Criar abas para diferentes visualizações
+                            tab_historico, tab_estatisticas = st.tabs(["📋 Histórico Detalhado", "📈 Estatísticas"])
+                            
+                            with tab_historico:
+                                # Filtros
+                                col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+                                
+                                with col_filtro1:
+                                    lub_filtro = st.selectbox("Filtrar por lubrificante", ["Todos"] + df_lub['nome'].tolist())
+                                
+                                with col_filtro2:
+                                    tipo_filtro = st.selectbox("Filtrar por tipo", ["Todos", "entrada", "saida"])
+                                
+                                with col_filtro3:
+                                    data_inicio = st.date_input("Data início", value=df_mov['data'].min().date() if not df_mov.empty else date.today())
+                                    data_fim = st.date_input("Data fim", value=df_mov['data'].max().date() if not df_mov.empty else date.today())
+                                
+                                # Aplicar filtros
+                                df_filtrado = df_mov.copy()
+                                
+                                if lub_filtro != "Todos":
+                                    df_filtrado = df_filtrado[df_filtrado['nome'] == lub_filtro]
+                                
+                                if tipo_filtro != "Todos":
+                                    df_filtrado = df_filtrado[df_filtrado['tipo_x'] == tipo_filtro]
+                                
+                                df_filtrado = df_filtrado[
+                                    (df_filtrado['data'].dt.date >= data_inicio) & 
+                                    (df_filtrado['data'].dt.date <= data_fim)
+                                ]
+                                
+                                # Preparar dados para exibição
+                                df_mov_display = df_filtrado[['data', 'nome', 'tipo', 'tipo_x', 'quantidade', 'unidade', 'cod_equip', 'observacoes']].copy()
+                                df_mov_display['data'] = df_mov_display['data'].dt.strftime('%d/%m/%Y')
+                                df_mov_display['quantidade'] = df_mov_display['quantidade'].astype(str) + ' ' + df_mov_display['unidade']
+                                df_mov_display = df_mov_display.rename(columns={
+                                    'data': 'Data', 
+                                    'nome': 'Lubrificante', 
+                                    'tipo': 'Tipo Lubrificante', 
+                                    'tipo_x': 'Movimentação', 
+                                    'quantidade': 'Quantidade', 
+                                    'cod_equip': 'Máquina', 
+                                    'observacoes': 'Observações'
+                                })
+                                
+                                # Remover coluna unidade que já foi concatenada
+                                df_mov_display = df_mov_display.drop('unidade', axis=1)
+                                
+                                st.dataframe(df_mov_display, use_container_width=True)
+                                
+                                # Resumo dos filtros aplicados
+                                st.info(f"📊 **Resumo:** {len(df_filtrado)} movimentações encontradas no período selecionado.")
+                            
+                            with tab_estatisticas:
+                                # Estatísticas gerais
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                
+                                with col_stat1:
+                                    total_entradas = len(df_mov[df_mov['tipo_x'] == 'entrada'])
+                                    total_saidas = len(df_mov[df_mov['tipo_x'] == 'saida'])
+                                    st.metric("Total Entradas", total_entradas)
+                                    st.metric("Total Saídas", total_saidas)
+                                
+                                with col_stat2:
+                                    qtd_entradas = df_mov[df_mov['tipo_x'] == 'entrada']['quantidade'].sum()
+                                    qtd_saidas = df_mov[df_mov['tipo_x'] == 'saida']['quantidade'].sum()
+                                    st.metric("Qtd. Total Entrada", f"{qtd_entradas:.1f}")
+                                    st.metric("Qtd. Total Saída", f"{qtd_saidas:.1f}")
+                                
+                                with col_stat3:
+                                    saldo = qtd_entradas - qtd_saidas
+                                    st.metric("Saldo Geral", f"{saldo:.1f}")
+                                
+                                # Gráfico de movimentações por mês
+                                if not df_mov.empty:
+                                    df_mov['mes_ano'] = df_mov['data'].dt.to_period('M')
+                                    mov_mensal = df_mov.groupby(['mes_ano', 'tipo_x'])['quantidade'].sum().reset_index()
+                                    mov_mensal['mes_ano'] = mov_mensal['mes_ano'].astype(str)
+                                    
+                                    fig_mov = px.bar(
+                                        mov_mensal,
+                                        x='mes_ano',
+                                        y='quantidade',
+                                        color='tipo_x',
+                                        title="Movimentações por Mês",
+                                        labels={'mes_ano': 'Mês/Ano', 'quantidade': 'Quantidade', 'tipo_x': 'Tipo'},
+                                        color_discrete_map={'entrada': 'green', 'saida': 'red'}
+                                    )
+                                    st.plotly_chart(fig_mov, use_container_width=True)
                         else:
                             st.info("Nenhuma movimentação registrada.")
+
+                        st.markdown("---")
+
+                        # ----------- Gestão de Almoxarifados -----------
+                        st.subheader("🏢 Gestão de Almoxarifados")
+                        
+                        # Criar abas para cadastro e visualização
+                        tab_cadastro_almox, tab_visualizar_almox = st.tabs(["➕ Cadastrar Almoxarifado", "📋 Almoxarifados Cadastrados"])
+                        
+                        # Aba de cadastro
+                        with tab_cadastro_almox:
+                            st.info("💡 **Cadastre os almoxarifados da empresa:** oficinas fixas e caminhões oficina móveis.")
+                            
+                            with st.form("form_add_almoxarifado", clear_on_submit=True):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    nome_almox = st.text_input("Nome do Almoxarifado", placeholder="Ex: Oficina Central, Caminhão Oficina 01")
+                                    tipo_almox = st.selectbox("Tipo", ["fixo", "movel"], 
+                                                           format_func=lambda x: "🏢 Fixo (Oficina)" if x == "fixo" else "🚛 Móvel (Caminhão)")
+                                    localizacao = st.text_input("Localização", placeholder="Ex: Sede da empresa, Região Sul")
+                                
+                                with col2:
+                                    responsavel = st.text_input("Responsável", placeholder="Nome do responsável")
+                                    observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre o almoxarifado")
+                                
+                                submitted_almox = st.form_submit_button("➕ Cadastrar Almoxarifado", type="primary")
+                                if submitted_almox:
+                                    if nome_almox:
+                                        success, message = add_almoxarifado(nome_almox, tipo_almox, localizacao, responsavel, observacoes)
+                                        if success:
+                                            st.success(f"✅ {message}")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ {message}")
+                                    else:
+                                        st.warning("Por favor, informe o nome do almoxarifado.")
+                        
+                        # Aba de visualização
+                        with tab_visualizar_almox:
+                            if not df_almoxarifados.empty:
+                                st.write("**Almoxarifados Cadastrados:**")
+                                
+                                for _, almox in df_almoxarifados.iterrows():
+                                    with st.container():
+                                        col1, col2, col3 = st.columns([3, 2, 1])
+                                        
+                                        with col1:
+                                            if almox['tipo'] == 'fixo':
+                                                st.write(f"🏢 **{almox['nome']}**")
+                                            else:
+                                                st.write(f"🚛 **{almox['nome']}**")
+                                            
+                                            if almox['localizacao']:
+                                                st.write(f"📍 {almox['localizacao']}")
+                                        
+                                        with col2:
+                                            if almox['responsavel']:
+                                                st.write(f"👤 {almox['responsavel']}")
+                                        
+                                        with col3:
+                                            if almox['tipo'] == 'fixo':
+                                                st.write("🏢 Fixo")
+                                            else:
+                                                st.write("🚛 Móvel")
+                                        
+                                        if almox['observacoes']:
+                                            st.write(f"📝 {almox['observacoes']}")
+                                        
+                                        st.markdown("---")
+                                
+                                # Estatísticas dos almoxarifados
+                                st.subheader("📊 Estatísticas dos Almoxarifados")
+                                
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                
+                                with col_stat1:
+                                    total_almox = len(df_almoxarifados)
+                                    st.metric("Total de Almoxarifados", total_almox)
+                                
+                                with col_stat2:
+                                    almox_fixos = len(df_almoxarifados[df_almoxarifados['tipo'] == 'fixo'])
+                                    st.metric("Almoxarifados Fixos", almox_fixos)
+                                
+                                with col_stat3:
+                                    almox_moveis = len(df_almoxarifados[df_almoxarifados['tipo'] == 'movel'])
+                                    st.metric("Almoxarifados Móveis", almox_moveis)
+                                
+                                # Gráfico de distribuição por tipo
+                                fig_almox_tipo = px.pie(
+                                    df_almoxarifados,
+                                    names='tipo',
+                                    title="Distribuição por Tipo de Almoxarifado",
+                                    color_discrete_map={'fixo': 'blue', 'movel': 'orange'}
+                                )
+                                st.plotly_chart(fig_almox_tipo, use_container_width=True)
+                                
+                            else:
+                                st.info("Nenhum almoxarifado cadastrado. Cadastre o primeiro almoxarifado na aba 'Cadastrar Almoxarifado'.")
 
                         conn.close()
 
@@ -5045,7 +5616,36 @@ def main():
                                     with col3:
                                         if 'Lubrificante' in df_display.columns:
                                             lub_info = df_display[df_display['nome_componente'] == regra['nome_componente']]['Lubrificante'].iloc[0]
-                                            st.write(lub_info)
+                                            if lub_info != "Sem lubrificante":
+                                                # Buscar estoque do lubrificante
+                                                try:
+                                                    conn = sqlite3.connect(DB_PATH)
+                                                    df_lub_estoque = pd.read_sql(
+                                                        "SELECT quantidade_estoque, unidade FROM lubrificantes WHERE nome = ?", 
+                                                        conn, params=(lub_info,)
+                                                    )
+                                                    conn.close()
+                                                    
+                                                    if not df_lub_estoque.empty:
+                                                        estoque = df_lub_estoque.iloc[0]['quantidade_estoque']
+                                                        unidade = df_lub_estoque.iloc[0]['unidade']
+                                                        
+                                                        # Determinar cor do estoque
+                                                        if estoque > 10:
+                                                            cor_estoque = "🟢"
+                                                        elif estoque > 3:
+                                                            cor_estoque = "🟡"
+                                                        else:
+                                                            cor_estoque = "🔴"
+                                                        
+                                                        st.write(f"{lub_info}")
+                                                        st.write(f"{cor_estoque} {estoque} {unidade}")
+                                                    else:
+                                                        st.write(lub_info)
+                                                except:
+                                                    st.write(lub_info)
+                                            else:
+                                                st.write("Sem lubrificante")
                                         else:
                                             st.write("Sem lubrificante")
                                     
@@ -5147,6 +5747,7 @@ def main():
                             with col1:
                                 novo_comp_nome = st.text_input("Nome do Componente", key=f"nome_{classe_selecionada}")
                                 novo_comp_intervalo = st.number_input("Intervalo de Troca (km/h)", min_value=1, step=50, key=f"int_{classe_selecionada}")
+                                novo_comp_capacidade = st.number_input("Capacidade (litros)", min_value=0.0, step=0.5, format="%.1f", key=f"cap_{classe_selecionada}")
                             
                             with col2:
                                     # Seleção de lubrificante (opcional)
@@ -5191,7 +5792,7 @@ def main():
                                         if not lub_info.empty:
                                             lubrificante_id = lub_info.iloc[0]['id']
                                     
-                                    success, message = add_component_rule_advanced(classe_selecionada, novo_comp_nome, novo_comp_intervalo, lubrificante_id, tipo_manutencao)
+                                    success, message = add_component_rule_advanced(classe_selecionada, novo_comp_nome, novo_comp_intervalo, lubrificante_id, tipo_manutencao, novo_comp_capacidade)
                                     if success:
                                         st.success(message)
                                         st.session_state['open_expander_config_componentes'] = True
@@ -5594,11 +6195,13 @@ def main():
                     st.subheader("Importar Componentes por Planilha")
                     st.info(
                         "**Colunas obrigatórias:** `nome_componente`, `intervalo_padrao`\n"
-                        "**Colunas opcionais:** `lubrificante_nome`, `tipo_manutencao` (Troca/Remonta/Ambos)\n\n"
+                        "**Colunas opcionais:** `lubrificante_nome`, `capacidade_litros`\n\n"
                         "💡 **Dicas:**\n"
                         "• Se o lubrificante não existir, será criado automaticamente\n"
                         "• Componentes duplicados na mesma classe serão ignorados\n"
-                        "• Componentes com mesmo nome em classes diferentes serão adicionados normalmente"
+                        "• Componentes com mesmo nome em classes diferentes serão adicionados normalmente\n"
+                        "• O tipo de manutenção (Troca/Remonta) será definido manualmente ao registrar a manutenção\n"
+                        "• A capacidade em litros ajuda no controle de estoque"
                     )
                     
                     # Seleção da classe operacional
@@ -5647,7 +6250,7 @@ def main():
                             'nome_componente': ['Óleo do Motor', 'Filtro de Ar', 'Filtro de Óleo', 'Correia Dentada'],
                             'intervalo_padrao': [5000, 10000, 5000, 80000],
                             'lubrificante_nome': ['Óleo 15W40', 'Sem lubrificante', 'Óleo 15W40', 'Sem lubrificante'],
-                            'tipo_manutencao': ['Troca', 'Troca', 'Troca', 'Troca']
+                            'capacidade_litros': [15.0, 0.0, 0.5, 0.0]
                         }
                         df_exemplo = pd.DataFrame(exemplo_data)
                         
@@ -5661,8 +6264,8 @@ def main():
                         - **intervalo**: Alternativa para intervalo_padrao
                         - **lubrificante_nome** (opcional): Nome do lubrificante associado
                         - **lubrificante**: Alternativa para lubrificante_nome
-                        - **tipo_manutencao** (opcional): Troca/Remonta/Ambos (padrão: Troca)
-                        - **tipo**: Alternativa para tipo_manutencao
+                        - **capacidade_litros** (opcional): Capacidade do componente em litros
+                        - **capacidade**: Alternativa para capacidade_litros
                         """)
                         
                         # Botão para download do exemplo
