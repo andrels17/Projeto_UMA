@@ -4389,9 +4389,9 @@ def main():
 
                 # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
 
-            if tab_config is not None:
-                with tab_config:
-                    st.header("⚙️ Configurar Manutenções e Checklists")
+        if tab_config is not None:
+            with tab_config:
+                st.header("⚙️ Configurar Manutenções e Checklists")
                 
                 # --- Gestão de Componentes ---
                 exp_comp_open = st.session_state.get('open_expander_config_componentes', False)
