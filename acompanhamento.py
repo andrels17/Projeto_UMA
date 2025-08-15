@@ -1965,14 +1965,6 @@ def main():
         abas_gerir = ["⚙️ Gerir Lançamentos", "🛢️ Gestão de Lubrificantes", "⚙️ Gerir Frotas", "✅ Gerir Checklists"]
         abas_dados = ["📤 Importar Dados", "⚕️ Saúde dos Dados", "💾 Backup", "👤 Gerir Utilizadores", "⚙️ Configurações"]
 
-        # Determinar quais grupos mostrar baseado no papel do usuário
-        if st.session_state.role == 'admin':
-            # Para admins, mostrar todos os grupos
-            tabs_para_mostrar = abas_pagina_inicial + abas_gerir + abas_dados
-        else:
-            # Para usuários comuns, mostrar apenas página inicial
-            tabs_para_mostrar = abas_pagina_inicial
-
         # Sistema de navegação por grupos
         st.markdown("### 🎯 Navegação por Grupos")
         
@@ -2027,6 +2019,9 @@ def main():
         # Botões de navegação por grupos
         col1, col2, col3 = st.columns(3)
         
+        # Determinar grupo ativo
+        active_group = st.session_state.get('active_group', 'pagina_inicial')
+        
         with col1:
             if st.button("🏠 Página Inicial", key="nav_pagina_inicial", help="Visualizações e análises principais"):
                 st.session_state['active_group'] = 'pagina_inicial'
@@ -2037,14 +2032,28 @@ def main():
             with col2:
                 if st.button("⚙️ Gerir", key="nav_gerir", help="Gestão de lançamentos, frotas e checklists"):
                     st.session_state['active_group'] = 'gerir'
-                    st.session_state['active_tab_index'] = len(abas_pagina_inicial)
+                    st.session_state['active_tab_index'] = 0
                     st.rerun()
             
             with col3:
                 if st.button("📊 Dados", key="nav_dados", help="Importações, backup e saúde dos dados"):
                     st.session_state['active_group'] = 'dados'
-                    st.session_state['active_tab_index'] = len(abas_pagina_inicial) + len(abas_gerir)
+                    st.session_state['active_tab_index'] = 0
                     st.rerun()
+
+        # Determinar quais abas mostrar baseado no grupo ativo
+        if st.session_state.role == 'admin':
+            if active_group == 'pagina_inicial':
+                tabs_para_mostrar = abas_pagina_inicial
+            elif active_group == 'gerir':
+                tabs_para_mostrar = abas_gerir
+            elif active_group == 'dados':
+                tabs_para_mostrar = abas_dados
+            else:
+                tabs_para_mostrar = abas_pagina_inicial
+        else:
+            # Para usuários comuns, mostrar apenas página inicial
+            tabs_para_mostrar = abas_pagina_inicial
 
         # Determinar índice ativo
         active_idx = st.session_state.get('active_tab_index', 0)
@@ -2056,13 +2065,28 @@ def main():
         except TypeError:
             abas = st.tabs(tabs_para_mostrar)
 
-        # Atribuir as abas baseado no papel do usuário
+        # Atribuir as abas baseado no grupo ativo
         if st.session_state.role == 'admin':
-            (tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists, 
-             tab_gerir_lanc, tab_gerir_lub, tab_gerir_frotas, tab_gerir_checklists,
-             tab_importar, tab_saude, tab_backup, tab_gerir_users, tab_config) = abas
+            if active_group == 'pagina_inicial':
+                tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = abas
+                # Criar variáveis vazias para as outras abas
+                tab_gerir_lanc = tab_gerir_lub = tab_gerir_frotas = tab_gerir_checklists = None
+                tab_importar = tab_saude = tab_backup = tab_gerir_users = tab_config = None
+            elif active_group == 'gerir':
+                tab_gerir_lanc, tab_gerir_lub, tab_gerir_frotas, tab_gerir_checklists = abas
+                # Criar variáveis vazias para as outras abas
+                tab_painel = tab_analise = tab_manut = tab_consulta = tab_checklists = None
+                tab_importar = tab_saude = tab_backup = tab_gerir_users = tab_config = None
+            elif active_group == 'dados':
+                tab_importar, tab_saude, tab_backup, tab_gerir_users, tab_config = abas
+                # Criar variáveis vazias para as outras abas
+                tab_painel = tab_analise = tab_manut = tab_consulta = tab_checklists = None
+                tab_gerir_lanc = tab_gerir_lub = tab_gerir_frotas = tab_gerir_checklists = None
         else:
             tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = abas
+            # Criar variáveis vazias para as outras abas
+            tab_gerir_lanc = tab_gerir_lub = tab_gerir_frotas = tab_gerir_checklists = None
+            tab_importar = tab_saude = tab_backup = tab_gerir_users = tab_config = None
 
         def rerun_keep_tab(tab_title: str, clear_cache: bool = True):
             if clear_cache:
