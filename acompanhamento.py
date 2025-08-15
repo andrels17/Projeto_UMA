@@ -3575,11 +3575,16 @@ def main():
                                     
                                     # Mostrar status atual se houver histórico
                                     if not historico_componente.empty:
-                                        # Buscar a última TROCA (não remonta) para calcular km restantes
-                                        ultimas_trocas = historico_componente[
-                                            (historico_componente['tipo_servico'] == 'Troca') | 
-                                            (historico_componente['tipo_servico'].isna())  # Para registros antigos sem tipo
-                                        ]
+                                        # Verificar se a coluna tipo_servico existe
+                                        if 'tipo_servico' in historico_componente.columns:
+                                            # Buscar a última TROCA (não remonta) para calcular km restantes
+                                            ultimas_trocas = historico_componente[
+                                                (historico_componente['tipo_servico'] == 'Troca') | 
+                                                (historico_componente['tipo_servico'].isna())  # Para registros antigos sem tipo
+                                            ]
+                                        else:
+                                            # Se a coluna não existe, considerar todos como trocas (registros antigos)
+                                            ultimas_trocas = historico_componente
                                         
                                         if not ultimas_trocas.empty:
                                             ultima_troca = ultimas_trocas.iloc[0]
@@ -3604,19 +3609,25 @@ def main():
                                         
                                         # Mostrar última manutenção (qualquer tipo)
                                         ultima_manutencao = historico_componente.iloc[0]
-                                        st.info(f"Última manutenção: {ultima_manutencao['Data']} - {ultima_manutencao.get('tipo_servico', 'N/A')}")
+                                        tipo_ultima = ultima_manutencao.get('tipo_servico', 'N/A') if 'tipo_servico' in historico_componente.columns else 'N/A'
+                                        st.info(f"Última manutenção: {ultima_manutencao['Data']} - {tipo_ultima}")
                                     
                                     # Mostrar histórico detalhado
                                     if not historico_componente.empty:
                                         st.subheader("Histórico Detalhado")
                                         # Selecionar colunas disponíveis
                                         colunas_disponiveis = ['Data', 'Hod_Hor_No_Servico', 'Observacoes']
+                                        
+                                        # Verificar e adicionar colunas se existirem
                                         if 'tipo_servico' in historico_componente.columns:
                                             colunas_disponiveis.insert(2, 'tipo_servico')
                                         if 'lubrificante_utilizado' in historico_componente.columns:
                                             colunas_disponiveis.insert(3, 'lubrificante_utilizado')
                                         
-                                        st.dataframe(historico_componente[colunas_disponiveis])
+                                        # Filtrar apenas colunas que existem no DataFrame
+                                        colunas_finais = [col for col in colunas_disponiveis if col in historico_componente.columns]
+                                        
+                                        st.dataframe(historico_componente[colunas_finais])
                                     else:
                                         st.info("Nenhum histórico de manutenção para este componente.")
                     else:
@@ -3629,9 +3640,11 @@ def main():
                     # Buscar todas as manutenções do equipamento
                     todas_manutencoes = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel]
                     
-                    if not todas_manutencoes.empty and 'tipo_servico' in todas_manutencoes.columns:
-                        # Contar por tipo de serviço
-                        contagem_tipos = todas_manutencoes['tipo_servico'].value_counts()
+                    if not todas_manutencoes.empty:
+                        # Verificar se a coluna tipo_servico existe
+                        if 'tipo_servico' in todas_manutencoes.columns:
+                            # Contar por tipo de serviço
+                            contagem_tipos = todas_manutencoes['tipo_servico'].value_counts()
                         
                         col1, col2, col3 = st.columns(3)
                         
@@ -3640,23 +3653,31 @@ def main():
                             st.metric("Total de Manutenções", total_manut)
                         
                         with col2:
-                            total_trocas = contagem_tipos.get('Troca', 0)
-                            st.metric("Total de Trocas", total_trocas)
+                            if 'tipo_servico' in todas_manutencoes.columns:
+                                total_trocas = contagem_tipos.get('Troca', 0)
+                                st.metric("Total de Trocas", total_trocas)
+                            else:
+                                st.metric("Total de Trocas", "N/A")
                         
                         with col3:
-                            total_remontas = contagem_tipos.get('Remonta', 0)
-                            st.metric("Total de Remontas", total_remontas)
+                            if 'tipo_servico' in todas_manutencoes.columns:
+                                total_remontas = contagem_tipos.get('Remonta', 0)
+                                st.metric("Total de Remontas", total_remontas)
+                            else:
+                                st.metric("Total de Remontas", "N/A")
                         
                         # Gráfico de pizza para tipos de manutenção
-                        if len(contagem_tipos) > 0:
+                        if 'tipo_servico' in todas_manutencoes.columns and len(contagem_tipos) > 0:
                             fig_tipos = px.pie(
                                 values=contagem_tipos.values,
                                 names=contagem_tipos.index,
                                 title="Distribuição por Tipo de Manutenção"
                             )
                             st.plotly_chart(fig_tipos, use_container_width=True)
+                        elif 'tipo_servico' not in todas_manutencoes.columns:
+                            st.info("⚠️ Registros antigos detectados. Novas manutenções incluirão tipo de serviço.")
                     else:
-                        st.info("Nenhuma manutenção registrada ou dados de tipo de serviço não disponíveis.")
+                        st.info("Nenhuma manutenção registrada para este equipamento.")
                     # --- FIM DA MELHORIA 3 ---
                     # --- FIM DA MELHORIA 2 ---
 
@@ -4344,13 +4365,11 @@ def main():
                                             df_comp_edit.sort_values(by="Data", ascending=False, inplace=True)
                                             
                                             # Adicionar informações de tipo de serviço e lubrificante se disponíveis
-                                            tipo_servico_info = ""
                                             if 'tipo_servico' in df_comp_edit.columns:
                                                 df_comp_edit['tipo_servico_info'] = df_comp_edit['tipo_servico'].fillna('N/A')
                                             else:
                                                 df_comp_edit['tipo_servico_info'] = 'N/A'
                                             
-                                            lubrificante_info = ""
                                             if 'lubrificante_utilizado' in df_comp_edit.columns:
                                                 df_comp_edit['lubrificante_info'] = df_comp_edit['lubrificante_utilizado'].fillna('N/A')
                                             else:
@@ -4400,14 +4419,20 @@ def main():
                                                         
                                                         with col2:
                                                             # Tipo de serviço
-                                                            tipo_servico_atual = dados_atuais.get('tipo_servico', 'Troca')
-                                                            tipo_servico_opcoes = ["Troca", "Remonta"]
-                                                            index_tipo = tipo_servico_opcoes.index(tipo_servico_atual) if tipo_servico_atual in tipo_servico_opcoes else 0
-                                                            novo_tipo_servico = st.selectbox("Tipo de Serviço", options=tipo_servico_opcoes, index=index_tipo)
+                                                            if 'tipo_servico' in dados_atuais:
+                                                                tipo_servico_atual = dados_atuais.get('tipo_servico', 'Troca')
+                                                                tipo_servico_opcoes = ["Troca", "Remonta"]
+                                                                index_tipo = tipo_servico_opcoes.index(tipo_servico_atual) if tipo_servico_atual in tipo_servico_opcoes else 0
+                                                                novo_tipo_servico = st.selectbox("Tipo de Serviço", options=tipo_servico_opcoes, index=index_tipo)
+                                                            else:
+                                                                novo_tipo_servico = st.selectbox("Tipo de Serviço", options=["Troca", "Remonta"], index=0)
                                                             
                                                             # Lubrificante utilizado
-                                                            lubrificante_atual = dados_atuais.get('lubrificante_utilizado', '')
-                                                            novo_lubrificante = st.text_input("Lubrificante Utilizado", value=lubrificante_atual)
+                                                            if 'lubrificante_utilizado' in dados_atuais:
+                                                                lubrificante_atual = dados_atuais.get('lubrificante_utilizado', '')
+                                                                novo_lubrificante = st.text_input("Lubrificante Utilizado", value=lubrificante_atual)
+                                                            else:
+                                                                novo_lubrificante = st.text_input("Lubrificante Utilizado", value="")
                                                             
                                                             nova_acao = st.text_input("Observações", value=dados_atuais.get('Observacoes', ''))
 
