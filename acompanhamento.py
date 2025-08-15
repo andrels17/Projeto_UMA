@@ -2020,8 +2020,8 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         # Determinar grupo ativo
-        active_group = st.session_state.get('active_group', 'pagina_inicial')
-        
+        active_group = st.session_state.get('active_group', 'pagina_inicial').strip().lower()
+
         with col1:
             if st.button("🏠 Página Inicial", key="nav_pagina_inicial", help="Visualizações e análises principais"):
                 st.session_state['active_group'] = 'pagina_inicial'
