@@ -2099,1491 +2099,1496 @@ def main():
         
 
                 
-        with tab_painel:
-            st.header("Visão Geral da Frota")
-            
-            # Calcular gasto total com combustível
-            precos_map = get_precos_combustivel_map()
-            gasto_total_combustivel = 0
-            if precos_map:
-                df_gastos_total = df.copy()
-                # Verificar se a coluna tipo_combustivel existe em df_frotas
-                if 'tipo_combustivel' in df_frotas.columns:
-                    df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                    # Verificar se a coluna foi criada após o merge
-                    if 'tipo_combustivel' in df_gastos_total.columns:
-                        df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+        if tab_painel is not None:
+            with tab_painel:
+                st.header("Visão Geral da Frota")
+                
+                # Calcular gasto total com combustível
+                precos_map = get_precos_combustivel_map()
+                gasto_total_combustivel = 0
+                if precos_map:
+                    df_gastos_total = df.copy()
+                    # Verificar se a coluna tipo_combustivel existe em df_frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_gastos_total.columns:
+                            df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_gastos_total['tipo_combustivel'] = 'Diesel S500'
                     else:
+                        # Se não existir, criar a coluna com valor padrão
                         df_gastos_total['tipo_combustivel'] = 'Diesel S500'
-                else:
-                    # Se não existir, criar a coluna com valor padrão
-                    df_gastos_total['tipo_combustivel'] = 'Diesel S500'
-                
-                df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
-                df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
-                gasto_total_combustivel = df_gastos_total['custo'].sum()
-            
-            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-            
-            # KPI 1: Frotas Ativas
-            total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
-            kpi1.metric("Frotas Ativas", total_frotas_ativas)
-            
-            # KPI 2: Frotas com Alerta
-            frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
-            kpi2.metric("Frotas com Alerta", frotas_com_alerta)
-            
-            # KPI 3: Gasto Total com Combustível
-            kpi3.metric("💰 Gasto com Combustível", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
-            
-            # KPIs 4 e 5: Frotas Mais e Menos Eficientes
-            df_sem_filtro = df.copy()
-            df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
-            if not df_media_geral.empty:
-                # Agrupa por Código e Descrição para ter acesso a ambos
-                media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
-                
-                if not media_por_equip.empty:
-                    # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
-                    cod_mais_eficiente = media_por_equip.index[0][0]
-                    media_mais_eficiente = media_por_equip.iloc[0]
-                    # Exibe o CÓDIGO no KPI
-                    kpi4.metric("Frota Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
-            
-                    # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
-                    cod_menos_eficiente = media_por_equip.index[-1][0]
-                    media_menos_eficiente = media_por_equip.iloc[-1]
-                    # Exibe o CÓDIGO no KPI
-                    kpi5.metric("Frota Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
-            else:
-                # Se não há dados de eficiência, mostrar mensagem
-                kpi4.metric("Frota Mais Eficiente", "N/A")
-                kpi5.metric("Frota Menos Eficiente", "N/A")
-
-            st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
-            if 'Media' in df.columns and not df['Media'].dropna().empty:
-                media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
-                ranking_df = df.copy()
-                ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
-                ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
-                
-                ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
-                ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
-                
-                # --- INÍCIO DA CORREÇÃO ---
-                # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
-                ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
-                # --- FIM DA CORREÇÃO ---
-            
-                def formatar_eficiencia(val):
-                    if pd.isna(val): return "N/A"
-                    if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
-                    if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
-                    return f"⚪ {val:+.2f}%".replace('.',',')
-                
-                ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
-                
-                # Exibe a nova coluna "Equipamento" formatada
-                st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
-                            # NOVO: Botão de Exportação para o Ranking
-                csv_ranking = para_csv(ranking)
-                st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
-            else:
-                    st.info("Não há dados de consumo médio para gerar o ranking.")
                     
-            st.markdown("---")
-            st.subheader("📈 Tendência de Consumo Mensal")
-
-            if not df.empty and 'Qtde_Litros' in df.columns:
-                # Agrupa os dados por Ano/Mês e soma o consumo
-                consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                    df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
+                    gasto_total_combustivel = df_gastos_total['custo'].sum()
                 
-                if not consumo_mensal.empty:
-                    fig_tendencia = px.line(
-                        consumo_mensal,
-                        x='AnoMes',
-                        y='Qtde_Litros',
-                        title="Evolução do Consumo de Combustível (Litros)",
-                        labels={"AnoMes": "Mês", "Qtde_Litros": "Litros Consumidos"},
-                        markers=True # Adiciona marcadores para cada mês
-                    )
-                    fig_tendencia.update_layout(xaxis_title="Mês/Ano", yaxis_title="Litros Consumidos")
-                    st.plotly_chart(fig_tendencia, use_container_width=True)
-                else:
-                    st.info("Não há dados suficientes para gerar o gráfico de tendência com os filtros selecionados.")
+                kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
                 
-        with tab_analise:
-            st.header("📈 Análise Gráfica de Consumo")
-
-            # Aplica filtros apenas nesta aba
-            opts = st.session_state.get('filtro_opts_analise', None)
-            df_f = filtrar_dados(df, opts) if opts else df.copy()
-
-            if not df_f.empty:
-                if 'Media' in df_f.columns:
-                    k1, k2 = st.columns(2)
-                    k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
-                    k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                # KPI 1: Frotas Ativas
+                total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
+                kpi1.metric("Frotas Ativas", total_frotas_ativas)
+                
+                # KPI 2: Frotas com Alerta
+                frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
+                kpi2.metric("Frotas com Alerta", frotas_com_alerta)
+                
+                # KPI 3: Gasto Total com Combustível
+                kpi3.metric("💰 Gasto com Combustível", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
+                
+                # KPIs 4 e 5: Frotas Mais e Menos Eficientes
+                df_sem_filtro = df.copy()
+                df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
+                if not df_media_geral.empty:
+                    # Agrupa por Código e Descrição para ter acesso a ambos
+                    media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
+                    
+                    if not media_por_equip.empty:
+                        # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
+                        cod_mais_eficiente = media_por_equip.index[0][0]
+                        media_mais_eficiente = media_por_equip.iloc[0]
+                        # Exibe o CÓDIGO no KPI
+                        kpi4.metric("Frota Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
+                
+                        # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
+                        cod_menos_eficiente = media_por_equip.index[-1][0]
+                        media_menos_eficiente = media_por_equip.iloc[-1]
+                        # Exibe o CÓDIGO no KPI
+                        kpi5.metric("Frota Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
                 else:
-                    k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                    # Se não há dados de eficiência, mostrar mensagem
+                    kpi4.metric("Frota Mais Eficiente", "N/A")
+                    kpi5.metric("Frota Menos Eficiente", "N/A")
+
+                st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
+                if 'Media' in df.columns and not df['Media'].dropna().empty:
+                    media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
+                    ranking_df = df.copy()
+                    ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
+                    ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
+                    
+                    ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
+                    ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
+                    
+                    # --- INÍCIO DA CORREÇÃO ---
+                    # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
+                    ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
+                    # --- FIM DA CORREÇÃO ---
+                
+                    def formatar_eficiencia(val):
+                        if pd.isna(val): return "N/A"
+                        if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
+                        if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
+                        return f"⚪ {val:+.2f}%".replace('.',',')
+                    
+                    ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
+                    
+                    # Exibe a nova coluna "Equipamento" formatada
+                    st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
+                                # NOVO: Botão de Exportação para o Ranking
+                    csv_ranking = para_csv(ranking)
+                    st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
+                else:
+                        st.info("Não há dados de consumo médio para gerar o ranking.")
+                        
                 st.markdown("---")
-                st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
-                c1, c2 = st.columns(2)
+                st.subheader("📈 Tendência de Consumo Mensal")
 
-                with c1:
-                    st.subheader("Consumo por Classe Operacional")
-                    classes_a_excluir = ['VEICULOS LEVES', 'MOTOCICLETA', 'MINI CARREGADEIRA', 'USINA']
-                    # Verificar se a coluna Classe_Operacional existe antes de filtrar
-                    if 'Classe_Operacional' in df_f.columns:
-                        df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
+                if not df.empty and 'Qtde_Litros' in df.columns:
+                    # Agrupa os dados por Ano/Mês e soma o consumo
+                    consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                    
+                    if not consumo_mensal.empty:
+                        fig_tendencia = px.line(
+                            consumo_mensal,
+                            x='AnoMes',
+                            y='Qtde_Litros',
+                            title="Evolução do Consumo de Combustível (Litros)",
+                            labels={"AnoMes": "Mês", "Qtde_Litros": "Litros Consumidos"},
+                            markers=True # Adiciona marcadores para cada mês
+                        )
+                        fig_tendencia.update_layout(xaxis_title="Mês/Ano", yaxis_title="Litros Consumidos")
+                        st.plotly_chart(fig_tendencia, use_container_width=True)
                     else:
-                        df_consumo_classe = df_f
-                    consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                        st.info("Não há dados suficientes para gerar o gráfico de tendência com os filtros selecionados.")
+                
+        if tab_analise is not None:
+            with tab_analise:
+                st.header("📈 Análise Gráfica de Consumo")
 
-                    if not consumo_por_classe.empty:
-                        consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
-                        fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
-                        fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
-                        fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
-                        st.plotly_chart(fig_classe, use_container_width=True)
+                # Aplica filtros apenas nesta aba
+                opts = st.session_state.get('filtro_opts_analise', None)
+                df_f = filtrar_dados(df, opts) if opts else df.copy()
 
-                with c2:
-                    st.subheader("Top 10 Equipamentos com Maior Consumo")
-                    # Melhorar o gráfico com informações mais claras
-                    consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
-                    consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
-                    consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
+                if not df_f.empty:
+                    if 'Media' in df_f.columns:
+                        k1, k2 = st.columns(2)
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                        k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                    else:
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                    st.markdown("---")
+                    st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
+                    c1, c2 = st.columns(2)
 
-                    if not consumo_por_equip.empty:
-                        # Adicionar informações da frota para melhor identificação
-                        consumo_por_equip = consumo_por_equip.reset_index()
-                        consumo_por_equip = consumo_por_equip.merge(
+                    with c1:
+                        st.subheader("Consumo por Classe Operacional")
+                        classes_a_excluir = ['VEICULOS LEVES', 'MOTOCICLETA', 'MINI CARREGADEIRA', 'USINA']
+                        # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                        if 'Classe_Operacional' in df_f.columns:
+                            df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
+                        else:
+                            df_consumo_classe = df_f
+                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+
+                        if not consumo_por_classe.empty:
+                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
+                            fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
+                            fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
+                            st.plotly_chart(fig_classe, use_container_width=True)
+
+                    with c2:
+                        st.subheader("Top 10 Equipamentos com Maior Consumo")
+                        # Melhorar o gráfico com informações mais claras
+                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
+                        consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
+                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
+
+                        if not consumo_por_equip.empty:
+                            # Adicionar informações da frota para melhor identificação
+                            consumo_por_equip = consumo_por_equip.reset_index()
+                            consumo_por_equip = consumo_por_equip.merge(
+                                df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
+                                on='Cod_Equip', 
+                                how='left'
+                            )
+                            
+                            # Criar label mais informativo: Código - Descrição (Placa)
+                            consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
+                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                                axis=1
+                            )
+                            
+                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            
+                            fig_top10 = px.bar(
+                                consumo_por_equip, 
+                                x='Qtde_Litros', 
+                                y='label_grafico', 
+                                orientation='h', 
+                                text='texto_formatado', 
+                                labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
+                                title="Top 10 Equipamentos com Maior Consumo"
+                            )
+                            fig_top10.update_traces(
+                                texttemplate='%{text} L', 
+                                textposition='outside',
+                                marker_color='#ff7f0e'
+                            )
+                            fig_top10.update_layout(
+                                yaxis={'categoryorder':'total ascending'}, 
+                                xaxis_title="Total Consumido (Litros)", 
+                                yaxis_title="Equipamento",
+                                height=400
+                            )
+                            st.plotly_chart(fig_top10, use_container_width=True)
+
+                    st.markdown("---")
+                    
+                    # NOVA SEÇÃO: Top 10 de Gastos por Frota e por Classe
+                    st.subheader("💰 Top 10 de Gastos por Frota e Classe")
+                    
+                    # Calcular gastos por frota
+                    precos_map = get_precos_combustivel_map()
+                    if precos_map:
+                        df_gastos = df_f.copy()
+                        
+                        # Verificar se a coluna tipo_combustivel existe em df_frotas
+                        if 'tipo_combustivel' in df_frotas.columns:
+                            df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                            # Verificar se a coluna foi criada após o merge
+                            if 'tipo_combustivel' in df_gastos.columns:
+                                df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                            else:
+                                df_gastos['tipo_combustivel'] = 'Diesel S500'
+                        else:
+                            # Se não existir, criar a coluna com valor padrão
+                            df_gastos['tipo_combustivel'] = 'Diesel S500'
+                        
+                        # Garantir que a coluna tipo_combustivel existe antes de mapear preços
+                        if 'tipo_combustivel' not in df_gastos.columns:
+                            df_gastos['tipo_combustivel'] = 'Diesel S500'
+                        
+                        df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
+                        df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
+                        
+                        # Adicionar informações da frota para filtro
+                        df_gastos_com_info = df_gastos.merge(
+                            df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Classe_Operacional']], 
+                            on='Cod_Equip', 
+                            how='left'
+                        )
+                        
+                        # Garantir que a coluna Classe_Operacional existe
+                        if 'Classe_Operacional' not in df_gastos_com_info.columns:
+                            df_gastos_com_info['Classe_Operacional'] = 'N/A'
+                        
+                        # Filtro para excluir a frota 550 (usina) por padrão
+                        mostrar_usinas = st.checkbox("🏭 Incluir Frota 550 (Usina) no Top 10 de Gastos por Frota", value=False)
+                        
+                        if not mostrar_usinas:
+                            # Excluir a frota 550 (usina) do DataFrame
+                            df_gastos_filtrado = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] != 550]
+                        else:
+                            df_gastos_filtrado = df_gastos_com_info
+                        
+                        # Top 10 gastos por frota individual (após filtro)
+                        gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
+                            'custo': 'sum',
+                            'Qtde_Litros': 'sum'
+                        }).sort_values('custo', ascending=False).head(10).reset_index()
+                        
+                        # Adicionar informações da frota
+                        gastos_por_frota = gastos_por_frota.merge(
                             df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
                             on='Cod_Equip', 
                             how='left'
                         )
-                        
-                        # Criar label mais informativo: Código - Descrição (Placa)
-                        consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
-                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                        gastos_por_frota['label_frota'] = gastos_por_frota.apply(
+                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
                             axis=1
                         )
+                        gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
-                        consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
+                        # Top 10 gastos por classe operacional
+                        gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
+                            'custo': 'sum',
+                            'Qtde_Litros': 'sum'
+                        }).sort_values('custo', ascending=False).head(10).reset_index()
+                        gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
-                        fig_top10 = px.bar(
-                            consumo_por_equip, 
-                            x='Qtde_Litros', 
-                            y='label_grafico', 
-                            orientation='h', 
-                            text='texto_formatado', 
-                            labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
-                            title="Top 10 Equipamentos com Maior Consumo"
-                        )
-                        fig_top10.update_traces(
-                            texttemplate='%{text} L', 
-                            textposition='outside',
-                            marker_color='#ff7f0e'
-                        )
-                        fig_top10.update_layout(
-                            yaxis={'categoryorder':'total ascending'}, 
-                            xaxis_title="Total Consumido (Litros)", 
-                            yaxis_title="Equipamento",
-                            height=400
-                        )
-                        st.plotly_chart(fig_top10, use_container_width=True)
+                        # Criar layout em 2 colunas para os gráficos
+                        col_gastos1, col_gastos2 = st.columns(2)
+                        
+                        with col_gastos1:
+                            st.subheader("🏭 Top 10 Gastos por Frota")
+                            
+                            # Mostrar informação sobre filtro da frota 550
+                            # Comentário removido para manter proporção dos gráficos
+                            
+                            if not gastos_por_frota.empty:
+                                fig_gastos_frota = px.bar(
+                                    gastos_por_frota,
+                                    x='custo',
+                                    y='label_frota',
+                                    orientation='h',
+                                    text='custo_formatado',
+                                    title="Gastos por Frota Individual",
+                                    labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
+                                    color='custo',
+                                    color_continuous_scale='Reds'
+                                )
+                                fig_gastos_frota.update_traces(
+                                    textposition='outside',
+                                    texttemplate='%{text}'
+                                )
+                                fig_gastos_frota.update_layout(
+                                    yaxis={'categoryorder':'total ascending'},
+                                    xaxis_title="Custo Total (R$)",
+                                    yaxis_title="Frota",
+                                    height=400,
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                            else:
+                                st.info("Não há dados de gastos por frota.")
+                        
+                        with col_gastos2:
+                            st.subheader("🏗️ Top 10 Gastos por Classe")
+                            if not gastos_por_classe.empty:
+                                fig_gastos_classe = px.bar(
+                                    gastos_por_classe,
+                                    x='custo',
+                                    y='Classe_Operacional',
+                                    orientation='h',
+                                    text='custo_formatado',
+                                    title="Gastos por Classe Operacional",
+                                    labels={'custo': 'Custo (R$)', 'Classe_Operacional': 'Classe'},
+                                    color='custo',
+                                    color_continuous_scale='Blues'
+                                )
+                                fig_gastos_classe.update_traces(
+                                    textposition='outside',
+                                    texttemplate='%{text}'
+                                )
+                                fig_gastos_classe.update_layout(
+                                    yaxis={'categoryorder':'total ascending'},
+                                    xaxis_title="Custo Total (R$)",
+                                    yaxis_title="Classe Operacional",
+                                    height=400,
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_gastos_classe, use_container_width=True)
+                            else:
+                                st.info("Não há dados de gastos por classe.")
+                        
+                        # Resumo dos totais
+                        st.markdown("---")
+                        col_resumo1, col_resumo2, col_resumo3 = st.columns(3)
+                        with col_resumo1:
+                            st.metric(
+                                "Total Gastos (Período)", 
+                                formatar_brasileiro(df_gastos['custo'].sum(), 'R$ ')
+                            )
+                        with col_resumo2:
+                            if not gastos_por_frota.empty:
+                                frota_maior_gasto = gastos_por_frota.iloc[0]
+                                st.metric(
+                                    "Frota com Maior Gasto", 
+                                    f"{frota_maior_gasto['Cod_Equip']}",
+                                    f"{frota_maior_gasto['custo_formatado']}"
+                                )
+                            else:
+                                st.metric("Frota com Maior Gasto", "N/A")
+                        with col_resumo3:
+                            st.metric(
+                                "Classe com Maior Gasto", 
+                                f"{gastos_por_classe.iloc[0]['Classe_Operacional'] if not gastos_por_classe.empty else 'N/A'}"
+                            )
+                    else:
+                        st.warning("Cadastre os preços de combustível na aba Importar > Preços para visualizar os gastos.")
 
-                st.markdown("---")
-                
-                # NOVA SEÇÃO: Top 10 de Gastos por Frota e por Classe
-                st.subheader("💰 Top 10 de Gastos por Frota e Classe")
-                
-                # Calcular gastos por frota
-                precos_map = get_precos_combustivel_map()
-                if precos_map:
-                    df_gastos = df_f.copy()
-                    
-                    # Verificar se a coluna tipo_combustivel existe em df_frotas
-                    if 'tipo_combustivel' in df_frotas.columns:
-                        df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                        # Verificar se a coluna foi criada após o merge
-                        if 'tipo_combustivel' in df_gastos.columns:
-                            df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
-                        else:
-                            df_gastos['tipo_combustivel'] = 'Diesel S500'
-                    else:
-                        # Se não existir, criar a coluna com valor padrão
-                        df_gastos['tipo_combustivel'] = 'Diesel S500'
-                    
-                    # Garantir que a coluna tipo_combustivel existe antes de mapear preços
-                    if 'tipo_combustivel' not in df_gastos.columns:
-                        df_gastos['tipo_combustivel'] = 'Diesel S500'
-                    
-                    df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
-                    
-                    # Adicionar informações da frota para filtro
-                    df_gastos_com_info = df_gastos.merge(
-                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Classe_Operacional']], 
-                        on='Cod_Equip', 
-                        how='left'
-                    )
-                    
-                    # Garantir que a coluna Classe_Operacional existe
-                    if 'Classe_Operacional' not in df_gastos_com_info.columns:
-                        df_gastos_com_info['Classe_Operacional'] = 'N/A'
-                    
-                    # Filtro para excluir a frota 550 (usina) por padrão
-                    mostrar_usinas = st.checkbox("🏭 Incluir Frota 550 (Usina) no Top 10 de Gastos por Frota", value=False)
-                    
-                    if not mostrar_usinas:
-                        # Excluir a frota 550 (usina) do DataFrame
-                        df_gastos_filtrado = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] != 550]
-                    else:
-                        df_gastos_filtrado = df_gastos_com_info
-                    
-                    # Top 10 gastos por frota individual (após filtro)
-                    gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
-                        'custo': 'sum',
-                        'Qtde_Litros': 'sum'
-                    }).sort_values('custo', ascending=False).head(10).reset_index()
-                    
-                    # Adicionar informações da frota
-                    gastos_por_frota = gastos_por_frota.merge(
-                        df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
-                        on='Cod_Equip', 
-                        how='left'
-                    )
-                    gastos_por_frota['label_frota'] = gastos_por_frota.apply(
-                        lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
-                        axis=1
-                    )
-                    gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                    
-                    # Top 10 gastos por classe operacional
-                    gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
-                        'custo': 'sum',
-                        'Qtde_Litros': 'sum'
-                    }).sort_values('custo', ascending=False).head(10).reset_index()
-                    gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                    
-                    # Criar layout em 2 colunas para os gráficos
-                    col_gastos1, col_gastos2 = st.columns(2)
-                    
-                    with col_gastos1:
-                        st.subheader("🏭 Top 10 Gastos por Frota")
-                        
-                        # Mostrar informação sobre filtro da frota 550
-                        # Comentário removido para manter proporção dos gráficos
-                        
-                        if not gastos_por_frota.empty:
-                            fig_gastos_frota = px.bar(
-                                gastos_por_frota,
-                                x='custo',
-                                y='label_frota',
-                                orientation='h',
-                                text='custo_formatado',
-                                title="Gastos por Frota Individual",
-                                labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
-                                color='custo',
-                                color_continuous_scale='Reds'
-                            )
-                            fig_gastos_frota.update_traces(
-                                textposition='outside',
-                                texttemplate='%{text}'
-                            )
-                            fig_gastos_frota.update_layout(
-                                yaxis={'categoryorder':'total ascending'},
-                                xaxis_title="Custo Total (R$)",
-                                yaxis_title="Frota",
-                                height=400,
-                                showlegend=False
-                            )
-                            st.plotly_chart(fig_gastos_frota, use_container_width=True)
-                        else:
-                            st.info("Não há dados de gastos por frota.")
-                    
-                    with col_gastos2:
-                        st.subheader("🏗️ Top 10 Gastos por Classe")
-                        if not gastos_por_classe.empty:
-                            fig_gastos_classe = px.bar(
-                                gastos_por_classe,
-                                x='custo',
-                                y='Classe_Operacional',
-                                orientation='h',
-                                text='custo_formatado',
-                                title="Gastos por Classe Operacional",
-                                labels={'custo': 'Custo (R$)', 'Classe_Operacional': 'Classe'},
-                                color='custo',
-                                color_continuous_scale='Blues'
-                            )
-                            fig_gastos_classe.update_traces(
-                                textposition='outside',
-                                texttemplate='%{text}'
-                            )
-                            fig_gastos_classe.update_layout(
-                                yaxis={'categoryorder':'total ascending'},
-                                xaxis_title="Custo Total (R$)",
-                                yaxis_title="Classe Operacional",
-                                height=400,
-                                showlegend=False
-                            )
-                            st.plotly_chart(fig_gastos_classe, use_container_width=True)
-                        else:
-                            st.info("Não há dados de gastos por classe.")
-                    
-                    # Resumo dos totais
                     st.markdown("---")
-                    col_resumo1, col_resumo2, col_resumo3 = st.columns(3)
-                    with col_resumo1:
-                        st.metric(
-                            "Total Gastos (Período)", 
-                            formatar_brasileiro(df_gastos['custo'].sum(), 'R$ ')
-                        )
-                    with col_resumo2:
-                        if not gastos_por_frota.empty:
-                            frota_maior_gasto = gastos_por_frota.iloc[0]
-                            st.metric(
-                                "Frota com Maior Gasto", 
-                                f"{frota_maior_gasto['Cod_Equip']}",
-                                f"{frota_maior_gasto['custo_formatado']}"
-                            )
-                        else:
-                            st.metric("Frota com Maior Gasto", "N/A")
-                    with col_resumo3:
-                        st.metric(
-                            "Classe com Maior Gasto", 
-                            f"{gastos_por_classe.iloc[0]['Classe_Operacional'] if not gastos_por_classe.empty else 'N/A'}"
-                        )
-                else:
-                    st.warning("Cadastre os preços de combustível na aba Importar > Preços para visualizar os gastos.")
+                    st.subheader("📈 Média de Consumo por Classe Operacional")
+                    df_media = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)].copy()
 
-                st.markdown("---")
-                st.subheader("📈 Média de Consumo por Classe Operacional")
-                df_media = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)].copy()
+                    classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
 
-                classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
-
-                # Verificar se a coluna Classe_Operacional existe antes de filtrar
-                if 'Classe_Operacional' in df_media.columns:
-                    df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
-                else:
-                    df_media_filtrado = df_media
-
-                if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
-                    media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
-                    
-                    df_media_grafico = media_por_classe.reset_index()
-                    df_media_grafico['texto_formatado'] = df_media_grafico['Media'].apply(
-                        lambda x: formatar_brasileiro(x)
-                    )
-                    
-                    # Cria o gráfico de barras
-                    fig_media_classe = px.bar(
-                        df_media_grafico,
-                        x='Media',
-                        y='Classe_Operacional',
-                        orientation='h',
-                        title="Média de Consumo (L/h ou Km/L) por Classe",
-                        text='texto_formatado'
-                    )
-                    fig_media_classe.update_traces(
-                        textposition='outside',
-                        marker_color='#1f77b4'
-                    )
-                    fig_media_classe.update_layout(
-                        yaxis_title="Classe Operacional",
-                        xaxis_title="Média de Consumo"
-                    )
-                    st.plotly_chart(fig_media_classe, use_container_width=True)
-                else:
-                    st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
-
-                st.markdown("---")
-                st.subheader("💰 Total de Gasto por Motorista")
-                precos_map = get_precos_combustivel_map()
-                if precos_map:
-                    # Vincula combustível por frota e multiplica litros por preço
-                    df_tmp = df_f.copy()
-                    
-                    # Verificar se a coluna tipo_combustivel existe em df_frotas
-                    if 'tipo_combustivel' in df_frotas.columns:
-                        df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                        # Verificar se a coluna foi criada após o merge
-                        if 'tipo_combustivel' in df_tmp.columns:
-                            df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
-                        else:
-                            df_tmp['tipo_combustivel'] = 'Diesel S500'
+                    # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                    if 'Classe_Operacional' in df_media.columns:
+                        df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
                     else:
-                        # Se não existir, criar a coluna com valor padrão
-                        df_tmp['tipo_combustivel'] = 'Diesel S500'
-                    # Garantir que a coluna tipo_combustivel existe antes de mapear preços
-                    if 'tipo_combustivel' not in df_tmp.columns:
-                        df_tmp['tipo_combustivel'] = 'Diesel S500'
-                    
-                    df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
-                    # Agrupar por matrícula
-                    if 'Matricula' in df_tmp.columns:
-                        gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
-                        gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
-                        if not gasto_motorista.empty:
-                            gasto_motorista = gasto_motorista.reset_index()
-                            gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                            gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
-                            st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
-                            try:
-                                fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
-                                st.plotly_chart(fig_gasto, use_container_width=True)
-                            except Exception:
-                                pass
-                        else:
-                            st.info("Sem dados suficientes de custo (verifique preços cadastrados).")
-                    else:
-                        st.info("Não há coluna de matrícula nos abastecimentos para calcular o gasto por motorista.")
-                else:
-                    st.info("Cadastre os preços de combustível na aba Importar > Preços.")
+                        df_media_filtrado = df_media
 
-                st.markdown("---")
-                st.subheader("🔄 Análise de Proporções por Classe e Combustível")
-            
-            # Criar DataFrame com informações de combustível
-            df_consumo_combustivel = df_f.copy()
-            
-            # Verificar se a coluna tipo_combustivel existe em df_frotas
-            if 'tipo_combustivel' in df_frotas.columns:
-                try:
-                    frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
-                    frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
-                    df_consumo_combustivel = df_consumo_combustivel.merge(
-                        frotas_combustivel, 
-                        on='Cod_Equip', 
-                        how='left'
-                    )
-                    # Verificar se a coluna foi criada após o merge
-                    if 'tipo_combustivel' not in df_consumo_combustivel.columns:
-                        df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                except Exception:
-                    df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-            else:
-                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-            
-            # Garantir que a coluna tipo_combustivel existe
-            if 'tipo_combustivel' not in df_consumo_combustivel.columns:
-                df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-            
-            col_grafico1, col_grafico2 = st.columns(2)
-            
-            with col_grafico1:
-                st.subheader("📊 Consumo por Classe (Visão Macro)")
-                # Excluir "Usina" e frotas sem classe, usar Classe_Operacional
-                classes_a_excluir_macro = ['USINA', 'USINA MOBILE', 'USINA FIXA']
-                # Verificar se a coluna Classe_Operacional existe antes de filtrar
-                if 'Classe_Operacional' in df_consumo_combustivel.columns:
-                    df_consumo_classe_macro = df_consumo_combustivel[
-                        (df_consumo_combustivel['Classe_Operacional'].notna()) & 
-                        (~df_consumo_combustivel['Classe_Operacional'].str.upper().isin(classes_a_excluir_macro))
-                    ]
-                else:
-                    df_consumo_classe_macro = df_consumo_combustivel
-                
-                if not df_consumo_classe_macro.empty:
-                    try:
-                        consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                    if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
+                        media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
                         
-                        # Criar gráfico de pizza
-                        fig_pizza_classe = px.pie(
-                            consumo_por_classe_macro, 
-                            values='Qtde_Litros', 
-                            names='Classe_Operacional',
-                            title="Proporção de Consumo por Classe",
-                            hole=0.3
+                        df_media_grafico = media_por_classe.reset_index()
+                        df_media_grafico['texto_formatado'] = df_media_grafico['Media'].apply(
+                            lambda x: formatar_brasileiro(x)
                         )
-                        fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
-                        fig_pizza_classe.update_layout(height=400)
-                        st.plotly_chart(fig_pizza_classe, use_container_width=True)
                         
-                        # Mostrar totais
-                        st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
-                        st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
-                    except Exception as e:
-                        st.error(f"Erro ao criar gráfico de classe: {e}")
-                else:
-                    st.warning("Não há dados suficientes para análise por classe.")
-            
-            with col_grafico2:
-                st.subheader("⛽ Consumo por Tipo de Combustível")
-                if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
-                    try:
-                        consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
-                        
-                        # Criar gráfico de pizza
-                        fig_pizza_combustivel = px.pie(
-                            consumo_por_combustivel, 
-                            values='Qtde_Litros', 
-                            names='tipo_combustivel',
-                            title="Proporção de Consumo por Combustível",
-                            hole=0.3
-                        )
-                        fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
-                        fig_pizza_combustivel.update_layout(height=400)
-                        st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
-                        
-                        # Mostrar totais
-                        st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
-                        st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
-                    except Exception:
-                        df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                        consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
-                        st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
-                else:
-                    st.warning("Não há dados suficientes para análise por combustível.")
-                    
-
-                st.markdown("---")
-                st.subheader("📊 Demonstrativos Detalhados dos Pneus")
-
-                df_pneus_all = get_pneus_historico()
-                if not df_pneus_all.empty:
-                    # Adicione colunas de status e vida se não existirem
-                    if 'status' not in df_pneus_all.columns:
-                        df_pneus_all['status'] = 'Ativo'
-                    if 'vida_atual' not in df_pneus_all.columns:
-                        df_pneus_all['vida_atual'] = 1
-
-                    total_pneus = len(df_pneus_all)
-                    ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
-                    sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
-                    reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
-                    vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
-                    marcas = df_pneus_all['marca'].value_counts()
-                    modelos = df_pneus_all['modelo'].value_counts()
-                    posicoes = df_pneus_all['posicao'].value_counts()
-
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Total de Pneus", total_pneus)
-                    col2.metric("Ativos", ativos)
-                    col3.metric("Sucateados", sucateados)
-                    col4.metric("Reformados", reformados)
-
-                    st.markdown("#### Distribuição por Vida Atual")
-                    vidas_df = vidas.reset_index()
-                    vidas_df.columns = ["Vida", "Quantidade"]
-                    st.dataframe(vidas_df)
-
-                    st.markdown("#### Distribuição por Status")
-                    status_df = df_pneus_all['status'].value_counts().reset_index()
-                    status_df.columns = ["Status", "Quantidade"]
-                    st.dataframe(status_df)
-
-                    st.markdown("#### Distribuição por Marca")
-                    st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
-
-                    st.markdown("#### Distribuição por Modelo")
-                    st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
-
-                    st.markdown("#### Distribuição por Posição")
-                    st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
-
-                    # Gráficos
-                    fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
-                    st.plotly_chart(fig_status, use_container_width=True)
-
-                    fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
-                    st.plotly_chart(fig_vidas, use_container_width=True)
-
-                    fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
-                    st.plotly_chart(fig_marcas, use_container_width=True)
-
-                    fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
-                    st.plotly_chart(fig_modelos, use_container_width=True)
-
-                    fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
-                    st.plotly_chart(fig_posicoes, use_container_width=True)
-
-                else:
-                    st.info("Nenhum pneu cadastrado para demonstrativo.")
-
-                st.markdown("---")
-                st.subheader("🛢️ Demonstrativos de Lubrificantes")
-
-                ensure_lubrificantes_schema()
-                conn = sqlite3.connect(DB_PATH)
-                df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
-                df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
-
-                st.write("**Estoque Atual de Lubrificantes:**")
-                if not df_lub.empty:
-                        # Separar por tipo
-                        df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
-                        df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
-
-                        col_o, col_g = st.columns(2)
-                        with col_o:
-                            st.markdown("#### Estoque de Óleos")
-                            if not df_oleos.empty:
-                                fig_oleos = px.bar(
-                                    df_oleos,
-                                    x='nome',
-                                    y='quantidade_estoque',
-                                    color='viscosidade',
-                                    text='quantidade_estoque',
-                                    title="Óleos - Estoque Atual",
-                                    labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
-                                )
-                                st.plotly_chart(fig_oleos, use_container_width=True)
-                            else:
-                                st.info("Nenhum óleo cadastrado.")
-
-                        with col_g:
-                            st.markdown("#### Estoque de Graxas")
-                            if not df_graxas.empty:
-                                fig_graxas = px.bar(
-                                    df_graxas,
-                                    x='nome',
-                                    y='quantidade_estoque',
-                                    color='viscosidade',
-                                    text='quantidade_estoque',
-                                    title="Graxas - Estoque Atual",
-                                    labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
-                                )
-                                st.plotly_chart(fig_graxas, use_container_width=True)
-                            else:
-                                st.info("Nenhuma graxa cadastrada.")
-
-                        # Pizza geral
-                        df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
-                        fig_pizza = px.pie(
-                            df_lub,
-                            names='tipo',
-                            values='quantidade_estoque',
-                            title="Proporção de Estoque: Óleos vs Graxas"
-                        )
-                        st.plotly_chart(fig_pizza, use_container_width=True)
-
-                        st.write("**Movimentações Recentes:**")
-                        df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
-                        df_mov = df_mov.sort_values('data', ascending=False)
-                        st.dataframe(df_mov.head(20))
-                else:
-                        st.info("Nenhum lubrificante cadastrado.")
-
-                conn.close()
-        
-        with tab_consulta:
-            st.header("🔎 Ficha Individual do Equipamento")
-            # Permitir consulta direta por código (Cód Equipamento)
-            cod_input = st.text_input("Digite o código da frota")
-            if cod_input and cod_input.isdigit() and int(cod_input) in df_frotas['Cod_Equip'].values:
-                equip_label = df_frotas.loc[df_frotas['Cod_Equip'] == int(cod_input)].iloc[0]['label']
-            else:
-                equip_label = None
-        
-            if equip_label:
-                cod_sel = int(equip_label.split(" - ")[0])
-                dados_eq = df_frotas.query("Cod_Equip == @cod_sel").iloc[0]
-                consumo_eq = df.query("Cod_Equip == @cod_sel")
-                
-                st.subheader(f"{dados_eq.get('DESCRICAO_EQUIPAMENTO','–')} ({dados_eq.get('PLACA','–')})")
-                
-                ultimo_registro = consumo_eq.dropna(subset=['Hod_Hor_Atual']).sort_values("Data", ascending=False).iloc[0] if not consumo_eq.dropna(subset=['Hod_Hor_Atual']).empty else None
-                valor_atual_display = formatar_brasileiro_int(ultimo_registro['Hod_Hor_Atual']) if ultimo_registro is not None else "–"
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Status", dados_eq.get("ATIVO", "–"))
-                c2.metric("Placa", dados_eq.get("PLACA", "–"))
-                c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
-
-                # Análise do motorista com uso mais frequente
-                st.markdown("---")
-                st.subheader("👤 Análise de Uso por Motorista")
-                
-                if not consumo_eq.empty and 'Matricula' in consumo_eq.columns:
-                    # Análise por motorista (matrícula)
-                    uso_por_motorista = consumo_eq.groupby('Matricula').agg({
-                        'Qtde_Litros': 'sum',
-                        'Data': 'count'
-                    }).rename(columns={'Data': 'Abastecimentos'}).sort_values('Qtde_Litros', ascending=False)
-                    
-                    if not uso_por_motorista.empty:
-                        # Top 5 motoristas com maior consumo
-                        top_motoristas = uso_por_motorista.head(5).reset_index()
-                        top_motoristas['Consumo (L)'] = top_motoristas['Qtde_Litros'].apply(formatar_brasileiro_int)
-                        top_motoristas['Abastecimentos'] = top_motoristas['Abastecimentos'].astype(int)
-                        
-                        col_motorista1, col_motorista2 = st.columns(2)
-                        
-                        with col_motorista1:
-                            st.subheader("🏆 Top 5 Motoristas por Consumo")
-                            st.dataframe(
-                                top_motoristas[['Matricula', 'Consumo (L)', 'Abastecimentos']], 
-                                use_container_width=True
-                            )
-                        
-                        with col_motorista2:
-                            st.subheader("📊 Motorista com Maior Uso")
-                            motorista_mais_frequente = top_motoristas.iloc[0]
-                            st.metric(
-                                "Motorista Principal", 
-                                f"Matrícula {motorista_mais_frequente['Matricula']}",
-                                f"{motorista_mais_frequente['Consumo (L)']} L"
-                            )
-                            st.metric(
-                                "Total de Abastecimentos", 
-                                motorista_mais_frequente['Abastecimentos']
-                            )
-                            st.metric(
-                                "Percentual do Total", 
-                                f"{(motorista_mais_frequente['Qtde_Litros'] / uso_por_motorista['Qtde_Litros'].sum() * 100):.1f}%"
-                            )
-                        
-                        # Gráfico de consumo por motorista
-                        st.subheader("📈 Consumo por Motorista")
-                        fig_motoristas = px.bar(
-                            top_motoristas,
-                            x='Qtde_Litros',
-                            y='Matricula',
+                        # Cria o gráfico de barras
+                        fig_media_classe = px.bar(
+                            df_media_grafico,
+                            x='Media',
+                            y='Classe_Operacional',
                             orientation='h',
-                            text='Consumo (L)',
-                            title="Consumo de Combustível por Motorista",
-                            labels={'Qtde_Litros': 'Litros Consumidos', 'Matricula': 'Matrícula'}
+                            title="Média de Consumo (L/h ou Km/L) por Classe",
+                            text='texto_formatado'
                         )
-                        fig_motoristas.update_traces(
+                        fig_media_classe.update_traces(
                             textposition='outside',
-                            marker_color='#2ca02c'
+                            marker_color='#1f77b4'
                         )
-                        fig_motoristas.update_layout(
-                            yaxis={'categoryorder':'total ascending'},
-                            height=400
+                        fig_media_classe.update_layout(
+                            yaxis_title="Classe Operacional",
+                            xaxis_title="Média de Consumo"
                         )
-                        st.plotly_chart(fig_motoristas, use_container_width=True)
-                        
+                        st.plotly_chart(fig_media_classe, use_container_width=True)
                     else:
-                        st.info("Não há dados de motoristas (matrículas) para este equipamento.")
-                else:
-                    st.info("Não há dados de consumo ou coluna de matrícula para análise de motoristas.")
+                        st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
 
-                # Indicadores: Checklists/Revisões executadas
-                col_filtro_a, col_filtro_b, col_filtro_c = st.columns([1, 1, 2])
-                periodo_opcoes = [7, 30, 90, 180, 365]
-                periodo_dias = col_filtro_a.selectbox(
-                    "Período (dias)", options=periodo_opcoes, index=periodo_opcoes.index(30), key="consulta_periodo_dias"
-                )
-                filtro_turno = col_filtro_b.selectbox(
-                    "Turno (chk)", options=["Todos", "Manhã", "Tarde", "Noite", "N/A"], index=0, key="consulta_turno_chk"
-                )
-                # Capturar títulos existentes para filtro
-                chk_titulos = (
-                    sorted(df_checklist_historico['titulo_checklist'].dropna().unique().tolist())
-                    if 'titulo_checklist' in df_checklist_historico.columns else []
-                )
-                filtro_titulo = col_filtro_c.selectbox(
-                    "Título do Checklist", options=["Todos"] + chk_titulos, index=0, key="consulta_titulo_chk"
-                )
-                limite_dt = pd.Timestamp.today().normalize() - pd.Timedelta(days=periodo_dias)
-                # Checklists por equipamento
-                hist_chk_eq = df_checklist_historico[df_checklist_historico['Cod_Equip'] == cod_sel].copy()
-                if not hist_chk_eq.empty and 'data_preenchimento' in hist_chk_eq.columns:
-                    hist_chk_eq['data_preenchimento'] = pd.to_datetime(
-                        hist_chk_eq['data_preenchimento'], errors='coerce'
-                    )
-                    if filtro_turno != "Todos" and 'turno' in hist_chk_eq.columns:
-                        hist_chk_eq = hist_chk_eq[hist_chk_eq['turno'] == filtro_turno]
-                    if filtro_titulo != "Todos" and 'titulo_checklist' in hist_chk_eq.columns:
-                        hist_chk_eq = hist_chk_eq[hist_chk_eq['titulo_checklist'] == filtro_titulo]
-                chk_total = len(hist_chk_eq)
-                chk_30d = (
-                    hist_chk_eq[hist_chk_eq['data_preenchimento'] >= limite_dt].shape[0]
-                    if 'data_preenchimento' in hist_chk_eq.columns else 0
-                )
-                # Revisões (manutenções de componentes) por equipamento
-                hist_rev_eq = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel].copy()
-                if not hist_rev_eq.empty and 'Data' in hist_rev_eq.columns:
-                    hist_rev_eq['Data'] = pd.to_datetime(hist_rev_eq['Data'], errors='coerce')
-                rev_total = len(hist_rev_eq)
-                rev_30d = (
-                    hist_rev_eq[hist_rev_eq['Data'] >= limite_dt].shape[0] if 'Data' in hist_rev_eq.columns else 0
-                )
+                    st.markdown("---")
+                    st.subheader("💰 Total de Gasto por Motorista")
+                    precos_map = get_precos_combustivel_map()
+                    if precos_map:
+                        # Vincula combustível por frota e multiplica litros por preço
+                        df_tmp = df_f.copy()
+                        
+                        # Verificar se a coluna tipo_combustivel existe em df_frotas
+                        if 'tipo_combustivel' in df_frotas.columns:
+                            df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                            # Verificar se a coluna foi criada após o merge
+                            if 'tipo_combustivel' in df_tmp.columns:
+                                df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                            else:
+                                df_tmp['tipo_combustivel'] = 'Diesel S500'
+                        else:
+                            # Se não existir, criar a coluna com valor padrão
+                            df_tmp['tipo_combustivel'] = 'Diesel S500'
+                        # Garantir que a coluna tipo_combustivel existe antes de mapear preços
+                        if 'tipo_combustivel' not in df_tmp.columns:
+                            df_tmp['tipo_combustivel'] = 'Diesel S500'
+                        
+                        df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
+                        df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                        # Agrupar por matrícula
+                        if 'Matricula' in df_tmp.columns:
+                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                            gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
+                            if not gasto_motorista.empty:
+                                gasto_motorista = gasto_motorista.reset_index()
+                                gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                                gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                                st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
+                                try:
+                                    fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
+                                    st.plotly_chart(fig_gasto, use_container_width=True)
+                                except Exception:
+                                    pass
+                            else:
+                                st.info("Sem dados suficientes de custo (verifique preços cadastrados).")
+                        else:
+                            st.info("Não há coluna de matrícula nos abastecimentos para calcular o gasto por motorista.")
+                    else:
+                        st.info("Cadastre os preços de combustível na aba Importar > Preços.")
 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric(f"Checklists ({periodo_dias}d)", chk_30d)
-                m2.metric("Checklists (total)", chk_total)
-                m3.metric(f"Revisões ({periodo_dias}d)", rev_30d)
-                m4.metric("Revisões (total)", rev_total)
-        
-                st.markdown("---")
-
-                # NOVA SEÇÃO: Gastos com Combustível por Frota vs Classe
-                st.subheader("💰 Gastos com Combustível")
+                    st.markdown("---")
+                    st.subheader("🔄 Análise de Proporções por Classe e Combustível")
                 
-                precos_map = get_precos_combustivel_map()
-                if precos_map:
-                    # Calcular gasto da frota selecionada
-                    df_frota_gastos = consumo_eq.copy()
-                    # Verificar se a coluna tipo_combustivel existe em df_frotas
-                    if 'tipo_combustivel' in df_frotas.columns:
-                        df_frota_gastos = df_frota_gastos.merge(
-                            df_frotas[['Cod_Equip', 'tipo_combustivel']], 
+                # Criar DataFrame com informações de combustível
+                df_consumo_combustivel = df_f.copy()
+                
+                # Verificar se a coluna tipo_combustivel existe em df_frotas
+                if 'tipo_combustivel' in df_frotas.columns:
+                    try:
+                        frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
+                        frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
+                        df_consumo_combustivel = df_consumo_combustivel.merge(
+                            frotas_combustivel, 
                             on='Cod_Equip', 
                             how='left'
                         )
                         # Verificar se a coluna foi criada após o merge
-                        if 'tipo_combustivel' in df_frota_gastos.columns:
-                            df_frota_gastos['tipo_combustivel'] = df_frota_gastos['tipo_combustivel'].fillna('Diesel S500')
-                        else:
-                            df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
+                        if 'tipo_combustivel' not in df_consumo_combustivel.columns:
+                            df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                    except Exception:
+                        df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                else:
+                    df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                
+                # Garantir que a coluna tipo_combustivel existe
+                if 'tipo_combustivel' not in df_consumo_combustivel.columns:
+                    df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                
+                col_grafico1, col_grafico2 = st.columns(2)
+                
+                with col_grafico1:
+                    st.subheader("📊 Consumo por Classe (Visão Macro)")
+                    # Excluir "Usina" e frotas sem classe, usar Classe_Operacional
+                    classes_a_excluir_macro = ['USINA', 'USINA MOBILE', 'USINA FIXA']
+                    # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                    if 'Classe_Operacional' in df_consumo_combustivel.columns:
+                        df_consumo_classe_macro = df_consumo_combustivel[
+                            (df_consumo_combustivel['Classe_Operacional'].notna()) & 
+                            (~df_consumo_combustivel['Classe_Operacional'].str.upper().isin(classes_a_excluir_macro))
+                        ]
                     else:
-                        # Se não existir, criar a coluna com valor padrão
-                        df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
-                    df_frota_gastos['preco_unit'] = df_frota_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_frota_gastos['custo'] = df_frota_gastos['Qtde_Litros'].fillna(0.0) * df_frota_gastos['preco_unit']
+                        df_consumo_classe_macro = df_consumo_combustivel
                     
-                    gasto_frota = df_frota_gastos['custo'].sum()
+                    if not df_consumo_classe_macro.empty:
+                        try:
+                            consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            
+                            # Criar gráfico de pizza
+                            fig_pizza_classe = px.pie(
+                                consumo_por_classe_macro, 
+                                values='Qtde_Litros', 
+                                names='Classe_Operacional',
+                                title="Proporção de Consumo por Classe",
+                                hole=0.3
+                            )
+                            fig_pizza_classe.update_traces(textposition='inside', textinfo='percent+label')
+                            fig_pizza_classe.update_layout(height=400)
+                            st.plotly_chart(fig_pizza_classe, use_container_width=True)
+                            
+                            # Mostrar totais
+                            st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
+                        except Exception as e:
+                            st.error(f"Erro ao criar gráfico de classe: {e}")
+                    else:
+                        st.warning("Não há dados suficientes para análise por classe.")
+                
+                with col_grafico2:
+                    st.subheader("⛽ Consumo por Tipo de Combustível")
+                    if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
+                        try:
+                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            
+                            # Criar gráfico de pizza
+                            fig_pizza_combustivel = px.pie(
+                                consumo_por_combustivel, 
+                                values='Qtde_Litros', 
+                                names='tipo_combustivel',
+                                title="Proporção de Consumo por Combustível",
+                                hole=0.3
+                            )
+                            fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                            fig_pizza_combustivel.update_layout(height=400)
+                            st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                            
+                            # Mostrar totais
+                            st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                        except Exception:
+                            df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                    else:
+                        st.warning("Não há dados suficientes para análise por combustível.")
+                        
+
+                    st.markdown("---")
+                    st.subheader("📊 Demonstrativos Detalhados dos Pneus")
+
+                    df_pneus_all = get_pneus_historico()
+                    if not df_pneus_all.empty:
+                        # Adicione colunas de status e vida se não existirem
+                        if 'status' not in df_pneus_all.columns:
+                            df_pneus_all['status'] = 'Ativo'
+                        if 'vida_atual' not in df_pneus_all.columns:
+                            df_pneus_all['vida_atual'] = 1
+
+                        total_pneus = len(df_pneus_all)
+                        ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
+                        sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
+                        reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
+                        vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
+                        marcas = df_pneus_all['marca'].value_counts()
+                        modelos = df_pneus_all['modelo'].value_counts()
+                        posicoes = df_pneus_all['posicao'].value_counts()
+
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Total de Pneus", total_pneus)
+                        col2.metric("Ativos", ativos)
+                        col3.metric("Sucateados", sucateados)
+                        col4.metric("Reformados", reformados)
+
+                        st.markdown("#### Distribuição por Vida Atual")
+                        vidas_df = vidas.reset_index()
+                        vidas_df.columns = ["Vida", "Quantidade"]
+                        st.dataframe(vidas_df)
+
+                        st.markdown("#### Distribuição por Status")
+                        status_df = df_pneus_all['status'].value_counts().reset_index()
+                        status_df.columns = ["Status", "Quantidade"]
+                        st.dataframe(status_df)
+
+                        st.markdown("#### Distribuição por Marca")
+                        st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
+
+                        st.markdown("#### Distribuição por Modelo")
+                        st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
+
+                        st.markdown("#### Distribuição por Posição")
+                        st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
+
+                        # Gráficos
+                        fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
+                        st.plotly_chart(fig_status, use_container_width=True)
+
+                        fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
+                        st.plotly_chart(fig_vidas, use_container_width=True)
+
+                        fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
+                        st.plotly_chart(fig_marcas, use_container_width=True)
+
+                        fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
+                        st.plotly_chart(fig_modelos, use_container_width=True)
+
+                        fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
+                        st.plotly_chart(fig_posicoes, use_container_width=True)
+
+                    else:
+                        st.info("Nenhum pneu cadastrado para demonstrativo.")
+
+                    st.markdown("---")
+                    st.subheader("🛢️ Demonstrativos de Lubrificantes")
+
+                    ensure_lubrificantes_schema()
+                    conn = sqlite3.connect(DB_PATH)
+                    df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                    df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
+
+                    st.write("**Estoque Atual de Lubrificantes:**")
+                    if not df_lub.empty:
+                            # Separar por tipo
+                            df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                            df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
+
+                            col_o, col_g = st.columns(2)
+                            with col_o:
+                                st.markdown("#### Estoque de Óleos")
+                                if not df_oleos.empty:
+                                    fig_oleos = px.bar(
+                                        df_oleos,
+                                        x='nome',
+                                        y='quantidade_estoque',
+                                        color='viscosidade',
+                                        text='quantidade_estoque',
+                                        title="Óleos - Estoque Atual",
+                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
+                                    )
+                                    st.plotly_chart(fig_oleos, use_container_width=True)
+                                else:
+                                    st.info("Nenhum óleo cadastrado.")
+
+                            with col_g:
+                                st.markdown("#### Estoque de Graxas")
+                                if not df_graxas.empty:
+                                    fig_graxas = px.bar(
+                                        df_graxas,
+                                        x='nome',
+                                        y='quantidade_estoque',
+                                        color='viscosidade',
+                                        text='quantidade_estoque',
+                                        title="Graxas - Estoque Atual",
+                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                                    )
+                                    st.plotly_chart(fig_graxas, use_container_width=True)
+                                else:
+                                    st.info("Nenhuma graxa cadastrada.")
+
+                            # Pizza geral
+                            df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                            fig_pizza = px.pie(
+                                df_lub,
+                                names='tipo',
+                                values='quantidade_estoque',
+                                title="Proporção de Estoque: Óleos vs Graxas"
+                            )
+                            st.plotly_chart(fig_pizza, use_container_width=True)
+
+                            st.write("**Movimentações Recentes:**")
+                            df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                            df_mov = df_mov.sort_values('data', ascending=False)
+                            st.dataframe(df_mov.head(20))
+                    else:
+                            st.info("Nenhum lubrificante cadastrado.")
+
+                    conn.close()
+            
+        if tab_consulta is not None:
+            with tab_consulta:
+                st.header("🔎 Ficha Individual do Equipamento")
+                # Permitir consulta direta por código (Cód Equipamento)
+                cod_input = st.text_input("Digite o código da frota")
+                if cod_input and cod_input.isdigit() and int(cod_input) in df_frotas['Cod_Equip'].values:
+                    equip_label = df_frotas.loc[df_frotas['Cod_Equip'] == int(cod_input)].iloc[0]['label']
+                else:
+                    equip_label = None
+            
+                if equip_label:
+                    cod_sel = int(equip_label.split(" - ")[0])
+                    dados_eq = df_frotas.query("Cod_Equip == @cod_sel").iloc[0]
+                    consumo_eq = df.query("Cod_Equip == @cod_sel")
                     
-                    # Calcular gasto total da classe
-                    classe_selecionada = dados_eq.get('Classe_Operacional')
-                    gasto_classe_total = 0
-                    if classe_selecionada:
-                        df_classe_gastos = df[df['Classe_Operacional'] == classe_selecionada].copy()
+                    st.subheader(f"{dados_eq.get('DESCRICAO_EQUIPAMENTO','–')} ({dados_eq.get('PLACA','–')})")
+                    
+                    ultimo_registro = consumo_eq.dropna(subset=['Hod_Hor_Atual']).sort_values("Data", ascending=False).iloc[0] if not consumo_eq.dropna(subset=['Hod_Hor_Atual']).empty else None
+                    valor_atual_display = formatar_brasileiro_int(ultimo_registro['Hod_Hor_Atual']) if ultimo_registro is not None else "–"
+                    
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Status", dados_eq.get("ATIVO", "–"))
+                    c2.metric("Placa", dados_eq.get("PLACA", "–"))
+                    c3.metric("Leitura Atual (Hod./Hor.)", valor_atual_display)
+
+                    # Análise do motorista com uso mais frequente
+                    st.markdown("---")
+                    st.subheader("👤 Análise de Uso por Motorista")
+                    
+                    if not consumo_eq.empty and 'Matricula' in consumo_eq.columns:
+                        # Análise por motorista (matrícula)
+                        uso_por_motorista = consumo_eq.groupby('Matricula').agg({
+                            'Qtde_Litros': 'sum',
+                            'Data': 'count'
+                        }).rename(columns={'Data': 'Abastecimentos'}).sort_values('Qtde_Litros', ascending=False)
+                        
+                        if not uso_por_motorista.empty:
+                            # Top 5 motoristas com maior consumo
+                            top_motoristas = uso_por_motorista.head(5).reset_index()
+                            top_motoristas['Consumo (L)'] = top_motoristas['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            top_motoristas['Abastecimentos'] = top_motoristas['Abastecimentos'].astype(int)
+                            
+                            col_motorista1, col_motorista2 = st.columns(2)
+                            
+                            with col_motorista1:
+                                st.subheader("🏆 Top 5 Motoristas por Consumo")
+                                st.dataframe(
+                                    top_motoristas[['Matricula', 'Consumo (L)', 'Abastecimentos']], 
+                                    use_container_width=True
+                                )
+                            
+                            with col_motorista2:
+                                st.subheader("📊 Motorista com Maior Uso")
+                                motorista_mais_frequente = top_motoristas.iloc[0]
+                                st.metric(
+                                    "Motorista Principal", 
+                                    f"Matrícula {motorista_mais_frequente['Matricula']}",
+                                    f"{motorista_mais_frequente['Consumo (L)']} L"
+                                )
+                                st.metric(
+                                    "Total de Abastecimentos", 
+                                    motorista_mais_frequente['Abastecimentos']
+                                )
+                                st.metric(
+                                    "Percentual do Total", 
+                                    f"{(motorista_mais_frequente['Qtde_Litros'] / uso_por_motorista['Qtde_Litros'].sum() * 100):.1f}%"
+                                )
+                            
+                            # Gráfico de consumo por motorista
+                            st.subheader("📈 Consumo por Motorista")
+                            fig_motoristas = px.bar(
+                                top_motoristas,
+                                x='Qtde_Litros',
+                                y='Matricula',
+                                orientation='h',
+                                text='Consumo (L)',
+                                title="Consumo de Combustível por Motorista",
+                                labels={'Qtde_Litros': 'Litros Consumidos', 'Matricula': 'Matrícula'}
+                            )
+                            fig_motoristas.update_traces(
+                                textposition='outside',
+                                marker_color='#2ca02c'
+                            )
+                            fig_motoristas.update_layout(
+                                yaxis={'categoryorder':'total ascending'},
+                                height=400
+                            )
+                            st.plotly_chart(fig_motoristas, use_container_width=True)
+                            
+                        else:
+                            st.info("Não há dados de motoristas (matrículas) para este equipamento.")
+                    else:
+                        st.info("Não há dados de consumo ou coluna de matrícula para análise de motoristas.")
+
+                    # Indicadores: Checklists/Revisões executadas
+                    col_filtro_a, col_filtro_b, col_filtro_c = st.columns([1, 1, 2])
+                    periodo_opcoes = [7, 30, 90, 180, 365]
+                    periodo_dias = col_filtro_a.selectbox(
+                        "Período (dias)", options=periodo_opcoes, index=periodo_opcoes.index(30), key="consulta_periodo_dias"
+                    )
+                    filtro_turno = col_filtro_b.selectbox(
+                        "Turno (chk)", options=["Todos", "Manhã", "Tarde", "Noite", "N/A"], index=0, key="consulta_turno_chk"
+                    )
+                    # Capturar títulos existentes para filtro
+                    chk_titulos = (
+                        sorted(df_checklist_historico['titulo_checklist'].dropna().unique().tolist())
+                        if 'titulo_checklist' in df_checklist_historico.columns else []
+                    )
+                    filtro_titulo = col_filtro_c.selectbox(
+                        "Título do Checklist", options=["Todos"] + chk_titulos, index=0, key="consulta_titulo_chk"
+                    )
+                    limite_dt = pd.Timestamp.today().normalize() - pd.Timedelta(days=periodo_dias)
+                    # Checklists por equipamento
+                    hist_chk_eq = df_checklist_historico[df_checklist_historico['Cod_Equip'] == cod_sel].copy()
+                    if not hist_chk_eq.empty and 'data_preenchimento' in hist_chk_eq.columns:
+                        hist_chk_eq['data_preenchimento'] = pd.to_datetime(
+                            hist_chk_eq['data_preenchimento'], errors='coerce'
+                        )
+                        if filtro_turno != "Todos" and 'turno' in hist_chk_eq.columns:
+                            hist_chk_eq = hist_chk_eq[hist_chk_eq['turno'] == filtro_turno]
+                        if filtro_titulo != "Todos" and 'titulo_checklist' in hist_chk_eq.columns:
+                            hist_chk_eq = hist_chk_eq[hist_chk_eq['titulo_checklist'] == filtro_titulo]
+                    chk_total = len(hist_chk_eq)
+                    chk_30d = (
+                        hist_chk_eq[hist_chk_eq['data_preenchimento'] >= limite_dt].shape[0]
+                        if 'data_preenchimento' in hist_chk_eq.columns else 0
+                    )
+                    # Revisões (manutenções de componentes) por equipamento
+                    hist_rev_eq = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel].copy()
+                    if not hist_rev_eq.empty and 'Data' in hist_rev_eq.columns:
+                        hist_rev_eq['Data'] = pd.to_datetime(hist_rev_eq['Data'], errors='coerce')
+                    rev_total = len(hist_rev_eq)
+                    rev_30d = (
+                        hist_rev_eq[hist_rev_eq['Data'] >= limite_dt].shape[0] if 'Data' in hist_rev_eq.columns else 0
+                    )
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric(f"Checklists ({periodo_dias}d)", chk_30d)
+                    m2.metric("Checklists (total)", chk_total)
+                    m3.metric(f"Revisões ({periodo_dias}d)", rev_30d)
+                    m4.metric("Revisões (total)", rev_total)
+            
+                    st.markdown("---")
+
+                    # NOVA SEÇÃO: Gastos com Combustível por Frota vs Classe
+                    st.subheader("💰 Gastos com Combustível")
+                    
+                    precos_map = get_precos_combustivel_map()
+                    if precos_map:
+                        # Calcular gasto da frota selecionada
+                        df_frota_gastos = consumo_eq.copy()
                         # Verificar se a coluna tipo_combustivel existe em df_frotas
                         if 'tipo_combustivel' in df_frotas.columns:
-                            df_classe_gastos = df_classe_gastos.merge(
+                            df_frota_gastos = df_frota_gastos.merge(
                                 df_frotas[['Cod_Equip', 'tipo_combustivel']], 
                                 on='Cod_Equip', 
                                 how='left'
                             )
                             # Verificar se a coluna foi criada após o merge
-                            if 'tipo_combustivel' in df_classe_gastos.columns:
-                                df_classe_gastos['tipo_combustivel'] = df_classe_gastos['tipo_combustivel'].fillna('Diesel S500')
+                            if 'tipo_combustivel' in df_frota_gastos.columns:
+                                df_frota_gastos['tipo_combustivel'] = df_frota_gastos['tipo_combustivel'].fillna('Diesel S500')
                             else:
-                                df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
+                                df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
                         else:
                             # Se não existir, criar a coluna com valor padrão
-                            df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
+                            df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
+                        df_frota_gastos['preco_unit'] = df_frota_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
+                        df_frota_gastos['custo'] = df_frota_gastos['Qtde_Litros'].fillna(0.0) * df_frota_gastos['preco_unit']
                         
-                        df_classe_gastos['preco_unit'] = df_classe_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_classe_gastos['custo'] = df_classe_gastos['Qtde_Litros'].fillna(0.0) * df_classe_gastos['preco_unit']
-                        gasto_classe_total = df_classe_gastos['custo'].sum()
-                    
-                    # Calcular porcentagem
-                    porcentagem_classe = (gasto_frota / gasto_classe_total * 100) if gasto_classe_total > 0 else 0
-                    
-                    # Exibir métricas
-                    col_gasto1, col_gasto2, col_gasto3 = st.columns(3)
-                    
-                    with col_gasto1:
-                        st.metric(
-                            "💰 Gasto da Frota", 
-                            formatar_brasileiro(gasto_frota, 'R$ '),
-                            help="Total gasto com combustível por esta frota"
-                        )
-                    
-                    with col_gasto2:
-                        st.metric(
-                            "💰 Gasto Total da Classe", 
-                            formatar_brasileiro(gasto_classe_total, 'R$ '),
-                            help="Total gasto com combustível por todas as frotas da mesma classe"
-                        )
-                    
-                    with col_gasto3:
-                        st.metric(
-                            "📊 % da Classe", 
-                            f"{porcentagem_classe:.1f}%",
-                            help="Porcentagem que esta frota representa do gasto total da classe"
-                        )
-                    
-                    # Gráfico de comparação
-                    if gasto_classe_total > 0:
-                        df_comparacao_gastos = pd.DataFrame({
-                            'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
-                            'Gasto (R$)': [gasto_frota, gasto_classe_total - gasto_frota]
-                        })
+                        gasto_frota = df_frota_gastos['custo'].sum()
                         
-                        fig_gastos = px.pie(
-                            df_comparacao_gastos,
-                            values='Gasto (R$)',
-                            names='Categoria',
-                            title=f"Distribuição de Gastos na Classe {classe_selecionada}",
-                            color_discrete_map={
-                                'Esta Frota': '#ff7f0e',
-                                'Outras Frotas da Classe': '#1f77b4'
-                            }
-                        )
-                        fig_gastos.update_traces(
-                            textposition='inside',
-                            textinfo='percent+label',
-                            textfont_size=14
-                        )
-                        fig_gastos.update_layout(height=400)
-                        st.plotly_chart(fig_gastos, use_container_width=True)
+                        # Calcular gasto total da classe
+                        classe_selecionada = dados_eq.get('Classe_Operacional')
+                        gasto_classe_total = 0
+                        if classe_selecionada:
+                            df_classe_gastos = df[df['Classe_Operacional'] == classe_selecionada].copy()
+                            # Verificar se a coluna tipo_combustivel existe em df_frotas
+                            if 'tipo_combustivel' in df_frotas.columns:
+                                df_classe_gastos = df_classe_gastos.merge(
+                                    df_frotas[['Cod_Equip', 'tipo_combustivel']], 
+                                    on='Cod_Equip', 
+                                    how='left'
+                                )
+                                # Verificar se a coluna foi criada após o merge
+                                if 'tipo_combustivel' in df_classe_gastos.columns:
+                                    df_classe_gastos['tipo_combustivel'] = df_classe_gastos['tipo_combustivel'].fillna('Diesel S500')
+                                else:
+                                    df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
+                            else:
+                                # Se não existir, criar a coluna com valor padrão
+                                df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
+                            
+                            df_classe_gastos['preco_unit'] = df_classe_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
+                            df_classe_gastos['custo'] = df_classe_gastos['Qtde_Litros'].fillna(0.0) * df_classe_gastos['preco_unit']
+                            gasto_classe_total = df_classe_gastos['custo'].sum()
                         
-                        # Informações adicionais
-                        st.info(f"""
-                        **📊 Resumo dos Gastos:**
-                        - Esta frota representa **{porcentagem_classe:.1f}%** do gasto total da classe **{classe_selecionada}**
-                        - Gasto médio por frota na classe: **{formatar_brasileiro(gasto_classe_total / df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada].shape[0], 'R$ ')}**
-                        """)
-                else:
-                    st.warning("⚠️ Para visualizar os gastos com combustível, configure os preços na aba 'Importar Dados > Preços de Combustível'.")
-                
-                st.markdown("---")
-                st.subheader("⛽ Consumo Total da Frota")
-
-                if not consumo_eq.empty:
-                    # Calcular consumo total em litros
-                    consumo_total_litros = consumo_eq['Qtde_Litros'].sum()
-
-                    # Calcular consumo por período (últimos 30, 90, 365 dias)
-                    hoje = pd.Timestamp.now()
-                    periodos = {
-                        'Últimos 30 dias': 30,
-                        'Últimos 90 dias': 90,
-                        'Últimos 365 dias': 365
-                    }
-
-                    consumos_periodo = {}
-                    for nome_periodo, dias in periodos.items():
-                        data_limite = hoje - pd.Timedelta(days=dias)
-                        consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
-                        consumos_periodo[nome_periodo] = consumo_periodo
-
-                    # Calcular consumo da classe para comparação
-                    classe_selecionada = dados_eq.get('Classe_Operacional')
-                    consumo_classe_total = 0
-                    if classe_selecionada:
-                        df_classe_consumo = df[df['Classe_Operacional'] == classe_selecionada]
-                        consumo_classe_total = df_classe_consumo['Qtde_Litros'].sum()
-
-                    # Calcular porcentagem do consumo da classe
-                    porcentagem_consumo_classe = (consumo_total_litros / consumo_classe_total * 100) if consumo_classe_total > 0 else 0
-
-                    # Métricas de consumo
-                    col_consumo1, col_consumo2, col_consumo3, col_consumo4, col_consumo5 = st.columns(5)
-
-                    with col_consumo1:
-                        st.metric(
-                            "📊 Consumo Total",
-                            f"{formatar_brasileiro_int(consumo_total_litros)} L",
-                            help="Total de litros consumidos por esta frota"
-                        )
-
-                    with col_consumo2:
-                        st.metric(
-                            "📅 Últimos 30 dias",
-                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 30 dias'])} L"
-                        )
-
-                    with col_consumo3:
-                        st.metric(
-                            "📅 Últimos 90 dias",
-                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 90 dias'])} L"
-                        )
-
-                    with col_consumo4:
-                        st.metric(
-                            "📅 Últimos 365 dias",
-                            f"{formatar_brasileiro_int(consumos_periodo['Últimos 365 dias'])} L"
-                        )
-
-                    with col_consumo5:
-                        st.metric(
-                            "📊 % da Classe",
-                            f"{porcentagem_consumo_classe:.1f}%",
-                            help="Porcentagem que esta frota representa do consumo total da classe"
-                        )
-
-                    # Gráfico de consumo por período
-                    df_consumo_periodo = pd.DataFrame({
-                        'Período': list(consumos_periodo.keys()),
-                        'Consumo (L)': list(consumos_periodo.values())
-                    })
-
-                    # Melhorar formatação dos rótulos para o gráfico
-                    df_consumo_periodo['Rótulo_Formatado'] = df_consumo_periodo['Consumo (L)'].apply(
-                        lambda x: f"{formatar_brasileiro_int(x)} L" if x > 0 else "0 L"
-                    )
+                        # Calcular porcentagem
+                        porcentagem_classe = (gasto_frota / gasto_classe_total * 100) if gasto_classe_total > 0 else 0
+                        
+                        # Exibir métricas
+                        col_gasto1, col_gasto2, col_gasto3 = st.columns(3)
+                        
+                        with col_gasto1:
+                            st.metric(
+                                "💰 Gasto da Frota", 
+                                formatar_brasileiro(gasto_frota, 'R$ '),
+                                help="Total gasto com combustível por esta frota"
+                            )
+                        
+                        with col_gasto2:
+                            st.metric(
+                                "💰 Gasto Total da Classe", 
+                                formatar_brasileiro(gasto_classe_total, 'R$ '),
+                                help="Total gasto com combustível por todas as frotas da mesma classe"
+                            )
+                        
+                        with col_gasto3:
+                            st.metric(
+                                "📊 % da Classe", 
+                                f"{porcentagem_classe:.1f}%",
+                                help="Porcentagem que esta frota representa do gasto total da classe"
+                            )
+                        
+                        # Gráfico de comparação
+                        if gasto_classe_total > 0:
+                            df_comparacao_gastos = pd.DataFrame({
+                                'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
+                                'Gasto (R$)': [gasto_frota, gasto_classe_total - gasto_frota]
+                            })
+                            
+                            fig_gastos = px.pie(
+                                df_comparacao_gastos,
+                                values='Gasto (R$)',
+                                names='Categoria',
+                                title=f"Distribuição de Gastos na Classe {classe_selecionada}",
+                                color_discrete_map={
+                                    'Esta Frota': '#ff7f0e',
+                                    'Outras Frotas da Classe': '#1f77b4'
+                                }
+                            )
+                            fig_gastos.update_traces(
+                                textposition='inside',
+                                textinfo='percent+label',
+                                textfont_size=14
+                            )
+                            fig_gastos.update_layout(height=400)
+                            st.plotly_chart(fig_gastos, use_container_width=True)
+                            
+                            # Informações adicionais
+                            st.info(f"""
+                            **📊 Resumo dos Gastos:**
+                            - Esta frota representa **{porcentagem_classe:.1f}%** do gasto total da classe **{classe_selecionada}**
+                            - Gasto médio por frota na classe: **{formatar_brasileiro(gasto_classe_total / df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada].shape[0], 'R$ ')}**
+                            """)
+                    else:
+                        st.warning("⚠️ Para visualizar os gastos com combustível, configure os preços na aba 'Importar Dados > Preços de Combustível'.")
                     
-                    fig_consumo_periodo = px.bar(
-                        df_consumo_periodo,
-                        x='Período',
-                        y='Consumo (L)',
-                        title=f"Consumo de Combustível por Período - Frota {cod_sel}",
-                        text='Rótulo_Formatado',
-                        color='Consumo (L)',
-                        color_continuous_scale='Blues'
-                    )
-                    
-                    # Melhorar a aparência dos rótulos
-                    fig_consumo_periodo.update_traces(
-                        textposition='outside',
-                        texttemplate='%{text}',
-                        textfont=dict(
-                            size=14,
-                            color='#edf5fc',
-                            family='Arial, sans-serif'
-                        ),
-                        hovertemplate='<b>%{x}</b><br>' +
-                                     'Consumo: <b>%{y:,.0f} L</b><br>' +
-                                     '<extra></extra>'
-                    )
-                    
-                    fig_consumo_periodo.update_layout(
-                        height=500,
-                        showlegend=False,
-                        xaxis_title="Período",
-                        yaxis_title="Consumo (Litros)",
-                        title_font=dict(size=18, color='#edf5fc'),
-                        xaxis=dict(
-                            title_font=dict(size=14, color='#edf5fc'),
-                            tickfont=dict(size=12, color='#edf5fc')
-                        ),
-                        yaxis=dict(
-                            title_font=dict(size=14, color='#edf5fc'),
-                            tickfont=dict(size=12, color='#edf5fc'),
-                            tickformat=',.0f'
-                        ),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(t=80, b=80, l=80, r=80)
-                    )
-                    st.plotly_chart(fig_consumo_periodo, use_container_width=True)
+                    st.markdown("---")
+                    st.subheader("⛽ Consumo Total da Frota")
 
-                    # Gráfico de comparação de consumo vs classe
-                    if consumo_classe_total > 0:
-                        df_comparacao_consumo = pd.DataFrame({
-                            'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
-                            'Consumo (L)': [consumo_total_litros, consumo_classe_total - consumo_total_litros]
+                    if not consumo_eq.empty:
+                        # Calcular consumo total em litros
+                        consumo_total_litros = consumo_eq['Qtde_Litros'].sum()
+
+                        # Calcular consumo por período (últimos 30, 90, 365 dias)
+                        hoje = pd.Timestamp.now()
+                        periodos = {
+                            'Últimos 30 dias': 30,
+                            'Últimos 90 dias': 90,
+                            'Últimos 365 dias': 365
+                        }
+
+                        consumos_periodo = {}
+                        for nome_periodo, dias in periodos.items():
+                            data_limite = hoje - pd.Timedelta(days=dias)
+                            consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
+                            consumos_periodo[nome_periodo] = consumo_periodo
+
+                        # Calcular consumo da classe para comparação
+                        classe_selecionada = dados_eq.get('Classe_Operacional')
+                        consumo_classe_total = 0
+                        if classe_selecionada:
+                            df_classe_consumo = df[df['Classe_Operacional'] == classe_selecionada]
+                            consumo_classe_total = df_classe_consumo['Qtde_Litros'].sum()
+
+                        # Calcular porcentagem do consumo da classe
+                        porcentagem_consumo_classe = (consumo_total_litros / consumo_classe_total * 100) if consumo_classe_total > 0 else 0
+
+                        # Métricas de consumo
+                        col_consumo1, col_consumo2, col_consumo3, col_consumo4, col_consumo5 = st.columns(5)
+
+                        with col_consumo1:
+                            st.metric(
+                                "📊 Consumo Total",
+                                f"{formatar_brasileiro_int(consumo_total_litros)} L",
+                                help="Total de litros consumidos por esta frota"
+                            )
+
+                        with col_consumo2:
+                            st.metric(
+                                "📅 Últimos 30 dias",
+                                f"{formatar_brasileiro_int(consumos_periodo['Últimos 30 dias'])} L"
+                            )
+
+                        with col_consumo3:
+                            st.metric(
+                                "📅 Últimos 90 dias",
+                                f"{formatar_brasileiro_int(consumos_periodo['Últimos 90 dias'])} L"
+                            )
+
+                        with col_consumo4:
+                            st.metric(
+                                "📅 Últimos 365 dias",
+                                f"{formatar_brasileiro_int(consumos_periodo['Últimos 365 dias'])} L"
+                            )
+
+                        with col_consumo5:
+                            st.metric(
+                                "📊 % da Classe",
+                                f"{porcentagem_consumo_classe:.1f}%",
+                                help="Porcentagem que esta frota representa do consumo total da classe"
+                            )
+
+                        # Gráfico de consumo por período
+                        df_consumo_periodo = pd.DataFrame({
+                            'Período': list(consumos_periodo.keys()),
+                            'Consumo (L)': list(consumos_periodo.values())
                         })
 
-                        # Melhorar formatação dos rótulos para o gráfico de pizza
-                        df_comparacao_consumo['Rótulo_Formatado'] = df_comparacao_consumo['Consumo (L)'].apply(
-                            lambda x: f"{formatar_brasileiro_int(x)} L"
+                        # Melhorar formatação dos rótulos para o gráfico
+                        df_consumo_periodo['Rótulo_Formatado'] = df_consumo_periodo['Consumo (L)'].apply(
+                            lambda x: f"{formatar_brasileiro_int(x)} L" if x > 0 else "0 L"
                         )
                         
-                        fig_consumo_classe = px.pie(
-                            df_comparacao_consumo,
-                            values='Consumo (L)',
-                            names='Categoria',
-                            title=f"Distribuição de Consumo na Classe {classe_selecionada}",
-                            color_discrete_map={
-                                'Esta Frota': '#ff7f0e',
-                                'Outras Frotas da Classe': '#1f77b4'
-                            }
+                        fig_consumo_periodo = px.bar(
+                            df_consumo_periodo,
+                            x='Período',
+                            y='Consumo (L)',
+                            title=f"Consumo de Combustível por Período - Frota {cod_sel}",
+                            text='Rótulo_Formatado',
+                            color='Consumo (L)',
+                            color_continuous_scale='Blues'
                         )
                         
                         # Melhorar a aparência dos rótulos
-                        fig_consumo_classe.update_traces(
-                            textposition='inside',
-                            textinfo='percent+label',
+                        fig_consumo_periodo.update_traces(
+                            textposition='outside',
+                            texttemplate='%{text}',
                             textfont=dict(
-                                size=16,
-                                color='white',
+                                size=14,
+                                color='#edf5fc',
                                 family='Arial, sans-serif'
                             ),
-                            hovertemplate='<b>%{label}</b><br>' +
-                                         'Consumo: <b>%{value:,.0f} L</b><br>' +
-                                         'Percentual: <b>%{percent:.1%}</b><br>' +
-                                         '<extra></extra>'
+                            hovertemplate='<b>%{x}</b><br>' +
+                                        'Consumo: <b>%{y:,.0f} L</b><br>' +
+                                        '<extra></extra>'
                         )
                         
-                        fig_consumo_classe.update_layout(
-                            height=450,
-                            title_font=dict(size=18, color='#2c3e50'),
-                            showlegend=True,
-                            legend=dict(
-                                font=dict(size=14, color='#34495e'),
-                                bgcolor='rgba(255,255,255,0.8)',
-                                bordercolor='#bdc3c7',
-                                borderwidth=1
+                        fig_consumo_periodo.update_layout(
+                            height=500,
+                            showlegend=False,
+                            xaxis_title="Período",
+                            yaxis_title="Consumo (Litros)",
+                            title_font=dict(size=18, color='#edf5fc'),
+                            xaxis=dict(
+                                title_font=dict(size=14, color='#edf5fc'),
+                                tickfont=dict(size=12, color='#edf5fc')
                             ),
+                            yaxis=dict(
+                                title_font=dict(size=14, color='#edf5fc'),
+                                tickfont=dict(size=12, color='#edf5fc'),
+                                tickformat=',.0f'
+                            ),
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
                             margin=dict(t=80, b=80, l=80, r=80)
                         )
-                        st.plotly_chart(fig_consumo_classe, use_container_width=True)
+                        st.plotly_chart(fig_consumo_periodo, use_container_width=True)
 
-                    # Gráfico de evolução mensal do consumo
-                    if len(consumo_eq) > 1:
-                        consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                        # Gráfico de comparação de consumo vs classe
+                        if consumo_classe_total > 0:
+                            df_comparacao_consumo = pd.DataFrame({
+                                'Categoria': ['Esta Frota', 'Outras Frotas da Classe'],
+                                'Consumo (L)': [consumo_total_litros, consumo_classe_total - consumo_total_litros]
+                            })
 
-                        if not consumo_mensal_frota.empty:
-                            # Melhorar formatação dos dados para o gráfico
-                            consumo_mensal_frota['Consumo_Formatado'] = consumo_mensal_frota['Qtde_Litros'].apply(
+                            # Melhorar formatação dos rótulos para o gráfico de pizza
+                            df_comparacao_consumo['Rótulo_Formatado'] = df_comparacao_consumo['Consumo (L)'].apply(
                                 lambda x: f"{formatar_brasileiro_int(x)} L"
                             )
                             
-                            fig_evolucao = px.line(
-                                consumo_mensal_frota,
-                                x='AnoMes',
-                                y='Qtde_Litros',
-                                title=f"Evolução Mensal do Consumo - Frota {cod_sel}",
-                                labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
-                                markers=True,
-                                text='Consumo_Formatado'
+                            fig_consumo_classe = px.pie(
+                                df_comparacao_consumo,
+                                values='Consumo (L)',
+                                names='Categoria',
+                                title=f"Distribuição de Consumo na Classe {classe_selecionada}",
+                                color_discrete_map={
+                                    'Esta Frota': '#ff7f0e',
+                                    'Outras Frotas da Classe': '#1f77b4'
+                                }
                             )
                             
-                            # Melhorar a aparência dos rótulos e marcadores
-                            fig_evolucao.update_traces(
-                                textposition='top center',
+                            # Melhorar a aparência dos rótulos
+                            fig_consumo_classe.update_traces(
+                                textposition='inside',
+                                textinfo='percent+label',
                                 textfont=dict(
-                                    size=12,
-                                    color='#2c3e50',
+                                    size=16,
+                                    color='white',
                                     family='Arial, sans-serif'
                                 ),
-                                hovertemplate='<b>%{x}</b><br>' +
-                                             'Consumo: <b>%{y:,.0f} L</b><br>' +
-                                             '<extra></extra>',
-                                marker=dict(
-                                    size=8,
-                                    color='#e74c3c',
-                                    line=dict(width=2, color='#edf5fc')
-                                ),
-                                line=dict(width=3, color='#e74c3c')
+                                hovertemplate='<b>%{label}</b><br>' +
+                                            'Consumo: <b>%{value:,.0f} L</b><br>' +
+                                            'Percentual: <b>%{percent:.1%}</b><br>' +
+                                            '<extra></extra>'
                             )
                             
-                            fig_evolucao.update_layout(
-                                height=500,
-                                xaxis_title="Mês/Ano",
-                                yaxis_title="Litros Consumidos",
-                                title_font=dict(size=18, color='#edf5fc'),
-                                xaxis=dict(
-                                    title_font=dict(size=14, color='#edf5fc'),
-                                    tickfont=dict(size=12, color='#edf5fc'),
-                                    tickangle=45
+                            fig_consumo_classe.update_layout(
+                                height=450,
+                                title_font=dict(size=18, color='#2c3e50'),
+                                showlegend=True,
+                                legend=dict(
+                                    font=dict(size=14, color='#34495e'),
+                                    bgcolor='rgba(255,255,255,0.8)',
+                                    bordercolor='#bdc3c7',
+                                    borderwidth=1
                                 ),
-                                yaxis=dict(
-                                    title_font=dict(size=14, color='#edf5fc'),
-                                    tickfont=dict(size=12, color='#edf5fc'),
-                                    tickformat=',.0f'
-                                ),
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)',
                                 margin=dict(t=80, b=80, l=80, r=80)
                             )
-                            st.plotly_chart(fig_evolucao, use_container_width=True)
+                            st.plotly_chart(fig_consumo_classe, use_container_width=True)
 
-                    # Resumo informativo
-                    st.info(f"""
-                    **📈 Resumo do Consumo:**
-                    - **Total histórico:** {formatar_brasileiro_int(consumo_total_litros)} litros
-                    - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde_Litros'].mean())} litros
-                    - **Total de abastecimentos:** {len(consumo_eq)} registros
-                    - **Período de operação:** {consumo_eq['Data'].min().strftime('%d/%m/%Y')} a {consumo_eq['Data'].max().strftime('%d/%m/%Y')}
-                    - **Comparação com classe:** Esta frota representa **{porcentagem_consumo_classe:.1f}%** do consumo total da classe **{classe_selecionada}**
-                    """)
-                else:
-                    st.info("Não há dados de consumo para este equipamento.")
+                        # Gráfico de evolução mensal do consumo
+                        if len(consumo_eq) > 1:
+                            consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
 
-                st.markdown("---")
-                
-                st.subheader("Comparativo de Eficiência")
-            
-                col_grafico, col_alerta = st.columns([2, 1]) 
-
-                if 'Media' not in df.columns or df['Media'].dropna().empty:
-                    col_grafico.warning("A coluna 'Media' não foi encontrada ou está vazia.")
-                else:
-                    consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
-                    media_equip_selecionado = consumo_real_eq['Media'].mean()
-                    
-                    classe_selecionada = dados_eq.get('Classe_Operacional')
-                    media_da_classe = np.nan
-
-                    if classe_selecionada:
-                        consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
-                        media_da_classe = consumo_classe['Media'].mean()
-                        
-                        meta_consumo = st.session_state.intervalos_por_classe.get(classe_selecionada, {}).get('meta_consumo', 0)
-
-                        if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
-                            with col_alerta:
-                                st.write("") 
-                                st.write("")
-                                if meta_consumo > 0 and media_equip_selecionado > meta_consumo * 1.05:
-                                    st.error(f"**ALERTA DE META!** O consumo está acima da meta definida.")
-                                elif media_equip_selecionado <= media_da_classe * 1.05:
-                                    st.success(f"**EFICIENTE!** O consumo está dentro ou abaixo da média da sua classe.")
-                                else:
-                                    st.warning(f"**ATENÇÃO!** O consumo está acima da média da classe.")
-                                
-                                st.metric(label=f"Média do Equipamento", value=formatar_brasileiro(media_equip_selecionado))
-                                st.metric(label=f"Média da Classe", value=formatar_brasileiro(media_da_classe))
-                                if meta_consumo > 0:
-                                    st.metric(label=f"Meta da Classe", value=formatar_brasileiro(meta_consumo))
-
-                            with col_grafico:
-                                # --- INÍCIO DA CORREÇÃO ---
-                                # 1. Define os novos nomes para as categorias do gráfico
-                                nome_frota = f"Frota {dados_eq.get('Cod_Equip')}"
-                                nome_classe = f"Média {classe_selecionada}"
-
-                                df_comp = pd.DataFrame({
-                                    'Categoria': [nome_frota, nome_classe, "Meta Definida"],
-                                    'Média Consumo': [media_equip_selecionado, media_da_classe, meta_consumo]
-                                })
-                                df_comp['texto_formatado'] = df_comp['Média Consumo'].apply(lambda x: formatar_brasileiro(x))
-
-                                fig_comp = px.bar(
-                                    df_comp, 
-                                    x='Categoria', 
-                                    y='Média Consumo', 
-                                    text='texto_formatado', 
-                                    title="Eficiência de Consumo vs. Meta",
-                                    color='Categoria',
-                                    # 2. Atualiza o mapa de cores com os novos nomes
-                                    color_discrete_map={
-                                        nome_frota: 'royalblue',
-                                        nome_classe: 'lightgrey',
-                                        'Meta Definida': 'lightcoral'
-                                    }
+                            if not consumo_mensal_frota.empty:
+                                # Melhorar formatação dos dados para o gráfico
+                                consumo_mensal_frota['Consumo_Formatado'] = consumo_mensal_frota['Qtde_Litros'].apply(
+                                    lambda x: f"{formatar_brasileiro_int(x)} L"
                                 )
-                                # --- FIM DA CORREÇÃO ---
-
-                                fig_comp.update_traces(textposition='outside', width=0.5)
-                                fig_comp.update_layout(height=500, showlegend=False, xaxis_title=None, yaxis_title="Média de Consumo")
-                                st.plotly_chart(fig_comp, use_container_width=True)
-                        else:
-                            col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
-                        
-                st.markdown("---")
-                
-                st.markdown("---")
-                
-                st.subheader("Manutenções Pendentes (Componentes)")
-                dados_manut_pendente = plan_df[plan_df['Cod_Equip'] == cod_sel]
-                
-                if not dados_manut_pendente.empty:
-                    componentes_pendentes = []
-                    for col in dados_manut_pendente.columns:
-                        if 'Restante_' in col:
-                            valor_restante = dados_manut_pendente[col].iloc[0]
-                            if pd.notna(valor_restante):
-                                nome_componente = col.replace('Restante_', '')
-                                unidade = dados_manut_pendente['Unidade'].iloc[0]
-                                componentes_pendentes.append((nome_componente, valor_restante, unidade))
-                    
-                    if componentes_pendentes:
-                        componentes_pendentes.sort(key=lambda x: x[1]) # Ordena para mostrar os mais urgentes primeiro
-                        cols_metricas = st.columns(len(componentes_pendentes))
-                        for i, (nome, valor, unid) in enumerate(componentes_pendentes):
-                            cols_metricas[i].metric(
-                                label=f"Próximo(a) {nome}", 
-                                value=f"{formatar_brasileiro_int(valor)} {unid}"
-                            )
-                    else:
-                        st.success("✅ Nenhum componente com manutenção pendente.")
-                else:
-                    st.info("Sem dados de manutenção para este equipamento.")
-                # --- FIM DA MELHORIA 1 ---
-
-                st.markdown("---")
-                
-                # --- INÍCIO DA MELHORIA 2: Histórico de Manutenção por Componente ---
-                st.subheader("Histórico de Manutenções de Componentes")
-                # Substitui a tabela de manutenções antigas pela nova
-                historico_manut_display = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
-                
-                if not historico_manut_display.empty:
-                    st.dataframe(historico_manut_display[['Data', 'nome_componente', 'Hod_Hor_No_Servico', 'Observacoes']])
-                else:
-                    st.info("Nenhum histórico de manutenção de componentes para este equipamento.")
-                # --- FIM DA MELHORIA 2 ---
-
-                st.subheader("Histórico de Abastecimentos")
-                # O seu histórico de abastecimentos continua igual
-                historico_abast_display = consumo_eq.sort_values("Data", ascending=False)
-                if not historico_abast_display.empty:
-                    # Mostra matrícula (Cod_Equip) e nome do motorista quando disponível
-                    colunas_abast = ["Data", "Qtde_Litros", "Media", "Hod_Hor_Atual", "Matricula", "Nome_Motorista"]
-                    st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display.columns]])
-                else:
-                    st.info("Nenhum registo de abastecimento para este equipamento.")
-                            
-        with tab_manut:
-            st.header("🛠️ Controle de Manutenção")
-            
-            if not plan_df.empty:
-                st.subheader("🚨 Equipamentos com Alertas de Manutenção")
-                df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
-                if not df_com_alerta.empty:
-                    alert_cols = [col for col in df_com_alerta.columns if 'Alerta_' in col]
-                    df_com_alerta['Alertas'] = df_com_alerta[alert_cols].apply(lambda row: ', '.join([col.replace('Alerta_', '') for col, val in row.items() if val is True]), axis=1)
-                    display_cols = ['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Alertas']
-
-                    df_alertas_display = df_com_alerta[display_cols].copy()
-                    df_alertas_display['Leitura_Atual'] = df_alertas_display['Leitura_Atual'].apply(
-                        lambda x: formatar_brasileiro_int(x) if pd.notna(x) else ''
-                    )
-                    st.dataframe(
-                        df_alertas_display,
-                        column_config={"Cod_Equip": st.column_config.NumberColumn(format="%d")}
-                    )
-
-                else:
-                    st.success("✅ Nenhum equipamento com alerta no momento.")
-
-                with st.expander("Ver Plano de Manutenção Completo (Quanto Falta)"):
-                    cols_to_show = ['Cod_Equip', 'Equipamento', 'Leitura_Atual']
-                    for col in plan_df.columns:
-                        if 'Restante_' in col and plan_df[col].notna().any():
-                            cols_to_show.append(col)
-                    
-                    df_plano_display = plan_df[cols_to_show].copy()
-                    for col in df_plano_display.columns:
-                        if col not in ['Cod_Equip', 'Equipamento'] and pd.api.types.is_numeric_dtype(df_plano_display[col]):
-                            df_plano_display[col] = df_plano_display[col].apply(
-                                lambda x: formatar_brasileiro_int(x) if pd.notna(x) else ''
-                            )
-                    st.dataframe(
-                        df_plano_display,
-                        column_config={"Cod_Equip": st.column_config.NumberColumn(format="%d")}
-                    )
-
-            else:
-                st.info("Não há dados suficientes para gerar o plano de manutenção.")
-
-            st.markdown("---")
-            st.subheader("🛠️ Controle de Manutenção por Componentes")
-
-            if not plan_df.empty:
-                df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
-                
-                st.subheader("🚨 Equipamentos com Alertas de Manutenção")
-                if not df_com_alerta.empty:
-                    df_com_alerta['Alertas'] = df_com_alerta['Alertas'].apply(lambda x: ', '.join(x))
-                    display_cols = ['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Alertas']
-                    st.dataframe(df_com_alerta[display_cols])
-                else:
-                    st.success("✅ Nenhum equipamento com alerta no momento.")
-
-                with st.expander("Ver Plano de Manutenção Completo (Quanto Falta)"):
-                    display_cols_full = ['Cod_Equip', 'Equipamento', 'Leitura_Atual']
-                    restante_cols = [col for col in plan_df.columns if 'Restante_' in col]
-                    st.dataframe(plan_df[display_cols_full + restante_cols])
-            else:
-                st.info("Não há dados suficientes para gerar o plano de manutenção.")
-
-            st.markdown("---")
-            st.subheader("📝 Registrar Manutenção de Componente Realizada")
-
-            with st.form("form_add_comp_service", clear_on_submit=True):
-                equip_label = st.selectbox(
-                    "Selecione o Equipamento",
-                    options=df_frotas.sort_values("label")["label"],
-                    key="add_servico_equip"
-                )
-
-                componentes_disponiveis = []
-                if equip_label:
-                    cod_equip_selecionado = int(equip_label.split(" - ")[0])
-                    classe_selecionada = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip_selecionado, 'Classe_Operacional'].iloc[0]
-                    regras_classe = df_comp_regras[df_comp_regras['classe_operacional'] == classe_selecionada]
-                    if not regras_classe.empty:
-                        componentes_disponiveis = regras_classe['nome_componente'].tolist()
-                
-                componente_servico = st.selectbox("Componente que recebeu manutenção", options=componentes_disponiveis)
-                data_servico = st.date_input("Data do Serviço")
-                hod_hor_servico = st.number_input("Leitura no Momento do Serviço", min_value=0.0, format="%.2f")
-
-                if st.form_submit_button("Salvar Manutenção de Componente"):
-                    if equip_label and componente_servico:
-                        cod_equip = int(equip_label.split(" - ")[0])
-                        add_component_service(cod_equip, componente_servico, data_servico.strftime("%Y-%m-%d"), hod_hor_servico, observacoes)
-                        st.success(f"Manutenção do componente '{componente_servico}' para '{equip_label}' registrada com sucesso!")
-                        rerun_keep_tab("🛠️ Controle de Manutenção")
-                    else:
-                        st.warning("Por favor, selecione um equipamento e um componente.")
-                                    
-                    st.markdown("---")
-                    st.subheader("📅 Previsão de Próximas Manutenções")
-                
-            df_previsao = prever_manutencoes(df_frotas, df, plan_df)
-
-            if not df_previsao.empty:
-                    # Filtra para mostrar apenas as previsões para os próximos 90 dias
-                    st.dataframe(df_previsao[df_previsao['Dias Restantes'] <= 90])
-            else:
-                    st.info("Não há dados suficientes para gerar uma previsão de manutenções.")
-                    
-        # APAGUE O CONTEÚDO DA SUA "with tab_checklists:" E SUBSTITUA-O POR ESTE BLOCO
-
-        with tab_checklists:
-            st.header("✅ Checklists de Verificação Diária")
-            st.info("Esta aba mostra os checklists que, de acordo com as regras, precisam de ser preenchidos hoje.")
-
-            hoje = date.today()
-            dia_par = hoje.day % 2 == 0
-            
-            frotas_a_verificar = df_frotas[df_frotas['ATIVO'] == 'ATIVO']
-            regras_a_aplicar = get_checklist_rules()
-
-            if regras_a_aplicar.empty:
-                st.warning("Nenhum modelo de checklist foi configurado. Por favor, vá à aba 'Configurações' para criar um.")
-            else:
-                checklists_para_hoje = False
-                for _, regra in regras_a_aplicar.iterrows():
-                    regra_aplica_hoje = False
-                    # Lógica para determinar se o checklist se aplica hoje
-                    if regra['frequencia'] == 'Diário':
-                        regra_aplica_hoje = True
-                    elif regra['frequencia'] == 'Dias Pares' and dia_par:
-                        regra_aplica_hoje = True
-                    elif regra['frequencia'] == 'Dias Ímpares' and not dia_par:
-                        regra_aplica_hoje = True
-                    # Adicionar aqui a lógica de 'Dia Sim/Não' se necessário no futuro
-
-                    if regra_aplica_hoje:
-                        checklists_para_hoje = True
-                        exp_open_key = st.session_state.get('open_expander_checklists')
-                        with st.expander(
-                            f"**{regra['titulo_checklist']}** - Turno: {regra['turno']}",
-                            expanded=(exp_open_key == f"regra_{regra['id_regra']}"
-                        ) ):
-                            veiculos_da_classe = frotas_a_verificar[frotas_a_verificar['Classe_Operacional'] == regra['classe_operacional']]
-                            itens_checklist = get_checklist_items(regra['id_regra'])
-
-                            if veiculos_da_classe.empty:
-                                st.write("Nenhum veículo ativo encontrado para esta classe.")
-                                continue
-                            if itens_checklist.empty:
-                                st.warning("Este checklist não tem itens configurados. Adicione itens na aba 'Configurações'.")
-                                continue
-
-                            for _, veiculo in veiculos_da_classe.iterrows():
-                                st.subheader(f"Veículo: {veiculo['label']}")
                                 
-                                ja_preenchido = df_checklist_historico[
-                                    (df_checklist_historico['Cod_Equip'] == veiculo['Cod_Equip']) &
-                                    (df_checklist_historico['data_preenchimento'] == hoje.strftime('%Y-%m-%d')) &
-                                    (df_checklist_historico['turno'] == regra['turno'])
-                                ].shape[0] > 0
+                                fig_evolucao = px.line(
+                                    consumo_mensal_frota,
+                                    x='AnoMes',
+                                    y='Qtde_Litros',
+                                    title=f"Evolução Mensal do Consumo - Frota {cod_sel}",
+                                    labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
+                                    markers=True,
+                                    text='Consumo_Formatado'
+                                )
+                                
+                                # Melhorar a aparência dos rótulos e marcadores
+                                fig_evolucao.update_traces(
+                                    textposition='top center',
+                                    textfont=dict(
+                                        size=12,
+                                        color='#2c3e50',
+                                        family='Arial, sans-serif'
+                                    ),
+                                    hovertemplate='<b>%{x}</b><br>' +
+                                                'Consumo: <b>%{y:,.0f} L</b><br>' +
+                                                '<extra></extra>',
+                                    marker=dict(
+                                        size=8,
+                                        color='#e74c3c',
+                                        line=dict(width=2, color='#edf5fc')
+                                    ),
+                                    line=dict(width=3, color='#e74c3c')
+                                )
+                                
+                                fig_evolucao.update_layout(
+                                    height=500,
+                                    xaxis_title="Mês/Ano",
+                                    yaxis_title="Litros Consumidos",
+                                    title_font=dict(size=18, color='#edf5fc'),
+                                    xaxis=dict(
+                                        title_font=dict(size=14, color='#edf5fc'),
+                                        tickfont=dict(size=12, color='#edf5fc'),
+                                        tickangle=45
+                                    ),
+                                    yaxis=dict(
+                                        title_font=dict(size=14, color='#edf5fc'),
+                                        tickfont=dict(size=12, color='#edf5fc'),
+                                        tickformat=',.0f'
+                                    ),
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    margin=dict(t=80, b=80, l=80, r=80)
+                                )
+                                st.plotly_chart(fig_evolucao, use_container_width=True)
 
-                                if ja_preenchido:
-                                    st.success("✔️ Checklist já preenchido hoje para este turno.")
-                                else:
-                                    with st.form(f"form_{regra['id_regra']}_{veiculo['Cod_Equip']}", clear_on_submit=True):
-                                        status_itens = {}
-                                        for _, item in itens_checklist.iterrows():
-                                            status_itens[item['nome_item']] = st.selectbox(
-                                                item['nome_item'],
-                                                options=["Selecione...", "OK", "Com Problema"],
-                                                key=f"item_{item['id_item']}_{veiculo['Cod_Equip']}"
-                                            )
-                                        
-                                        if st.form_submit_button("Salvar Checklist"):
-                                            if any(v == "Selecione..." for v in status_itens.values()):
-                                                st.warning("Selecione uma opção para todos os itens antes de salvar.")
-                                            else:
-                                                status_geral = "Com Problema" if "Com Problema" in status_itens.values() else "OK"
-                                                save_checklist_history(veiculo['Cod_Equip'], regra['titulo_checklist'], hoje.strftime('%Y-%m-%d'), regra['turno'], status_geral)
-                                                st.success("Checklist salvo com sucesso!")
-                                                st.session_state['open_expander_checklists'] = f"regra_{regra['id_regra']}"
-                                                rerun_keep_tab("✅ Checklists Diários")
+                        # Resumo informativo
+                        st.info(f"""
+                        **📈 Resumo do Consumo:**
+                        - **Total histórico:** {formatar_brasileiro_int(consumo_total_litros)} litros
+                        - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde_Litros'].mean())} litros
+                        - **Total de abastecimentos:** {len(consumo_eq)} registros
+                        - **Período de operação:** {consumo_eq['Data'].min().strftime('%d/%m/%Y')} a {consumo_eq['Data'].max().strftime('%d/%m/%Y')}
+                        - **Comparação com classe:** Esta frota representa **{porcentagem_consumo_classe:.1f}%** do consumo total da classe **{classe_selecionada}**
+                        """)
+                    else:
+                        st.info("Não há dados de consumo para este equipamento.")
+
+                    st.markdown("---")
+                    
+                    st.subheader("Comparativo de Eficiência")
                 
-                if not checklists_para_hoje:
-                    st.info("Nenhum checklist agendado para hoje.")
+                    col_grafico, col_alerta = st.columns([2, 1]) 
+
+                    if 'Media' not in df.columns or df['Media'].dropna().empty:
+                        col_grafico.warning("A coluna 'Media' não foi encontrada ou está vazia.")
+                    else:
+                        consumo_real_eq = consumo_eq[(consumo_eq['Media'].notna()) & (consumo_eq['Media'] > 0)]
+                        media_equip_selecionado = consumo_real_eq['Media'].mean()
+                        
+                        classe_selecionada = dados_eq.get('Classe_Operacional')
+                        media_da_classe = np.nan
+
+                        if classe_selecionada:
+                            consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
+                            media_da_classe = consumo_classe['Media'].mean()
+                            
+                            meta_consumo = st.session_state.intervalos_por_classe.get(classe_selecionada, {}).get('meta_consumo', 0)
+
+                            if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
+                                with col_alerta:
+                                    st.write("") 
+                                    st.write("")
+                                    if meta_consumo > 0 and media_equip_selecionado > meta_consumo * 1.05:
+                                        st.error(f"**ALERTA DE META!** O consumo está acima da meta definida.")
+                                    elif media_equip_selecionado <= media_da_classe * 1.05:
+                                        st.success(f"**EFICIENTE!** O consumo está dentro ou abaixo da média da sua classe.")
+                                    else:
+                                        st.warning(f"**ATENÇÃO!** O consumo está acima da média da classe.")
+                                    
+                                    st.metric(label=f"Média do Equipamento", value=formatar_brasileiro(media_equip_selecionado))
+                                    st.metric(label=f"Média da Classe", value=formatar_brasileiro(media_da_classe))
+                                    if meta_consumo > 0:
+                                        st.metric(label=f"Meta da Classe", value=formatar_brasileiro(meta_consumo))
+
+                                with col_grafico:
+                                    # --- INÍCIO DA CORREÇÃO ---
+                                    # 1. Define os novos nomes para as categorias do gráfico
+                                    nome_frota = f"Frota {dados_eq.get('Cod_Equip')}"
+                                    nome_classe = f"Média {classe_selecionada}"
+
+                                    df_comp = pd.DataFrame({
+                                        'Categoria': [nome_frota, nome_classe, "Meta Definida"],
+                                        'Média Consumo': [media_equip_selecionado, media_da_classe, meta_consumo]
+                                    })
+                                    df_comp['texto_formatado'] = df_comp['Média Consumo'].apply(lambda x: formatar_brasileiro(x))
+
+                                    fig_comp = px.bar(
+                                        df_comp, 
+                                        x='Categoria', 
+                                        y='Média Consumo', 
+                                        text='texto_formatado', 
+                                        title="Eficiência de Consumo vs. Meta",
+                                        color='Categoria',
+                                        # 2. Atualiza o mapa de cores com os novos nomes
+                                        color_discrete_map={
+                                            nome_frota: 'royalblue',
+                                            nome_classe: 'lightgrey',
+                                            'Meta Definida': 'lightcoral'
+                                        }
+                                    )
+                                    # --- FIM DA CORREÇÃO ---
+
+                                    fig_comp.update_traces(textposition='outside', width=0.5)
+                                    fig_comp.update_layout(height=500, showlegend=False, xaxis_title=None, yaxis_title="Média de Consumo")
+                                    st.plotly_chart(fig_comp, use_container_width=True)
+                            else:
+                                col_grafico.info("Não há dados de consumo suficientes para gerar o comparativo.")
+                            
+                    st.markdown("---")
+                    
+                    st.markdown("---")
+                    
+                    st.subheader("Manutenções Pendentes (Componentes)")
+                    dados_manut_pendente = plan_df[plan_df['Cod_Equip'] == cod_sel]
+                    
+                    if not dados_manut_pendente.empty:
+                        componentes_pendentes = []
+                        for col in dados_manut_pendente.columns:
+                            if 'Restante_' in col:
+                                valor_restante = dados_manut_pendente[col].iloc[0]
+                                if pd.notna(valor_restante):
+                                    nome_componente = col.replace('Restante_', '')
+                                    unidade = dados_manut_pendente['Unidade'].iloc[0]
+                                    componentes_pendentes.append((nome_componente, valor_restante, unidade))
+                        
+                        if componentes_pendentes:
+                            componentes_pendentes.sort(key=lambda x: x[1]) # Ordena para mostrar os mais urgentes primeiro
+                            cols_metricas = st.columns(len(componentes_pendentes))
+                            for i, (nome, valor, unid) in enumerate(componentes_pendentes):
+                                cols_metricas[i].metric(
+                                    label=f"Próximo(a) {nome}", 
+                                    value=f"{formatar_brasileiro_int(valor)} {unid}"
+                                )
+                        else:
+                            st.success("✅ Nenhum componente com manutenção pendente.")
+                    else:
+                        st.info("Sem dados de manutenção para este equipamento.")
+                    # --- FIM DA MELHORIA 1 ---
+
+                    st.markdown("---")
+                    
+                    # --- INÍCIO DA MELHORIA 2: Histórico de Manutenção por Componente ---
+                    st.subheader("Histórico de Manutenções de Componentes")
+                    # Substitui a tabela de manutenções antigas pela nova
+                    historico_manut_display = df_comp_historico[df_comp_historico['Cod_Equip'] == cod_sel].sort_values("Data", ascending=False)
+                    
+                    if not historico_manut_display.empty:
+                        st.dataframe(historico_manut_display[['Data', 'nome_componente', 'Hod_Hor_No_Servico', 'Observacoes']])
+                    else:
+                        st.info("Nenhum histórico de manutenção de componentes para este equipamento.")
+                    # --- FIM DA MELHORIA 2 ---
+
+                    st.subheader("Histórico de Abastecimentos")
+                    # O seu histórico de abastecimentos continua igual
+                    historico_abast_display = consumo_eq.sort_values("Data", ascending=False)
+                    if not historico_abast_display.empty:
+                        # Mostra matrícula (Cod_Equip) e nome do motorista quando disponível
+                        colunas_abast = ["Data", "Qtde_Litros", "Media", "Hod_Hor_Atual", "Matricula", "Nome_Motorista"]
+                        st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display.columns]])
+                    else:
+                        st.info("Nenhum registo de abastecimento para este equipamento.")
+                                
+        if tab_manut is not None:
+            with tab_manut:
+                st.header("🛠️ Controle de Manutenção")
+                
+                if not plan_df.empty:
+                    st.subheader("🚨 Equipamentos com Alertas de Manutenção")
+                    df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
+                    if not df_com_alerta.empty:
+                        alert_cols = [col for col in df_com_alerta.columns if 'Alerta_' in col]
+                        df_com_alerta['Alertas'] = df_com_alerta[alert_cols].apply(lambda row: ', '.join([col.replace('Alerta_', '') for col, val in row.items() if val is True]), axis=1)
+                        display_cols = ['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Alertas']
+
+                        df_alertas_display = df_com_alerta[display_cols].copy()
+                        df_alertas_display['Leitura_Atual'] = df_alertas_display['Leitura_Atual'].apply(
+                            lambda x: formatar_brasileiro_int(x) if pd.notna(x) else ''
+                        )
+                        st.dataframe(
+                            df_alertas_display,
+                            column_config={"Cod_Equip": st.column_config.NumberColumn(format="%d")}
+                        )
+
+                    else:
+                        st.success("✅ Nenhum equipamento com alerta no momento.")
+
+                    with st.expander("Ver Plano de Manutenção Completo (Quanto Falta)"):
+                        cols_to_show = ['Cod_Equip', 'Equipamento', 'Leitura_Atual']
+                        for col in plan_df.columns:
+                            if 'Restante_' in col and plan_df[col].notna().any():
+                                cols_to_show.append(col)
+                        
+                        df_plano_display = plan_df[cols_to_show].copy()
+                        for col in df_plano_display.columns:
+                            if col not in ['Cod_Equip', 'Equipamento'] and pd.api.types.is_numeric_dtype(df_plano_display[col]):
+                                df_plano_display[col] = df_plano_display[col].apply(
+                                    lambda x: formatar_brasileiro_int(x) if pd.notna(x) else ''
+                                )
+                        st.dataframe(
+                            df_plano_display,
+                            column_config={"Cod_Equip": st.column_config.NumberColumn(format="%d")}
+                        )
+
+                else:
+                    st.info("Não há dados suficientes para gerar o plano de manutenção.")
+
+                st.markdown("---")
+                st.subheader("🛠️ Controle de Manutenção por Componentes")
+
+                if not plan_df.empty:
+                    df_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True].copy()
+                    
+                    st.subheader("🚨 Equipamentos com Alertas de Manutenção")
+                    if not df_com_alerta.empty:
+                        df_com_alerta['Alertas'] = df_com_alerta['Alertas'].apply(lambda x: ', '.join(x))
+                        display_cols = ['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Alertas']
+                        st.dataframe(df_com_alerta[display_cols])
+                    else:
+                        st.success("✅ Nenhum equipamento com alerta no momento.")
+
+                    with st.expander("Ver Plano de Manutenção Completo (Quanto Falta)"):
+                        display_cols_full = ['Cod_Equip', 'Equipamento', 'Leitura_Atual']
+                        restante_cols = [col for col in plan_df.columns if 'Restante_' in col]
+                        st.dataframe(plan_df[display_cols_full + restante_cols])
+                else:
+                    st.info("Não há dados suficientes para gerar o plano de manutenção.")
+
+                st.markdown("---")
+                st.subheader("📝 Registrar Manutenção de Componente Realizada")
+
+                with st.form("form_add_comp_service", clear_on_submit=True):
+                    equip_label = st.selectbox(
+                        "Selecione o Equipamento",
+                        options=df_frotas.sort_values("label")["label"],
+                        key="add_servico_equip"
+                    )
+
+                    componentes_disponiveis = []
+                    if equip_label:
+                        cod_equip_selecionado = int(equip_label.split(" - ")[0])
+                        classe_selecionada = df_frotas.loc[df_frotas['Cod_Equip'] == cod_equip_selecionado, 'Classe_Operacional'].iloc[0]
+                        regras_classe = df_comp_regras[df_comp_regras['classe_operacional'] == classe_selecionada]
+                        if not regras_classe.empty:
+                            componentes_disponiveis = regras_classe['nome_componente'].tolist()
+                    
+                    componente_servico = st.selectbox("Componente que recebeu manutenção", options=componentes_disponiveis)
+                    data_servico = st.date_input("Data do Serviço")
+                    hod_hor_servico = st.number_input("Leitura no Momento do Serviço", min_value=0.0, format="%.2f")
+
+                    if st.form_submit_button("Salvar Manutenção de Componente"):
+                        if equip_label and componente_servico:
+                            cod_equip = int(equip_label.split(" - ")[0])
+                            add_component_service(cod_equip, componente_servico, data_servico.strftime("%Y-%m-%d"), hod_hor_servico, observacoes)
+                            st.success(f"Manutenção do componente '{componente_servico}' para '{equip_label}' registrada com sucesso!")
+                            rerun_keep_tab("🛠️ Controle de Manutenção")
+                        else:
+                            st.warning("Por favor, selecione um equipamento e um componente.")
+                                        
+                        st.markdown("---")
+                        st.subheader("📅 Previsão de Próximas Manutenções")
+                    
+                df_previsao = prever_manutencoes(df_frotas, df, plan_df)
+
+                if not df_previsao.empty:
+                        # Filtra para mostrar apenas as previsões para os próximos 90 dias
+                        st.dataframe(df_previsao[df_previsao['Dias Restantes'] <= 90])
+                else:
+                        st.info("Não há dados suficientes para gerar uma previsão de manutenções.")
+                        
+            # APAGUE O CONTEÚDO DA SUA "with tab_checklists:" E SUBSTITUA-O POR ESTE BLOCO
+
+        if tab_checklists is not None:
+            with tab_checklists:
+                st.header("✅ Checklists de Verificação Diária")
+                st.info("Esta aba mostra os checklists que, de acordo com as regras, precisam de ser preenchidos hoje.")
+
+                hoje = date.today()
+                dia_par = hoje.day % 2 == 0
+                
+                frotas_a_verificar = df_frotas[df_frotas['ATIVO'] == 'ATIVO']
+                regras_a_aplicar = get_checklist_rules()
+
+                if regras_a_aplicar.empty:
+                    st.warning("Nenhum modelo de checklist foi configurado. Por favor, vá à aba 'Configurações' para criar um.")
+                else:
+                    checklists_para_hoje = False
+                    for _, regra in regras_a_aplicar.iterrows():
+                        regra_aplica_hoje = False
+                        # Lógica para determinar se o checklist se aplica hoje
+                        if regra['frequencia'] == 'Diário':
+                            regra_aplica_hoje = True
+                        elif regra['frequencia'] == 'Dias Pares' and dia_par:
+                            regra_aplica_hoje = True
+                        elif regra['frequencia'] == 'Dias Ímpares' and not dia_par:
+                            regra_aplica_hoje = True
+                        # Adicionar aqui a lógica de 'Dia Sim/Não' se necessário no futuro
+
+                        if regra_aplica_hoje:
+                            checklists_para_hoje = True
+                            exp_open_key = st.session_state.get('open_expander_checklists')
+                            with st.expander(
+                                f"**{regra['titulo_checklist']}** - Turno: {regra['turno']}",
+                                expanded=(exp_open_key == f"regra_{regra['id_regra']}"
+                            ) ):
+                                veiculos_da_classe = frotas_a_verificar[frotas_a_verificar['Classe_Operacional'] == regra['classe_operacional']]
+                                itens_checklist = get_checklist_items(regra['id_regra'])
+
+                                if veiculos_da_classe.empty:
+                                    st.write("Nenhum veículo ativo encontrado para esta classe.")
+                                    continue
+                                if itens_checklist.empty:
+                                    st.warning("Este checklist não tem itens configurados. Adicione itens na aba 'Configurações'.")
+                                    continue
+
+                                for _, veiculo in veiculos_da_classe.iterrows():
+                                    st.subheader(f"Veículo: {veiculo['label']}")
+                                    
+                                    ja_preenchido = df_checklist_historico[
+                                        (df_checklist_historico['Cod_Equip'] == veiculo['Cod_Equip']) &
+                                        (df_checklist_historico['data_preenchimento'] == hoje.strftime('%Y-%m-%d')) &
+                                        (df_checklist_historico['turno'] == regra['turno'])
+                                    ].shape[0] > 0
+
+                                    if ja_preenchido:
+                                        st.success("✔️ Checklist já preenchido hoje para este turno.")
+                                    else:
+                                        with st.form(f"form_{regra['id_regra']}_{veiculo['Cod_Equip']}", clear_on_submit=True):
+                                            status_itens = {}
+                                            for _, item in itens_checklist.iterrows():
+                                                status_itens[item['nome_item']] = st.selectbox(
+                                                    item['nome_item'],
+                                                    options=["Selecione...", "OK", "Com Problema"],
+                                                    key=f"item_{item['id_item']}_{veiculo['Cod_Equip']}"
+                                                )
+                                            
+                                            if st.form_submit_button("Salvar Checklist"):
+                                                if any(v == "Selecione..." for v in status_itens.values()):
+                                                    st.warning("Selecione uma opção para todos os itens antes de salvar.")
+                                                else:
+                                                    status_geral = "Com Problema" if "Com Problema" in status_itens.values() else "OK"
+                                                    save_checklist_history(veiculo['Cod_Equip'], regra['titulo_checklist'], hoje.strftime('%Y-%m-%d'), regra['turno'], status_geral)
+                                                    st.success("Checklist salvo com sucesso!")
+                                                    st.session_state['open_expander_checklists'] = f"regra_{regra['id_regra']}"
+                                                    rerun_keep_tab("✅ Checklists Diários")
+                    
+                    if not checklists_para_hoje:
+                        st.info("Nenhum checklist agendado para hoje.")
 
                                 # bloco duplicado removido
                     
-    if st.session_state.role == 'admin':
+    if st.session_state.role == 'admin' and tab_gerir_lanc is not None:
         with tab_gerir_lanc:
                     st.header("⚙️ Gerir Lançamentos de Abastecimento e Manutenção")
                     acao = st.radio(
@@ -4033,7 +4038,8 @@ def main():
                                                             st.success("Manutenção de componente atualizada com sucesso!")
                                                             rerun_keep_tab("⚙️ Gerir Lançamentos")
 
-        with tab_gerir_lub:
+        if tab_gerir_lub is not None:
+            with tab_gerir_lub:
                     st.header("🛢️ Gestão de Lubrificantes")
                     ensure_lubrificantes_schema()
                     conn = sqlite3.connect(DB_PATH)
@@ -4135,250 +4141,251 @@ def main():
 
                     conn.close()
 
-        with tab_gerir_frotas:
-            st.header("⚙️ Gerir Frotas")
-            acao_frota = st.radio(
-                "Selecione a ação que deseja realizar:",
-                ("Cadastrar Nova Frota", "Editar Frota Existente"),
-                horizontal=True,
-                key="acao_frotas"
-            )
-    
-            if acao_frota == "Cadastrar Nova Frota":
-                st.subheader("➕ Cadastrar Nova Frota")
-                with st.form("form_nova_frota", clear_on_submit=True):
-                    st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
-                    
-                    # Campos do formulário
-                    cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
-                    descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
-                    placa = st.text_input("Placa (deixe em branco se não aplicável)")
-                    classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
-                    ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
-                    
-                    # Campo de tipo de combustível
-                    tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                    tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=0)
-                    
-                    submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
-                    
-                    if submitted_frota:
-                        # Validação
-                        if not all([cod_equip, descricao, classe_op]):
-                            st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
-                        elif cod_equip in df_frotas['Cod_Equip'].values:
-                            st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
-                        else:
-                            # Prepara os dados para inserção
-                            dados_frota = {
-                                'cod_equip': cod_equip,
-                                'descricao': descricao,
-                                'placa': placa if placa else None, # Salva None se o campo estiver vazio
-                                'classe_op': classe_op,
-                                'ativo': ativo,
-                                'tipo_combustivel': tipo_combustivel
-                            }
-                            
-                            if inserir_frota(DB_PATH, dados_frota):
-                                st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
-                                rerun_keep_tab("⚙️ Gerir Frotas")
-        
-            elif acao_frota == "Editar Frota Existente":
-                st.subheader("✏️ Editar Frota Existente")
-                equip_para_editar_label = st.selectbox(
-                    "Selecione o equipamento que deseja editar",
-                    options=df_frotas.sort_values("label")["label"],
-                    key="frota_edit_select"
+        if tab_gerir_frotas is not None:
+            with tab_gerir_frotas:
+                st.header("⚙️ Gerir Frotas")
+                acao_frota = st.radio(
+                    "Selecione a ação que deseja realizar:",
+                    ("Cadastrar Nova Frota", "Editar Frota Existente"),
+                    horizontal=True,
+                    key="acao_frotas"
                 )
-    
-                if equip_para_editar_label:
-                    cod_equip_edit = int(equip_para_editar_label.split(" - ")[0])
-                    dados_atuais = df_frotas[df_frotas['Cod_Equip'] == cod_equip_edit].iloc[0]
-    
-                    with st.form("form_edit_frota"):
-                        st.write(f"**Editando:** {dados_atuais['DESCRICAO_EQUIPAMENTO']} (Cód: {dados_atuais['Cod_Equip']})")
-    
-                        nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
-                        nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
-                        nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
+        
+                if acao_frota == "Cadastrar Nova Frota":
+                    st.subheader("➕ Cadastrar Nova Frota")
+                    with st.form("form_nova_frota", clear_on_submit=True):
+                        st.info("Certifique-se de que o Código do Equipamento é único e não existe na base de dados.")
+                        
+                        # Campos do formulário
+                        cod_equip = st.number_input("Código do Equipamento (único)", min_value=1, step=1)
+                        descricao = st.text_input("Descrição do Equipamento (ex: CAMINHÃO BASCULANTE)")
+                        placa = st.text_input("Placa (deixe em branco se não aplicável)")
+                        classe_op = st.text_input("Classe Operacional (ex: Caminhões Pesados)")
+                        ativo = st.selectbox("Status", options=["ATIVO", "INATIVO"])
                         
                         # Campo de tipo de combustível
                         tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                        combustivel_atual = dados_atuais.get('tipo_combustivel', 'Diesel S500')
-                        index_combustivel = tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0
-                        novo_tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=index_combustivel)
+                        tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=0)
                         
-                        status_options = ["ATIVO", "INATIVO"]
-                        index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
-                        novo_status = st.selectbox("Status", options=status_options, index=index_status)
-    
-                        submitted = st.form_submit_button("Salvar Alterações na Frota")
-                        if submitted:
-                            dados_editados = {
-                                'descricao': nova_descricao,
-                                'placa': nova_placa,
-                                'classe_op': nova_classe_op,
-                                'ativo': novo_status,
-                                'tipo_combustivel': novo_tipo_combustivel
-                            }
-                            if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
-                                st.success("Dados da frota atualizados com sucesso!")
-                                rerun_keep_tab("⚙️ Gerir Frotas")
-        
-                # NOVA SEÇÃO: Gerenciar Tipos de Combustível
-            st.markdown("---")
-            st.subheader("⛽ Gerenciar Tipos de Combustível")
-            st.info("Esta seção permite gerenciar os tipos de combustível das frotas de forma eficiente. Acesso restrito a administradores.")
-        
-            # Criar abas para organizar as funcionalidades
-            tab_combustivel_classe, tab_combustivel_frota = st.tabs(["🔄 Por Classe", "✏️ Por Frota"])
-        
-            with tab_combustivel_classe:
-                st.subheader("🔄 Aplicar Combustível a uma Classe Inteira")
-                st.write("Define o tipo de combustível para todas as frotas de uma classe específica. Útil para padronização em massa.")
+                        submitted_frota = st.form_submit_button("Salvar Novo Equipamento")
+                        
+                        if submitted_frota:
+                            # Validação
+                            if not all([cod_equip, descricao, classe_op]):
+                                st.warning("Os campos 'Código', 'Descrição' e 'Classe Operacional' são obrigatórios.")
+                            elif cod_equip in df_frotas['Cod_Equip'].values:
+                                st.error(f"Erro: O Código de Equipamento '{cod_equip}' já existe! Por favor, escolha outro.")
+                            else:
+                                # Prepara os dados para inserção
+                                dados_frota = {
+                                    'cod_equip': cod_equip,
+                                    'descricao': descricao,
+                                    'placa': placa if placa else None, # Salva None se o campo estiver vazio
+                                    'classe_op': classe_op,
+                                    'ativo': ativo,
+                                    'tipo_combustivel': tipo_combustivel
+                                }
+                                
+                                if inserir_frota(DB_PATH, dados_frota):
+                                    st.success(f"Equipamento '{descricao}' cadastrado com sucesso!")
+                                    rerun_keep_tab("⚙️ Gerir Frotas")
             
-                # Selecionar classe
-                classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
-            
-                if not classes_disponiveis:
-                    st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
-                else:
-                    classe_selecionada = st.selectbox(
-                        "Selecione a Classe:",
-                        options=classes_disponiveis,
-                        key="classe_combustivel_admin"
+                elif acao_frota == "Editar Frota Existente":
+                    st.subheader("✏️ Editar Frota Existente")
+                    equip_para_editar_label = st.selectbox(
+                        "Selecione o equipamento que deseja editar",
+                        options=df_frotas.sort_values("label")["label"],
+                        key="frota_edit_select"
                     )
+        
+                    if equip_para_editar_label:
+                        cod_equip_edit = int(equip_para_editar_label.split(" - ")[0])
+                        dados_atuais = df_frotas[df_frotas['Cod_Equip'] == cod_equip_edit].iloc[0]
+        
+                        with st.form("form_edit_frota"):
+                            st.write(f"**Editando:** {dados_atuais['DESCRICAO_EQUIPAMENTO']} (Cód: {dados_atuais['Cod_Equip']})")
+        
+                            nova_descricao = st.text_input("Descrição do Equipamento", value=dados_atuais['DESCRICAO_EQUIPAMENTO'])
+                            nova_placa = st.text_input("Placa", value=dados_atuais['PLACA'])
+                            nova_classe_op = st.text_input("Classe Operacional", value=dados_atuais['Classe_Operacional'])
+                            
+                            # Campo de tipo de combustível
+                            tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                            combustivel_atual = dados_atuais.get('tipo_combustivel', 'Diesel S500')
+                            index_combustivel = tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0
+                            novo_tipo_combustivel = st.selectbox("Tipo de Combustível", options=tipos_combustivel, index=index_combustivel)
+                            
+                            status_options = ["ATIVO", "INATIVO"]
+                            index_status = status_options.index(dados_atuais['ATIVO']) if dados_atuais['ATIVO'] in status_options else 0
+                            novo_status = st.selectbox("Status", options=status_options, index=index_status)
+        
+                            submitted = st.form_submit_button("Salvar Alterações na Frota")
+                            if submitted:
+                                dados_editados = {
+                                    'descricao': nova_descricao,
+                                    'placa': nova_placa,
+                                    'classe_op': nova_classe_op,
+                                    'ativo': novo_status,
+                                    'tipo_combustivel': novo_tipo_combustivel
+                                }
+                                if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
+                                    st.success("Dados da frota atualizados com sucesso!")
+                                    rerun_keep_tab("⚙️ Gerir Frotas")
+            
+                    # NOVA SEÇÃO: Gerenciar Tipos de Combustível
+                st.markdown("---")
+                st.subheader("⛽ Gerenciar Tipos de Combustível")
+                st.info("Esta seção permite gerenciar os tipos de combustível das frotas de forma eficiente. Acesso restrito a administradores.")
+            
+                # Criar abas para organizar as funcionalidades
+                tab_combustivel_classe, tab_combustivel_frota = st.tabs(["🔄 Por Classe", "✏️ Por Frota"])
+            
+                with tab_combustivel_classe:
+                    st.subheader("🔄 Aplicar Combustível a uma Classe Inteira")
+                    st.write("Define o tipo de combustível para todas as frotas de uma classe específica. Útil para padronização em massa.")
                 
-                    # Mostrar informações sobre a classe selecionada
-                    if classe_selecionada:
-                        frotas_da_classe = df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]
-                        st.info(f"**Classe selecionada:** {classe_selecionada}")
-                        st.info(f"**Total de frotas:** {len(frotas_da_classe)}")
-                        st.info(f"**Frotas ativas:** {len(frotas_da_classe[frotas_da_classe['ATIVO'] == 'ATIVO'])}")
-                    
-                        # Mostrar tipos de combustível atuais
-                        if 'tipo_combustivel' in frotas_da_classe.columns:
-                            combustiveis_atuais = frotas_da_classe['tipo_combustivel'].value_counts()
-                            st.write("**Tipos de combustível atuais na classe:**")
-                            for combustivel, count in combustiveis_atuais.items():
-                                st.write(f"- {combustivel}: {count} frotas")
-                    
-                        # Selecionar novo tipo de combustível
-                        tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                        tipo_combustivel_classe = st.selectbox(
-                            "Novo Tipo de Combustível:",
-                            options=tipos_combustivel,
-                            key="tipo_combustivel_classe_admin"
+                    # Selecionar classe
+                    classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
+                
+                    if not classes_disponiveis:
+                        st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
+                    else:
+                        classe_selecionada = st.selectbox(
+                            "Selecione a Classe:",
+                            options=classes_disponiveis,
+                            key="classe_combustivel_admin"
                         )
                     
-                        if st.button("🔄 Aplicar à Classe Inteira", type="primary", use_container_width=True):
-                            with st.spinner("Aplicando tipo de combustível à classe..."):
-                                success, message = update_classe_combustivel(classe_selecionada, tipo_combustivel_classe)
-                                if success:
-                                    st.success(message)
-                                    # Limpar cache para atualizar dados
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                else:
-                                    st.error(message)
-        
-            with tab_combustivel_frota:
-                st.subheader("✏️ Editar Combustível de uma Frota Específica")
-                st.write("Define o tipo de combustível para uma frota específica. Útil para casos especiais ou exceções.")
+                        # Mostrar informações sobre a classe selecionada
+                        if classe_selecionada:
+                            frotas_da_classe = df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]
+                            st.info(f"**Classe selecionada:** {classe_selecionada}")
+                            st.info(f"**Total de frotas:** {len(frotas_da_classe)}")
+                            st.info(f"**Frotas ativas:** {len(frotas_da_classe[frotas_da_classe['ATIVO'] == 'ATIVO'])}")
+                        
+                            # Mostrar tipos de combustível atuais
+                            if 'tipo_combustivel' in frotas_da_classe.columns:
+                                combustiveis_atuais = frotas_da_classe['tipo_combustivel'].value_counts()
+                                st.write("**Tipos de combustível atuais na classe:**")
+                                for combustivel, count in combustiveis_atuais.items():
+                                    st.write(f"- {combustivel}: {count} frotas")
+                        
+                            # Selecionar novo tipo de combustível
+                            tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                            tipo_combustivel_classe = st.selectbox(
+                                "Novo Tipo de Combustível:",
+                                options=tipos_combustivel,
+                                key="tipo_combustivel_classe_admin"
+                            )
+                        
+                            if st.button("🔄 Aplicar à Classe Inteira", type="primary", use_container_width=True):
+                                with st.spinner("Aplicando tipo de combustível à classe..."):
+                                    success, message = update_classe_combustivel(classe_selecionada, tipo_combustivel_classe)
+                                    if success:
+                                        st.success(message)
+                                        # Limpar cache para atualizar dados
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
             
-                # Selecionar frota
-                frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-            
-                if frotas_disponiveis.empty:
-                    st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
-                else:
-                    frotas_disponiveis['label_combustivel'] = (
-                        frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
-                        frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
-                        " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
-                    )
+                with tab_combustivel_frota:
+                    st.subheader("✏️ Editar Combustível de uma Frota Específica")
+                    st.write("Define o tipo de combustível para uma frota específica. Útil para casos especiais ou exceções.")
                 
-                    frota_selecionada = st.selectbox(
-                        "Selecione a Frota:",
-                        options=frotas_disponiveis['label_combustivel'].tolist(),
-                        key="frota_combustivel_admin"
-                    )
+                    # Selecionar frota
+                    frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
                 
-                    if frota_selecionada:
-                        # Obter código da frota selecionada
-                        cod_equip_frota = int(frota_selecionada.split(" - ")[0])
-                    
-                        # Obter dados da frota
-                        dados_frota = frotas_disponiveis[frotas_disponiveis['Cod_Equip'] == cod_equip_frota].iloc[0]
-                    
-                        # Mostrar informações da frota
-                        col_info1, col_info2 = st.columns(2)
-                        with col_info1:
-                            st.write(f"**Código:** {dados_frota['Cod_Equip']}")
-                            st.write(f"**Descrição:** {dados_frota['DESCRICAO_EQUIPAMENTO']}")
-                        with col_info2:
-                            st.write(f"**Placa:** {dados_frota['PLACA']}")
-                            st.write(f"**Classe:** {dados_frota['Classe_Operacional']}")
-                    
-                        # Verificar combustível atual
-                        if 'tipo_combustivel' in dados_frota:
-                            combustivel_atual = dados_frota['tipo_combustivel']
-                            combustivel_atual = combustivel_atual if pd.notna(combustivel_atual) else 'Diesel S500'
-                        else:
-                            combustivel_atual = 'Diesel S500'
-                    
-                        st.info(f"**Combustível atual:** {combustivel_atual}")
-                    
-                        # Selecionar novo tipo de combustível
-                        tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
-                        novo_tipo_combustivel = st.selectbox(
-                            "Novo Tipo de Combustível:",
-                            options=tipos_combustivel,
-                            index=tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0,
-                            key="novo_tipo_combustivel_admin"
+                    if frotas_disponiveis.empty:
+                        st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
+                    else:
+                        frotas_disponiveis['label_combustivel'] = (
+                            frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
+                            frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
+                            " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
                         )
                     
-                        if st.button("✏️ Atualizar Frota", type="secondary", use_container_width=True):
-                            with st.spinner("Atualizando tipo de combustível..."):
-                                success, message = update_frota_combustivel(cod_equip_frota, novo_tipo_combustivel)
-                                if success:
-                                    st.success(message)
-                                    # Limpar cache para atualizar dados
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                else:
-                                    st.error(message)
-        
-            # Resumo dos tipos de combustível
-            st.markdown("---")
-            st.subheader("📊 Resumo dos Tipos de Combustível")
-        
-            if 'tipo_combustivel' in df_frotas.columns:
-                # Estatísticas gerais
-                col_stats1, col_stats2, col_stats3 = st.columns(3)
+                        frota_selecionada = st.selectbox(
+                            "Selecione a Frota:",
+                            options=frotas_disponiveis['label_combustivel'].tolist(),
+                            key="frota_combustivel_admin"
+                        )
+                    
+                        if frota_selecionada:
+                            # Obter código da frota selecionada
+                            cod_equip_frota = int(frota_selecionada.split(" - ")[0])
+                        
+                            # Obter dados da frota
+                            dados_frota = frotas_disponiveis[frotas_disponiveis['Cod_Equip'] == cod_equip_frota].iloc[0]
+                        
+                            # Mostrar informações da frota
+                            col_info1, col_info2 = st.columns(2)
+                            with col_info1:
+                                st.write(f"**Código:** {dados_frota['Cod_Equip']}")
+                                st.write(f"**Descrição:** {dados_frota['DESCRICAO_EQUIPAMENTO']}")
+                            with col_info2:
+                                st.write(f"**Placa:** {dados_frota['PLACA']}")
+                                st.write(f"**Classe:** {dados_frota['Classe_Operacional']}")
+                        
+                            # Verificar combustível atual
+                            if 'tipo_combustivel' in dados_frota:
+                                combustivel_atual = dados_frota['tipo_combustivel']
+                                combustivel_atual = combustivel_atual if pd.notna(combustivel_atual) else 'Diesel S500'
+                            else:
+                                combustivel_atual = 'Diesel S500'
+                        
+                            st.info(f"**Combustível atual:** {combustivel_atual}")
+                        
+                            # Selecionar novo tipo de combustível
+                            tipos_combustivel = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+                            novo_tipo_combustivel = st.selectbox(
+                                "Novo Tipo de Combustível:",
+                                options=tipos_combustivel,
+                                index=tipos_combustivel.index(combustivel_atual) if combustivel_atual in tipos_combustivel else 0,
+                                key="novo_tipo_combustivel_admin"
+                            )
+                        
+                            if st.button("✏️ Atualizar Frota", type="secondary", use_container_width=True):
+                                with st.spinner("Atualizando tipo de combustível..."):
+                                    success, message = update_frota_combustivel(cod_equip_frota, novo_tipo_combustivel)
+                                    if success:
+                                        st.success(message)
+                                        # Limpar cache para atualizar dados
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
             
-                with col_stats1:
-                    total_frotas = len(df_frotas)
-                    st.metric("Total de Frotas", total_frotas)
+                # Resumo dos tipos de combustível
+                st.markdown("---")
+                st.subheader("📊 Resumo dos Tipos de Combustível")
             
-                with col_stats2:
-                    frotas_com_combustivel = df_frotas['tipo_combustivel'].notna().sum()
-                    st.metric("Frotas com Combustível", frotas_com_combustivel)
-            
-                with col_stats3:
-                    tipos_unicos = df_frotas['tipo_combustivel'].nunique()
-                    st.metric("Tipos de Combustível", tipos_unicos)
-            
-                # Distribuição por tipo de combustível
-                st.write("**Distribuição por Tipo de Combustível:**")
-                combustivel_dist = df_frotas['tipo_combustivel'].value_counts()
-                for combustivel, count in combustivel_dist.items():
-                    percentual = (count / total_frotas) * 100
-                    st.write(f"- **{combustivel}: {count} frotas ({percentual:.1f}%)")
-            else:
-                st.warning("Coluna de tipo de combustível não encontrada. Execute a aplicação para criar automaticamente.")
+                if 'tipo_combustivel' in df_frotas.columns:
+                    # Estatísticas gerais
+                    col_stats1, col_stats2, col_stats3 = st.columns(3)
+                
+                    with col_stats1:
+                        total_frotas = len(df_frotas)
+                        st.metric("Total de Frotas", total_frotas)
+                
+                    with col_stats2:
+                        frotas_com_combustivel = df_frotas['tipo_combustivel'].notna().sum()
+                        st.metric("Frotas com Combustível", frotas_com_combustivel)
+                
+                    with col_stats3:
+                        tipos_unicos = df_frotas['tipo_combustivel'].nunique()
+                        st.metric("Tipos de Combustível", tipos_unicos)
+                
+                    # Distribuição por tipo de combustível
+                    st.write("**Distribuição por Tipo de Combustível:**")
+                    combustivel_dist = df_frotas['tipo_combustivel'].value_counts()
+                    for combustivel, count in combustivel_dist.items():
+                        percentual = (count / total_frotas) * 100
+                        st.write(f"- **{combustivel}: {count} frotas ({percentual:.1f}%)")
+                else:
+                    st.warning("Coluna de tipo de combustível não encontrada. Execute a aplicação para criar automaticamente.")
 
-        # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
+            # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
 
         with tab_config:
             st.header("⚙️ Configurar Manutenções e Checklists")
@@ -4451,7 +4458,8 @@ def main():
                         else:
                             st.warning("Por favor, preencha todos os campos obrigatórios.")
                         
-        with tab_importar:
+        if tab_importar is not None:
+            with tab_importar:
                     st.header("📤 Importar Dados")
                     sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes = st.tabs(
                         ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes"]
@@ -4679,45 +4687,47 @@ def main():
                                 st.success("Lubrificante cadastrado!")
                                 st.rerun()
                             
-        with tab_saude:
-                    st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
-                    st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
+            if tab_saude is not None:
+                with tab_saude:
+                        st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
+                        st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
 
-                    st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
-                    df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
-                    df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
+                        st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
+                        df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
+                        df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
 
-                    erros_hodometro = df_abastecimentos_sorted[
-                        df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
-                    ]
+                        erros_hodometro = df_abastecimentos_sorted[
+                            df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
+                        ]
 
-                    if not erros_hodometro.empty:
-                        st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
-                        st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
-                    else:
-                        st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
+                        if not erros_hodometro.empty:
+                            st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
+                            st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
+                        else:
+                            st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
 
-                    st.markdown("---")
-                    st.subheader("2. Verificação de Frotas Inativas")
+                        st.markdown("---")
+                        st.subheader("2. Verificação de Frotas Inativas")
 
-                    data_limite = datetime.now() - pd.Timedelta(days=90)
-                    ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
+                        data_limite = datetime.now() - pd.Timedelta(days=90)
+                        ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
 
-                    frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-                    frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
+                        frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
+                        frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
 
-                    frotas_inativas = frotas_ativas[
-                        (frotas_ativas['Ultimo_Abastecimento'].isna()) | 
-                        (frotas_ativas['Ultimo_Abastecimento'] < data_limite)
-                    ]
+                        frotas_inativas = frotas_ativas[
+                            (frotas_ativas['Ultimo_Abastecimento'].isna()) | 
+                            (frotas_ativas['Ultimo_Abastecimento'] < data_limite)
+                        ]
 
-                    if not frotas_inativas.empty:
-                        st.warning(f"**Atenção:** Foram encontradas {len(frotas_inativas)} frotas marcadas como 'ATIVAS' que não têm abastecimentos nos últimos 90 dias.")
-                        st.dataframe(frotas_inativas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Ultimo_Abastecimento']])
-                    else:
-                        st.success("✅ Todas as frotas ativas têm registos de abastecimento recentes.")
+                        if not frotas_inativas.empty:
+                            st.warning(f"**Atenção:** Foram encontradas {len(frotas_inativas)} frotas marcadas como 'ATIVAS' que não têm abastecimentos nos últimos 90 dias.")
+                            st.dataframe(frotas_inativas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Ultimo_Abastecimento']])
+                        else:
+                            st.success("✅ Todas as frotas ativas têm registos de abastecimento recentes.")
                         
-        with tab_gerir_users:
+        if tab_gerir_users is not None:
+            with tab_gerir_users:
                         st.header("👤 Gestão de Usuários")
                         
                         acao_user = st.radio(
@@ -4784,55 +4794,56 @@ def main():
                                             rerun_keep_tab("👤 Gerir Utilizadores", clear_cache=False)
                                         else:
                                             st.error(message)
-        with tab_gerir_checklists:
-            st.header("✅ Gerir Checklists")
-            
-            # Criar abas para organizar melhor as funcionalidades
-            tab_config, tab_historico = st.tabs(["⚙️ Configuração", "🗑️ Histórico"])
-            
-            with tab_config:
-                col_regras, col_itens = st.columns(2)
-                with col_regras:
+        if tab_gerir_checklists is not None:
+            with tab_gerir_checklists:
+                    st.header("✅ Gerir Checklists")
+                    
+                    # Criar abas para organizar melhor as funcionalidades
+                    tab_config, tab_historico = st.tabs(["⚙️ Configuração", "🗑️ Histórico"])
+                    
+                    with tab_config:
+                        col_regras, col_itens = st.columns(2)
+                        with col_regras:
 
-                    st.subheader("📋 Regras de Checklist")
-                    regras_df = get_checklist_rules()
-                    if not regras_df.empty:
-                        st.dataframe(regras_df)
-                    else:
-                        st.info("Nenhuma regra cadastrada.")
-
-                    with st.form("form_add_regra", clear_on_submit=True):
-                        id_regra_edit = st.selectbox(
-                            "Editar Regra (ou deixe em branco para criar nova)",
-                            options=[""] + (regras_df['id_regra'].astype(str).tolist() if not regras_df.empty else [""])
-                        )
-                        classe_op = st.text_input("Classe Operacional")
-                        titulo = st.text_input("Título do Checklist")
-                        frequencia = st.selectbox("Frequência", ["Diário", "Dias Pares", "Dias Ímpares"])
-                        turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noite"]) 
-
-                        if st.form_submit_button("Salvar Regra"):
-                            if id_regra_edit:
-                                ok, msg = edit_checklist_rule(int(id_regra_edit), classe_op, titulo, turno, frequencia)
+                            st.subheader("📋 Regras de Checklist")
+                            regras_df = get_checklist_rules()
+                            if not regras_df.empty:
+                                st.dataframe(regras_df)
                             else:
-                                ok, msg = add_checklist_rule(classe_op, titulo, turno, frequencia)
-                            if ok:
-                                st.success(str(msg))
-                            else:
-                                st.error(str(msg))
-                            rerun_keep_tab("✅ Gerir Checklists")
+                                st.info("Nenhuma regra cadastrada.")
 
-                    if not regras_df.empty:
-                        regra_del = st.selectbox("Selecione a Regra para excluir", regras_df['id_regra'])
-                        if st.button("Excluir Regra"):
-                            ok, msg = delete_checklist_rule(regra_del)
-                            if ok:
-                                st.success(str(msg))
-                            else:
-                                st.error(str(msg))
-                            rerun_keep_tab("✅ Gerir Checklists")
+                            with st.form("form_add_regra", clear_on_submit=True):
+                                id_regra_edit = st.selectbox(
+                                    "Editar Regra (ou deixe em branco para criar nova)",
+                                    options=[""] + (regras_df['id_regra'].astype(str).tolist() if not regras_df.empty else [""])
+                                )
+                                classe_op = st.text_input("Classe Operacional")
+                                titulo = st.text_input("Título do Checklist")
+                                frequencia = st.selectbox("Frequência", ["Diário", "Dias Pares", "Dias Ímpares"])
+                                turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noite"]) 
 
-                with col_itens:
+                                if st.form_submit_button("Salvar Regra"):
+                                    if id_regra_edit:
+                                        ok, msg = edit_checklist_rule(int(id_regra_edit), classe_op, titulo, turno, frequencia)
+                                    else:
+                                        ok, msg = add_checklist_rule(classe_op, titulo, turno, frequencia)
+                                    if ok:
+                                        st.success(str(msg))
+                                    else:
+                                        st.error(str(msg))
+                                    rerun_keep_tab("✅ Gerir Checklists")
+
+                            if not regras_df.empty:
+                                regra_del = st.selectbox("Selecione a Regra para excluir", regras_df['id_regra'])
+                                if st.button("Excluir Regra"):
+                                    ok, msg = delete_checklist_rule(regra_del)
+                                    if ok:
+                                        st.success(str(msg))
+                                    else:
+                                        st.error(str(msg))
+                                    rerun_keep_tab("✅ Gerir Checklists")
+
+            with col_itens:
                     st.subheader("📝 Itens de Checklist")
                     if regras_df.empty:
                         st.warning("Cadastre pelo menos uma regra para poder adicionar itens.")
@@ -4952,94 +4963,95 @@ def main():
                                 st.error(message)
         
         # Aba de Backup para persistência no Streamlit Cloud
-        with tab_backup:
-            st.header("💾 Backup e Restauração")
-            st.info("Esta seção permite gerenciar backups dos dados para garantir persistência no Streamlit Cloud.")
-            
-            col_backup, col_restore = st.columns(2)
-            
-            with col_backup:
-                st.subheader("📤 Criar Backup")
-                st.write("Cria um backup completo dos dados atuais e salva na sessão do Streamlit.")
+        if tab_backup is not None:
+            with tab_backup:
+                st.header("💾 Backup e Restauração")
+                st.info("Esta seção permite gerenciar backups dos dados para garantir persistência no Streamlit Cloud.")
                 
-                if st.button("💾 Criar Backup", type="primary"):
-                    with st.spinner("Criando backup..."):
-                        success, message = save_backup_to_session_state()
-                        if success:
-                            st.success(message)
-                            st.info(f"Backup criado em: {st.session_state.get('backup_timestamp', 'N/A')}")
-                        else:
-                            st.error(message)
+                col_backup, col_restore = st.columns(2)
                 
-                # Mostrar status do backup atual
-                if 'database_backup' in st.session_state:
-                    st.success("✅ Backup disponível na sessão")
-                    st.info(f"Último backup: {st.session_state.get('backup_timestamp', 'N/A')}")
+                with col_backup:
+                    st.subheader("📤 Criar Backup")
+                    st.write("Cria um backup completo dos dados atuais e salva na sessão do Streamlit.")
                     
-                    # Botão para download do backup
-                    backup_b64 = st.session_state['database_backup']
-                    backup_bytes = base64.b64decode(backup_b64)
-                    
-                    st.download_button(
-                        label="📥 Download do Backup",
-                        data=backup_bytes,
-                        file_name=f"backup_database_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                        mime="application/json"
-                    )
-                else:
-                    st.warning("⚠️ Nenhum backup disponível")
-            
-            with col_restore:
-                st.subheader("📥 Restaurar Backup")
-                st.write("Restaura dados de um backup salvo na sessão.")
-                
-                if 'database_backup' in st.session_state:
-                    if st.button("🔄 Restaurar Backup", type="secondary"):
-                        with st.spinner("Restaurando backup..."):
-                            success, message = restore_backup_from_session_state()
+                    if st.button("💾 Criar Backup", type="primary"):
+                        with st.spinner("Criando backup..."):
+                            success, message = save_backup_to_session_state()
                             if success:
                                 st.success(message)
-                                st.info("Os dados foram restaurados. A aplicação será recarregada.")
+                                st.info(f"Backup criado em: {st.session_state.get('backup_timestamp', 'N/A')}")
                             else:
                                 st.error(message)
-                else:
-                    st.info("Crie um backup primeiro para poder restaurar.")
-            
-            # Seção de informações sobre persistência
-            st.markdown("---")
-            st.subheader("ℹ️ Sobre Persistência no Streamlit Cloud")
-            
-            st.info("""
-            **Por que os dados voltam após reiniciar?**
-            
-            O Streamlit Cloud recria o ambiente a cada deploy ou reinicialização, 
-            perdendo todos os dados do banco SQLite. Para resolver isso:
-            
-            1. **Crie um backup** sempre que fizer alterações importantes
-            2. **O backup é salvo na sessão** e persiste durante a navegação
-            3. **Após reiniciar**, restaure o backup para recuperar os dados
-            
-            **Dica:** Faça backup antes de sair da aplicação!
-            """)
-            
-            # Backup automático após operações importantes
-            if st.button("🔄 Backup Automático", type="secondary"):
-                with st.spinner("Verificando e criando backup automático..."):
-                    # Verificar se há dados no banco
-                    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-                    num_tables = cursor.fetchone()[0]
-                    conn.close()
                     
-                    if num_tables > 0:
-                        success, message = save_backup_to_session_state()
-                        if success:
-                            st.success(f"Backup automático criado: {message}")
-                        else:
-                            st.error(f"Erro no backup automático: {message}")
+                    # Mostrar status do backup atual
+                    if 'database_backup' in st.session_state:
+                        st.success("✅ Backup disponível na sessão")
+                        st.info(f"Último backup: {st.session_state.get('backup_timestamp', 'N/A')}")
+                        
+                        # Botão para download do backup
+                        backup_b64 = st.session_state['database_backup']
+                        backup_bytes = base64.b64decode(backup_b64)
+                        
+                        st.download_button(
+                            label="📥 Download do Backup",
+                            data=backup_bytes,
+                            file_name=f"backup_database_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json"
+                        )
                     else:
-                        st.warning("Nenhuma tabela encontrada no banco de dados.")
+                        st.warning("⚠️ Nenhum backup disponível")
+                
+                with col_restore:
+                    st.subheader("📥 Restaurar Backup")
+                    st.write("Restaura dados de um backup salvo na sessão.")
                     
+                    if 'database_backup' in st.session_state:
+                        if st.button("🔄 Restaurar Backup", type="secondary"):
+                            with st.spinner("Restaurando backup..."):
+                                success, message = restore_backup_from_session_state()
+                                if success:
+                                    st.success(message)
+                                    st.info("Os dados foram restaurados. A aplicação será recarregada.")
+                                else:
+                                    st.error(message)
+                    else:
+                        st.info("Crie um backup primeiro para poder restaurar.")
+                
+                # Seção de informações sobre persistência
+                st.markdown("---")
+                st.subheader("ℹ️ Sobre Persistência no Streamlit Cloud")
+                
+                st.info("""
+                **Por que os dados voltam após reiniciar?**
+                
+                O Streamlit Cloud recria o ambiente a cada deploy ou reinicialização, 
+                perdendo todos os dados do banco SQLite. Para resolver isso:
+                
+                1. **Crie um backup** sempre que fizer alterações importantes
+                2. **O backup é salvo na sessão** e persiste durante a navegação
+                3. **Após reiniciar**, restaure o backup para recuperar os dados
+                
+                **Dica:** Faça backup antes de sair da aplicação!
+                """)
+                
+                # Backup automático após operações importantes
+                if st.button("🔄 Backup Automático", type="secondary"):
+                    with st.spinner("Verificando e criando backup automático..."):
+                        # Verificar se há dados no banco
+                        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                        num_tables = cursor.fetchone()[0]
+                        conn.close()
+                        
+                        if num_tables > 0:
+                            success, message = save_backup_to_session_state()
+                            if success:
+                                st.success(f"Backup automático criado: {message}")
+                            else:
+                                st.error(f"Erro no backup automático: {message}")
+                        else:
+                            st.warning("Nenhuma tabela encontrada no banco de dados.")
+                        
 if __name__ == "__main__":
     main()
