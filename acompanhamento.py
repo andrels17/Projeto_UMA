@@ -761,6 +761,33 @@ def editar_manutencao_componente_advanced(DB_PATH, rowid, dados_editados):
     except Exception as e:
         return False, f"Erro ao atualizar manutenção de componente: {e}"
 
+def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca"):
+    """Atualiza uma regra de componente existente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_regras 
+                SET nome_componente = ?, intervalo_padrao = ?, lubrificante_id = ?, tipo_manutencao = ?
+                WHERE id_regra = ?
+            """, (nome_componente, intervalo, lubrificante_id, tipo_manutencao, rule_id))
+            conn.commit()
+        return True, f"Componente '{nome_componente}' atualizado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar componente: {e}"
+
 
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
@@ -4865,29 +4892,104 @@ def main():
                             df_display['Unidade'] = 'km' if df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h'
                             df_display['Intervalo'] = df_display['intervalo_padrao'].astype(str) + ' ' + df_display['Unidade']
                             
-                            # Exibir tabela
-                            st.dataframe(
-                                df_display[['nome_componente', 'Intervalo', 'Lubrificante', 'tipo_manutencao']],
-                                column_config={
-                                    "nome_componente": "Componente",
-                                    "Intervalo": "Intervalo de Troca",
-                                    "Lubrificante": "Lubrificante",
-                                    "tipo_manutencao": "Tipo de Manutenção"
-                                },
-                                use_container_width=True
-                            )
-                            
-                            # Botões de remoção em linha
-                            col_acoes = st.columns(len(regras_atuais))
-                            for i, (_, regra) in enumerate(regras_atuais.iterrows()):
-                                with col_acoes[i]:
-                                    if st.button("🗑️ Remover", key=f"del_comp_{regra['id_regra']}"):
-                                        delete_component_rule(regra['id_regra'])
-                                        rerun_keep_tab("⚙️ Configurações")
+                            # Exibir tabela com ações
+                            for _, regra in regras_atuais.iterrows():
+                                with st.container():
+                                    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+                                    
+                                    with col1:
+                                        st.write(f"**{regra['nome_componente']}**")
+                                    
+                                    with col2:
+                                        st.write(f"{regra['intervalo_padrao']} {df_display['Unidade'].iloc[0]}")
+                                    
+                                    with col3:
+                                        lub_info = df_display[df_display['nome_componente'] == regra['nome_componente']]['Lubrificante'].iloc[0]
+                                        st.write(lub_info)
+                                    
+                                    with col4:
+                                        st.write(regra.get('tipo_manutencao', 'Troca'))
+                                    
+                                    with col5:
+                                        # Botões de ação
+                                        col_edit, col_del = st.columns(2)
+                                        with col_edit:
+                                            if st.button("✏️", key=f"edit_comp_{regra['id_regra']}", help="Editar componente"):
+                                                st.session_state['editing_component'] = regra['id_regra']
+                                                st.session_state['editing_component_data'] = regra.to_dict()
+                                                rerun_keep_tab("⚙️ Configurações")
+                                        with col_del:
+                                            if st.button("🗑️", key=f"del_comp_{regra['id_regra']}", help="Remover componente"):
+                                                delete_component_rule(regra['id_regra'])
+                                                rerun_keep_tab("⚙️ Configurações")
+                                    
+                                    st.markdown("---")
                         else:
                             st.info("Nenhum componente configurado para esta classe.")
                         
                         st.markdown("---")
+                        
+                        # Verificar se está editando um componente
+                        editing_component = st.session_state.get('editing_component')
+                        editing_data = st.session_state.get('editing_component_data')
+                        
+                        if editing_component and editing_data:
+                            # Formulário de edição
+                            with st.form(f"form_edit_{classe_selecionada}", clear_on_submit=True):
+                                st.write("**✏️ Editar Componente**")
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    novo_comp_nome = st.text_input("Nome do Componente", value=editing_data['nome_componente'], key=f"edit_nome_{classe_selecionada}")
+                                    novo_comp_intervalo = st.number_input("Intervalo de Troca (km/h)", min_value=1, step=50, value=editing_data['intervalo_padrao'], key=f"edit_int_{classe_selecionada}")
+                                
+                                with col2:
+                                    # Seleção de lubrificante (opcional)
+                                    lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
+                                    lub_atual = "Sem lubrificante"
+                                    if editing_data.get('lubrificante_id'):
+                                        lub_info = df_lubrificantes[df_lubrificantes['id'] == editing_data['lubrificante_id']]
+                                        if not lub_info.empty:
+                                            lub_atual = lub_info.iloc[0]['nome']
+                                    
+                                    index_lub = lubrificantes_opcoes.index(lub_atual) if lub_atual in lubrificantes_opcoes else 0
+                                    lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, index=index_lub, key=f"edit_lub_{classe_selecionada}")
+                                    
+                                    # Tipo de manutenção
+                                    tipo_atual = editing_data.get('tipo_manutencao', 'Troca')
+                                    tipo_opcoes = ["Troca", "Remonta", "Ambos"]
+                                    index_tipo = tipo_opcoes.index(tipo_atual) if tipo_atual in tipo_opcoes else 0
+                                    tipo_manutencao = st.selectbox("Tipo de Manutenção", options=tipo_opcoes, index=index_tipo, key=f"edit_tipo_{classe_selecionada}")
+                                
+                                col_save, col_cancel = st.columns(2)
+                                with col_save:
+                                    if st.form_submit_button("💾 Salvar Alterações"):
+                                        if novo_comp_nome:
+                                            # Obter ID do lubrificante se selecionado
+                                            lubrificante_id = None
+                                            if lubrificante_selecionado != "Sem lubrificante":
+                                                lub_info = df_lubrificantes[df_lubrificantes['nome'] == lubrificante_selecionado]
+                                                if not lub_info.empty:
+                                                    lubrificante_id = lub_info.iloc[0]['id']
+                                            
+                                            success, message = update_component_rule(editing_component, novo_comp_nome, novo_comp_intervalo, lubrificante_id, tipo_manutencao)
+                                            if success:
+                                                st.success(message)
+                                                # Limpar estado de edição
+                                                st.session_state.pop('editing_component', None)
+                                                st.session_state.pop('editing_component_data', None)
+                                                rerun_keep_tab("⚙️ Configurações")
+                                            else:
+                                                st.error(message)
+                                        else:
+                                            st.warning("Por favor, informe o nome do componente.")
+                                
+                                with col_cancel:
+                                    if st.form_submit_button("❌ Cancelar"):
+                                        st.session_state.pop('editing_component', None)
+                                        st.session_state.pop('editing_component_data', None)
+                                        rerun_keep_tab("⚙️ Configurações")
                         
                         # Formulário para adicionar novo componente
                         with st.form(f"form_add_{classe_selecionada}", clear_on_submit=True):
@@ -4951,15 +5053,137 @@ def main():
                 # --- Gestão de Checklists ---
                 exp_chk_open = st.session_state.get('open_expander_config_checklists', True)
                 with st.expander("Configurar Checklists Diários", expanded=bool(exp_chk_open)):
-                    st.subheader("Modelos de Checklist Existentes")
                     regras_checklist = get_checklist_rules()
+                    
+                    # Seção de checklists existentes
                     if not regras_checklist.empty:
-                        st.table(regras_checklist[['titulo_checklist', 'classe_operacional', 'frequencia', 'turno']])
+                        st.subheader("📋 Modelos de Checklist Existentes")
+                        
+                        # Criar abas para cada checklist
+                        for _, regra in regras_checklist.iterrows():
+                            with st.container():
+                                col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+                                
+                                with col1:
+                                    st.write(f"**{regra['titulo_checklist']}**")
+                                
+                                with col2:
+                                    st.write(regra['classe_operacional'])
+                                
+                                with col3:
+                                    st.write(regra['frequencia'])
+                                
+                                with col4:
+                                    st.write(regra['turno'])
+                                
+                                with col5:
+                                    # Botões de ação
+                                    col_edit_chk, col_del_chk = st.columns(2)
+                                    with col_edit_chk:
+                                        if st.button("✏️", key=f"edit_chk_{regra['id_regra']}", help="Editar checklist"):
+                                            st.session_state['editing_checklist'] = regra['id_regra']
+                                            st.session_state['editing_checklist_data'] = regra.to_dict()
+                                            rerun_keep_tab("⚙️ Configurações")
+                                    with col_del_chk:
+                                        if st.button("🗑️", key=f"del_chk_{regra['id_regra']}", help="Remover checklist"):
+                                            # Buscar e excluir itens primeiro
+                                            itens_checklist = get_checklist_items(regra['id_regra'])
+                                            for _, item in itens_checklist.iterrows():
+                                                delete_checklist_item(item['id_item'])
+                                            # Excluir regra
+                                            delete_checklist_rule(regra['id_regra'])
+                                            st.success("Checklist removido com sucesso!")
+                                            rerun_keep_tab("⚙️ Configurações")
+                                
+                                # Mostrar itens do checklist
+                                itens_checklist = get_checklist_items(regra['id_regra'])
+                                if not itens_checklist.empty:
+                                    with st.expander(f"Ver itens do checklist '{regra['titulo_checklist']}'", expanded=False):
+                                        for _, item in itens_checklist.iterrows():
+                                            col_item, col_del_item = st.columns([4, 1])
+                                            with col_item:
+                                                st.write(f"• {item['nome_item']}")
+                                            with col_del_item:
+                                                if st.button("🗑️", key=f"del_item_{item['id_item']}", help="Remover item"):
+                                                    delete_checklist_item(item['id_item'])
+                                                    st.success("Item removido!")
+                                                    rerun_keep_tab("⚙️ Configurações")
+                                
+                                st.markdown("---")
                     else:
                         st.info("Nenhum modelo de checklist criado.")
-
+                    
+                    # Verificar se está editando um checklist
+                    editing_checklist = st.session_state.get('editing_checklist')
+                    editing_checklist_data = st.session_state.get('editing_checklist_data')
+                    
+                    if editing_checklist and editing_checklist_data:
+                        # Formulário de edição de checklist
+                        with st.form(f"form_edit_checklist", clear_on_submit=True):
+                            st.subheader("✏️ Editar Checklist")
+                            
+                            col1_edit, col2_edit = st.columns(2)
+                            
+                            with col1_edit:
+                                novo_titulo = st.text_input("Título do Checklist", value=editing_checklist_data['titulo_checklist'], key="edit_chk_titulo")
+                                nova_frequencia = st.selectbox("Frequência", options=['Diário', 'Dias Pares', 'Dias Ímpares'], 
+                                                             index=['Diário', 'Dias Pares', 'Dias Ímpares'].index(editing_checklist_data['frequencia']), 
+                                                             key="edit_chk_freq")
+                            
+                            with col2_edit:
+                                nova_classe = st.selectbox("Classe Operacional", options=classes_operacionais, 
+                                                         index=classes_operacionais.index(editing_checklist_data['classe_operacional']), 
+                                                         key="edit_chk_classe")
+                                novo_turno = st.selectbox("Turno", options=['Manhã', 'Noite', 'N/A'], 
+                                                        index=['Manhã', 'Noite', 'N/A'].index(editing_checklist_data['turno']), 
+                                                        key="edit_chk_turno")
+                            
+                            # Mostrar itens atuais
+                            itens_atuais = get_checklist_items(editing_checklist)
+                            if not itens_atuais.empty:
+                                st.write("**Itens atuais:**")
+                                for _, item in itens_atuais.iterrows():
+                                    st.write(f"• {item['nome_item']}")
+                            
+                            st.write("**Novos itens (substituirão os atuais):**")
+                            novos_itens_texto = st.text_area("Itens do Checklist", height=150, key="edit_chk_itens", 
+                                                           placeholder="Nível do Óleo\nPressão dos Pneus\nVerificar Facas")
+                            
+                            col_save_chk, col_cancel_chk = st.columns(2)
+                            with col_save_chk:
+                                if st.form_submit_button("💾 Salvar Alterações"):
+                                    if novo_titulo and novos_itens_texto:
+                                        # Atualizar regra
+                                        success, msg = edit_checklist_rule(editing_checklist, editing_checklist_data['classe_operacional'], 
+                                                                         novo_titulo, editing_checklist_data['turno'], nova_frequencia)
+                                        if success:
+                                            # Remover itens antigos
+                                            for _, item in itens_atuais.iterrows():
+                                                delete_checklist_item(item['id_item'])
+                                            
+                                            # Adicionar novos itens
+                                            itens_lista = [item.strip() for item in novos_itens_texto.split('\n') if item.strip()]
+                                            for item in itens_lista:
+                                                add_checklist_item(editing_checklist, item)
+                                            
+                                            st.success("Checklist atualizado com sucesso!")
+                                            st.session_state.pop('editing_checklist', None)
+                                            st.session_state.pop('editing_checklist_data', None)
+                                            rerun_keep_tab("⚙️ Configurações")
+                                        else:
+                                            st.error(msg)
+                                    else:
+                                        st.warning("Por favor, preencha todos os campos obrigatórios.")
+                            
+                            with col_cancel_chk:
+                                if st.form_submit_button("❌ Cancelar"):
+                                    st.session_state.pop('editing_checklist', None)
+                                    st.session_state.pop('editing_checklist_data', None)
+                                    rerun_keep_tab("⚙️ Configurações")
+                    
+                    # Formulário para adicionar novo checklist
                     with st.form("form_add_checklist", clear_on_submit=True):
-                        st.subheader("Criar Novo Modelo de Checklist")
+                        st.subheader("➕ Criar Novo Modelo de Checklist")
                         
                         col1_form, col2_form = st.columns(2)
                         nova_classe = col1_form.selectbox("Aplicar à Classe Operacional", options=classes_operacionais, key="chk_classe")
@@ -4970,7 +5194,7 @@ def main():
                         st.write("**Itens a serem verificados (um por linha):**")
                         novos_itens_texto = st.text_area("Itens do Checklist", height=150, key="chk_itens", placeholder="Nível do Óleo\nPressão dos Pneus\nVerificar Facas")
                         
-                        if st.form_submit_button("Salvar Novo Modelo de Checklist"):
+                        if st.form_submit_button("➕ Salvar Novo Modelo de Checklist"):
                             if nova_classe and novo_titulo and novos_itens_texto:
                                 # Ordem correta dos parâmetros: (classe, título, turno, frequência)
                                 rule_id = add_checklist_rule_and_get_id(nova_classe, novo_titulo, novo_turno, nova_frequencia)
