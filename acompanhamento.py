@@ -4860,13 +4860,21 @@ def main():
                 # --- Gestão de Componentes e Lubrificantes ---
                 exp_comp_open = st.session_state.get('open_expander_config_componentes', False)
                 with st.expander("Configurar Componentes e Lubrificantes por Classe", expanded=bool(exp_comp_open)):
+                    # Garantir que a tabela de lubrificantes existe
+                    ensure_lubrificantes_schema()
+                    
                     classes_operacionais = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
                     df_comp_regras = get_component_rules() # Busca os dados mais recentes
                     
                     # Carregar lubrificantes disponíveis
-                    conn = sqlite3.connect(DB_PATH)
-                    df_lubrificantes = pd.read_sql("SELECT id, nome, tipo, viscosidade FROM lubrificantes ORDER BY nome", conn)
-                    conn.close()
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        df_lubrificantes = pd.read_sql("SELECT id, nome, tipo, viscosidade FROM lubrificantes ORDER BY nome", conn)
+                        conn.close()
+                    except Exception as e:
+                        # Em caso de erro, criar DataFrame vazio
+                        df_lubrificantes = pd.DataFrame(columns=['id', 'nome', 'tipo', 'viscosidade'])
+                        st.warning("⚠️ Tabela de lubrificantes não encontrada. Cadastre lubrificantes na aba 'Gestão de Lubrificantes'.")
 
                     # Selecionar classe para configurar
                     classe_selecionada = st.selectbox(
@@ -4958,15 +4966,19 @@ def main():
                                 
                                 with col2:
                                     # Seleção de lubrificante (opcional)
-                                    lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
-                                    lub_atual = "Sem lubrificante"
-                                    if 'lubrificante_id' in editing_data and editing_data.get('lubrificante_id'):
-                                        lub_info = df_lubrificantes[df_lubrificantes['id'] == editing_data['lubrificante_id']]
-                                        if not lub_info.empty:
-                                            lub_atual = lub_info.iloc[0]['nome']
-                                    
-                                    index_lub = lubrificantes_opcoes.index(lub_atual) if lub_atual in lubrificantes_opcoes else 0
-                                    lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, index=index_lub, key=f"edit_lub_{classe_selecionada}")
+                                    if not df_lubrificantes.empty:
+                                        lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
+                                        lub_atual = "Sem lubrificante"
+                                        if 'lubrificante_id' in editing_data and editing_data.get('lubrificante_id'):
+                                            lub_info = df_lubrificantes[df_lubrificantes['id'] == editing_data['lubrificante_id']]
+                                            if not lub_info.empty:
+                                                lub_atual = lub_info.iloc[0]['nome']
+                                        
+                                        index_lub = lubrificantes_opcoes.index(lub_atual) if lub_atual in lubrificantes_opcoes else 0
+                                        lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, index=index_lub, key=f"edit_lub_{classe_selecionada}")
+                                    else:
+                                        lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=["Sem lubrificante"], key=f"edit_lub_{classe_selecionada}")
+                                        st.info("💡 Cadastre lubrificantes na aba 'Gestão de Lubrificantes' para associá-los aos componentes.")
                                     
                                     # Tipo de manutenção
                                     tipo_atual = editing_data.get('tipo_manutencao', 'Troca') if 'tipo_manutencao' in editing_data else 'Troca'
@@ -5014,11 +5026,15 @@ def main():
                                 novo_comp_intervalo = st.number_input("Intervalo de Troca (km/h)", min_value=1, step=50, key=f"int_{classe_selecionada}")
                             
                             with col2:
-                                # Seleção de lubrificante (opcional)
-                                lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
-                                lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, key=f"lub_{classe_selecionada}")
-                                
-                                # Tipo de manutenção
+                                    # Seleção de lubrificante (opcional)
+                                if not df_lubrificantes.empty:
+                                    lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
+                                    lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, key=f"lub_{classe_selecionada}")
+                                else:
+                                    lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=["Sem lubrificante"], key=f"lub_{classe_selecionada}")
+                                    st.info("💡 Cadastre lubrificantes na aba 'Gestão de Lubrificantes' para associá-los aos componentes.")
+                                    
+                                    # Tipo de manutenção
                                 tipo_manutencao = st.selectbox("Tipo de Manutenção", options=["Troca", "Remonta", "Ambos"], key=f"tipo_{classe_selecionada}")
                             
                             # Informações sobre tipos de manutenção
