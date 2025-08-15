@@ -6535,6 +6535,268 @@ def main():
                                 st.error(f"Erro no backup automático: {message}")
                         else:
                             st.warning("Nenhuma tabela encontrada no banco de dados.")
+        
+        # Aba de Saúde dos Dados
+        if tab_saude is not None:
+            with tab_saude:
+                st.header("⚕️ Saúde dos Dados")
+                st.info("Esta seção permite verificar a integridade e qualidade dos dados da aplicação.")
+                
+                # Verificação de integridade do banco
+                st.subheader("🔍 Verificação de Integridade do Banco")
+                
+                if st.button("🔍 Verificar Integridade", type="primary"):
+                    with st.spinner("Verificando integridade dos dados..."):
+                        try:
+                            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                            cursor = conn.cursor()
+                            
+                            # Verificar tabelas existentes
+                            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                            tabelas = [row[0] for row in cursor.fetchall()]
+                            
+                            # Verificar integridade de cada tabela
+                            resultados_integridade = []
+                            
+                            for tabela in tabelas:
+                                try:
+                                    # Verificar se a tabela pode ser lida
+                                    cursor.execute(f"SELECT COUNT(*) FROM {tabela}")
+                                    count = cursor.fetchone()[0]
+                                    
+                                    # Verificar estrutura da tabela
+                                    cursor.execute(f"PRAGMA table_info({tabela})")
+                                    colunas = cursor.fetchall()
+                                    
+                                    resultados_integridade.append({
+                                        'tabela': tabela,
+                                        'registros': count,
+                                        'colunas': len(colunas),
+                                        'status': '✅ OK'
+                                    })
+                                except Exception as e:
+                                    resultados_integridade.append({
+                                        'tabela': tabela,
+                                        'registros': 0,
+                                        'colunas': 0,
+                                        'status': f'❌ Erro: {str(e)}'
+                                    })
+                            
+                            conn.close()
+                            
+                            # Exibir resultados
+                            st.success("✅ Verificação concluída!")
+                            
+                            # Criar DataFrame com resultados
+                            df_integridade = pd.DataFrame(resultados_integridade)
+                            st.dataframe(df_integridade, use_container_width=True)
+                            
+                            # Resumo
+                            total_tabelas = len(resultados_integridade)
+                            tabelas_ok = len([r for r in resultados_integridade if '✅' in r['status']])
+                            tabelas_erro = total_tabelas - tabelas_ok
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total de Tabelas", total_tabelas)
+                            with col2:
+                                st.metric("Tabelas OK", tabelas_ok)
+                            with col3:
+                                st.metric("Tabelas com Erro", tabelas_erro)
+                            
+                        except Exception as e:
+                            st.error(f"Erro ao verificar integridade: {e}")
+                
+                # Verificação de dados específicos
+                st.markdown("---")
+                st.subheader("📊 Verificação de Dados Específicos")
+                
+                col_verif1, col_verif2 = st.columns(2)
+                
+                with col_verif1:
+                    st.write("**Verificação de Frotas:**")
+                    if not df_frotas.empty:
+                        frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].shape[0]
+                        frotas_inativas = df_frotas[df_frotas['ATIVO'] != 'ATIVO'].shape[0]
+                        
+                        st.metric("Frotas Ativas", frotas_ativas)
+                        st.metric("Frotas Inativas", frotas_inativas)
+                        
+                        if frotas_inativas > 0:
+                            st.warning(f"⚠️ {frotas_inativas} frotas inativas encontradas")
+                    else:
+                        st.error("❌ Nenhuma frota cadastrada")
+                
+                with col_verif2:
+                    st.write("**Verificação de Abastecimentos:**")
+                    if not df.empty:
+                        total_abastecimentos = df.shape[0]
+                        abastecimentos_sem_data = df[df['Data'].isna()].shape[0]
+                        
+                        st.metric("Total Abastecimentos", total_abastecimentos)
+                        st.metric("Sem Data", abastecimentos_sem_data)
+                        
+                        if abastecimentos_sem_data > 0:
+                            st.warning(f"⚠️ {abastecimentos_sem_data} abastecimentos sem data")
+                    else:
+                        st.error("❌ Nenhum abastecimento registrado")
+                
+                # Verificação de consistência
+                st.markdown("---")
+                st.subheader("🔗 Verificação de Consistência")
+                
+                if st.button("🔗 Verificar Consistência", type="secondary"):
+                    with st.spinner("Verificando consistência dos dados..."):
+                        inconsistencias = []
+                        
+                        # Verificar se há abastecimentos para frotas inexistentes
+                        if not df.empty and not df_frotas.empty:
+                            codigos_abastecimento = set(df['Cod_Equip'].unique())
+                            codigos_frota = set(df_frotas['Cod_Equip'].unique())
+                            
+                            codigos_orfas = codigos_abastecimento - codigos_frota
+                            if codigos_orfas:
+                                inconsistencias.append(f"❌ {len(codigos_orfas)} abastecimentos para frotas inexistentes")
+                        
+                        # Verificar se há componentes para classes inexistentes
+                        if 'df_comp_regras' in locals() and not df_comp_regras.empty and not df_frotas.empty:
+                            classes_componentes = set(df_comp_regras['classe_operacional'].unique())
+                            classes_frota = set(df_frotas['Classe_Operacional'].unique())
+                            
+                            classes_orfas = classes_componentes - classes_frota
+                            if classes_orfas:
+                                inconsistencias.append(f"❌ {len(classes_orfas)} componentes para classes inexistentes")
+                        
+                        if inconsistencias:
+                            st.error("⚠️ Inconsistências encontradas:")
+                            for inc in inconsistencias:
+                                st.write(inc)
+                        else:
+                            st.success("✅ Nenhuma inconsistência encontrada!")
+        
+        # Aba de Gerir Utilizadores
+        if tab_gerir_users is not None:
+            with tab_gerir_users:
+                st.header("👤 Gerir Utilizadores")
+                st.info("Esta seção permite gerenciar usuários e suas permissões na aplicação.")
+                
+                # Verificar se existe sistema de usuários
+                if 'users' not in st.session_state:
+                    st.session_state['users'] = {}
+                
+                # Lista de usuários existentes
+                st.subheader("📋 Usuários Cadastrados")
+                
+                if st.session_state['users']:
+                    df_users = pd.DataFrame(list(st.session_state['users'].items()), 
+                                          columns=['Username', 'Role'])
+                    st.dataframe(df_users, use_container_width=True)
+                else:
+                    st.info("Nenhum usuário cadastrado além do administrador padrão.")
+                
+                # Adicionar novo usuário
+                st.markdown("---")
+                st.subheader("➕ Adicionar Novo Usuário")
+                
+                with st.form("form_add_user", clear_on_submit=True):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        novo_username = st.text_input("Nome de usuário", key="new_user_username")
+                        nova_senha = st.text_input("Senha", type="password", key="new_user_password")
+                    
+                    with col2:
+                        novo_role = st.selectbox("Tipo de usuário", ["user", "admin"], key="new_user_role")
+                        novo_email = st.text_input("Email (opcional)", key="new_user_email")
+                    
+                    submitted_user = st.form_submit_button("➕ Adicionar Usuário", type="primary")
+                    if submitted_user:
+                        if novo_username and nova_senha:
+                            if novo_username not in st.session_state['users']:
+                                # Em uma aplicação real, a senha seria criptografada
+                                st.session_state['users'][novo_username] = {
+                                    'role': novo_role,
+                                    'password': nova_senha,  # Em produção, usar hash
+                                    'email': novo_email,
+                                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                }
+                                st.success(f"✅ Usuário '{novo_username}' criado com sucesso!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Nome de usuário já existe!")
+                        else:
+                            st.warning("⚠️ Preencha todos os campos obrigatórios!")
+                
+                # Gerenciar usuários existentes
+                if st.session_state['users']:
+                    st.markdown("---")
+                    st.subheader("✏️ Gerenciar Usuários Existentes")
+                    
+                    usuarios_lista = list(st.session_state['users'].keys())
+                    usuario_selecionado = st.selectbox("Selecionar usuário para gerenciar:", usuarios_lista)
+                    
+                    if usuario_selecionado:
+                        user_data = st.session_state['users'][usuario_selecionado]
+                        
+                        col_info, col_actions = st.columns([2, 1])
+                        
+                        with col_info:
+                            st.write(f"**Usuário:** {usuario_selecionado}")
+                            st.write(f"**Tipo:** {user_data['role']}")
+                            st.write(f"**Email:** {user_data.get('email', 'Não informado')}")
+                            st.write(f"**Criado em:** {user_data.get('created_at', 'N/A')}")
+                        
+                        with col_actions:
+                            if st.button("🗑️ Excluir Usuário", type="secondary"):
+                                if usuario_selecionado != 'admin':  # Proteger admin
+                                    del st.session_state['users'][usuario_selecionado]
+                                    st.success(f"✅ Usuário '{usuario_selecionado}' excluído!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Não é possível excluir o usuário administrador!")
+                        
+                        # Alterar senha
+                        st.markdown("---")
+                        st.subheader("🔐 Alterar Senha")
+                        
+                        with st.form("form_change_password", clear_on_submit=True):
+                            nova_senha_alt = st.text_input("Nova senha", type="password", key="change_password")
+                            confirmar_senha = st.text_input("Confirmar nova senha", type="password", key="confirm_password")
+                            
+                            if st.form_submit_button("🔐 Alterar Senha", type="primary"):
+                                if nova_senha_alt == confirmar_senha:
+                                    if nova_senha_alt:
+                                        st.session_state['users'][usuario_selecionado]['password'] = nova_senha_alt
+                                        st.success("✅ Senha alterada com sucesso!")
+                                        st.rerun()
+                                    else:
+                                        st.warning("⚠️ A nova senha não pode estar vazia!")
+                                else:
+                                    st.error("❌ As senhas não coincidem!")
+                
+                # Informações sobre o sistema de usuários
+                st.markdown("---")
+                st.subheader("ℹ️ Sobre o Sistema de Usuários")
+                
+                st.info("""
+                **Como funciona:**
+                
+                - **Admin:** Acesso total a todas as funcionalidades
+                - **User:** Acesso limitado (apenas página inicial)
+                
+                **Segurança:**
+                
+                ⚠️ **ATENÇÃO:** Este é um sistema básico de usuários para demonstração.
+                Em produção, implemente:
+                
+                1. **Criptografia de senhas** (bcrypt, hashlib)
+                2. **Autenticação segura** (JWT, sessions)
+                3. **Validação de entrada** robusta
+                4. **Logs de auditoria** para ações sensíveis
+                5. **Rate limiting** para tentativas de login
+                
+                **Dica:** As senhas são armazenadas em texto plano na sessão atual!
+                """)
                         
 if __name__ == "__main__":
     main()
