@@ -4695,19 +4695,19 @@ def main():
                     st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
                     st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
 
-                    st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
-                    df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
-                    df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
+                        st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
+                        df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
+                        df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
 
-                    erros_hodometro = df_abastecimentos_sorted[
-                            df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
-                        ]
+                        erros_hodometro = df_abastecimentos_sorted[
+                                df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
+                            ]
 
-                    if not erros_hodometro.empty:
-                            st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
-                            st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
-                    else:
-                            st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
+                        if not erros_hodometro.empty:
+                                st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
+                                st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
+                        else:
+                                st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
 
                     st.markdown("---")
                     st.subheader("2. Verificação de Frotas Inativas")
