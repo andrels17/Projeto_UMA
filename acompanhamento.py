@@ -1827,7 +1827,7 @@ def main():
                     
         with st.sidebar:
             if os.path.exists("logo.png"):
-                st.image("logo.png", use_container_width=True)
+                st.image("logo.png", width=200)
             st.write(f"Bem-vindo, **{st.session_state.username}**!")
             if st.button("Sair"):
                 st.session_state.authenticated = False
@@ -2082,6 +2082,8 @@ def main():
                 # Criar variáveis vazias para as outras abas
                 tab_painel = tab_analise = tab_manut = tab_consulta = tab_checklists = None
                 tab_gerir_lanc = tab_gerir_lub = tab_gerir_frotas = tab_gerir_checklists = None
+                
+
         else:
             tab_painel, tab_analise, tab_manut, tab_consulta, tab_checklists = abas
             # Criar variáveis vazias para as outras abas
@@ -4387,8 +4389,9 @@ def main():
 
             # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
 
-        with tab_config:
-            st.header("⚙️ Configurar Manutenções e Checklists")
+        if tab_config is not None:
+            with tab_config:
+                st.header("⚙️ Configurar Manutenções e Checklists")
             
             # --- Gestão de Componentes ---
             exp_comp_open = st.session_state.get('open_expander_config_componentes', False)
@@ -4460,43 +4463,43 @@ def main():
                         
         if tab_importar is not None:
             with tab_importar:
-                    st.header("📤 Importar Dados")
-                    sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes = st.tabs(
-                        ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes"]
+                st.header("📤 Importar Dados")
+                sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes = st.tabs(
+                    ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes"]
+                )
+
+                with sub_tab_abastec:
+                    st.subheader("Importar Novos Abastecimentos de uma Planilha")
+                    st.info("Carregue múltiplos abastecimentos de uma vez (Excel .xlsx). Colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`, opcional `Matricula`, `Cod_Pessoa`.")
+                    arquivo_carregado = st.file_uploader(
+                        "Selecione a sua planilha de abastecimentos",
+                        type=['xlsx'], key="upl_abast"
                     )
+                    if arquivo_carregado is not None:
+                        st.markdown("---")
+                        st.write("Pré-visualização:")
+                        try:
+                            df_preview = pd.read_excel(arquivo_carregado)
+                            st.dataframe(df_preview.head())
+                            if st.button("Confirmar e Inserir Dados", type="primary"):
+                                with st.spinner("Importando dados..."):
+                                    num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
+                                if num_inseridos > 0:
+                                    msg_sucesso = f"{num_inseridos} registos importados."
+                                    if num_duplicados > 0:
+                                        msg_sucesso += f" {num_duplicados} duplicados ignorados."
+                                    st.success(msg_sucesso)
+                                    rerun_keep_tab("📤 Importar Dados")
+                                else:
+                                    st.error(mensagem)
+                        except Exception as e:
+                            st.error(f"Não foi possível ler a planilha: {e}")
 
-                    with sub_tab_abastec:
-                        st.subheader("Importar Novos Abastecimentos de uma Planilha")
-                        st.info("Carregue múltiplos abastecimentos de uma vez (Excel .xlsx). Colunas: `Cód. Equip.`, `Data`, `Qtde Litros`, `Hod. Hor. Atual`, `Safra`, `Mês`, `Classe Operacional`, opcional `Matricula`, `Cod_Pessoa`.")
-                        arquivo_carregado = st.file_uploader(
-                            "Selecione a sua planilha de abastecimentos",
-                            type=['xlsx'], key="upl_abast"
-                        )
-                        if arquivo_carregado is not None:
-                            st.markdown("---")
-                            st.write("Pré-visualização:")
-                            try:
-                                df_preview = pd.read_excel(arquivo_carregado)
-                                st.dataframe(df_preview.head())
-                                if st.button("Confirmar e Inserir Dados", type="primary"):
-                                    with st.spinner("Importando dados..."):
-                                        num_inseridos, num_duplicados, mensagem = importar_abastecimentos_de_planilha(DB_PATH, arquivo_carregado)
-                                    if num_inseridos > 0:
-                                        msg_sucesso = f"{num_inseridos} registos importados."
-                                        if num_duplicados > 0:
-                                            msg_sucesso += f" {num_duplicados} duplicados ignorados."
-                                        st.success(msg_sucesso)
-                                        rerun_keep_tab("📤 Importar Dados")
-                                    else:
-                                        st.error(mensagem)
-                            except Exception as e:
-                                st.error(f"Não foi possível ler a planilha: {e}")
-
-                    with sub_tab_motoristas:
-                        st.subheader("Importar Motoristas por Planilha")
-                        st.info("Colunas esperadas: `Matricula`, `Nome`, opcional `Cod_Pessoa`. A matrícula será exibida nos gráficos; na consulta será mostrada matrícula e nome.")
-                        arquivo_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upl_motoristas")
-                        if arquivo_motoristas is not None:
+                with sub_tab_motoristas:
+                    st.subheader("Importar Motoristas por Planilha")
+                    st.info("Colunas esperadas: `Matricula`, `Nome`, opcional `Cod_Pessoa`. A matrícula será exibida nos gráficos; na consulta será mostrada matrícula e nome.")
+                    arquivo_motoristas = st.file_uploader("Selecione a planilha de motoristas", type=['xlsx'], key="upl_motoristas")
+                    if arquivo_motoristas is not None:
                             try:
                                 df_prev = pd.read_excel(arquivo_motoristas)
                                 st.dataframe(df_prev.head())
@@ -4512,11 +4515,11 @@ def main():
                             except Exception as e:
                                 st.error(f"Erro ao ler planilha: {e}")
 
-                    with sub_tab_precos:
-                        st.subheader("Definir Preços por Tipo de Combustível")
-                        ok, msg = ensure_precos_combustivel_schema()
-                        if not ok:
-                            st.warning(msg)
+                with sub_tab_precos:
+                    st.subheader("Definir Preços por Tipo de Combustível")
+                    ok, msg = ensure_precos_combustivel_schema()
+                    if not ok:
+                        st.warning(msg)
                         precos_map = get_precos_combustivel_map()
                         tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
                         cols = st.columns(5)
@@ -4536,14 +4539,14 @@ def main():
                                 else:
                                     st.warning("Alguns preços podem não ter sido salvos.")
                                     
-                    with sub_tab_pneus:
-                        st.subheader("Importar Histórico de Pneus")
-                        st.info(
+                with sub_tab_pneus:
+                    st.subheader("Importar Histórico de Pneus")
+                    st.info(
                             "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `data_instalacao`, `hodometro_instalacao`, `vida_util_km`. Opcional: `observacoes`.\n"
                             "Cada pneu será vinculado à frota pelo campo `Cod_Equip`."
                         )
-                        arquivo_pneus = st.file_uploader("Selecione a planilha de pneus", type=['xlsx'], key="upl_pneus")
-                        if arquivo_pneus is not None:
+                    arquivo_pneus = st.file_uploader("Selecione a planilha de pneus", type=['xlsx'], key="upl_pneus")
+                    if arquivo_pneus is not None:
                             try:
                                 df_prev = pd.read_excel(arquivo_pneus)
                                 st.dataframe(df_prev.head())
@@ -4558,9 +4561,9 @@ def main():
                             except Exception as e:
                                 st.error(f"Erro ao ler planilha: {e}")
 
-                        st.markdown("---")
-                        st.subheader("Cadastrar Pneus Manualmente")
-                        with st.form("form_add_pneu", clear_on_submit=True):
+                    st.markdown("---")
+                    st.subheader("Cadastrar Pneus Manualmente")
+                    with st.form("form_add_pneu", clear_on_submit=True):
                             cod_equip = st.number_input("Código da Frota", min_value=1, step=1)
                             posicao = st.text_input("Posição do Pneu (ex: Dianteiro Esquerdo)")
                             marca = st.text_input("Marca")
@@ -4586,12 +4589,12 @@ def main():
                                 except Exception as e:
                                     st.error(f"Erro ao cadastrar pneu: {e}")
 
-                        st.markdown("---")
-                        st.subheader("Consultar Histórico de Pneus por Frota")
-                        cod_equip_pneu = st.number_input("Código da Frota para consulta", min_value=1, step=1)
-                        filtro_marca = st.text_input("Filtrar por Marca (opcional)")
-                        filtro_posicao = st.text_input("Filtrar por Posição (opcional)")
-                        if cod_equip_pneu:
+                    st.markdown("---")
+                    st.subheader("Consultar Histórico de Pneus por Frota")
+                    cod_equip_pneu = st.number_input("Código da Frota para consulta", min_value=1, step=1)
+                    filtro_marca = st.text_input("Filtrar por Marca (opcional)")
+                    filtro_posicao = st.text_input("Filtrar por Posição (opcional)")
+                    if cod_equip_pneu:
                             df_hist_pneus = get_pneus_historico(cod_equip_pneu)
                             if filtro_marca:
                                 df_hist_pneus = df_hist_pneus[df_hist_pneus['marca'].str.contains(filtro_marca, case=False, na=False)]
@@ -4644,7 +4647,7 @@ def main():
                                             st.error(f"Erro ao excluir pneu: {e}")
                             else:
                                 st.info("Nenhum registro de pneus para esta frota.")
-                    with sub_tab_lubrificantes:
+                with sub_tab_lubrificantes:
                         st.subheader("Importar Lubrificantes por Planilha")
                         st.info("Colunas obrigatórias: nome, tipo (graxa/óleo), viscosidade, quantidade_estoque, unidade, observacoes")
                         arquivo_lub = st.file_uploader("Selecione a planilha de lubrificantes", type=['xlsx'], key="upl_lub")
@@ -4689,41 +4692,41 @@ def main():
                             
             if tab_saude is not None:
                 with tab_saude:
-                        st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
-                        st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
+                    st.header("⚕️ Painel de Controlo da Qualidade dos Dados")
+                    st.info("Esta sessão verifica automaticamente a sua base de dados em busca de erros comuns.")
 
-                        st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
-                        df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
-                        df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
+                    st.subheader("1. Verificação de Leituras de Hodómetro/Horímetro")
+                    df_abastecimentos_sorted = df.sort_values(by=['Cod_Equip', 'Data'])
+                    df_abastecimentos_sorted['Leitura_Anterior'] = df_abastecimentos_sorted.groupby('Cod_Equip')['Hod_Hor_Atual'].shift(1)
 
-                        erros_hodometro = df_abastecimentos_sorted[
+                    erros_hodometro = df_abastecimentos_sorted[
                             df_abastecimentos_sorted['Hod_Hor_Atual'] < df_abastecimentos_sorted['Leitura_Anterior']
                         ]
 
-                        if not erros_hodometro.empty:
+                    if not erros_hodometro.empty:
                             st.error(f"**Alerta:** Foram encontrados {len(erros_hodometro)} lançamentos com leituras de hodómetro/horímetro menores que a anterior.")
                             st.dataframe(erros_hodometro[['Data', 'Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Hod_Hor_Atual', 'Leitura_Anterior']])
-                        else:
+                    else:
                             st.success("✅ Nenhuma inconsistência encontrada nas leituras de hodómetro/horímetro.")
 
-                        st.markdown("---")
-                        st.subheader("2. Verificação de Frotas Inativas")
+                    st.markdown("---")
+                    st.subheader("2. Verificação de Frotas Inativas")
 
-                        data_limite = datetime.now() - pd.Timedelta(days=90)
-                        ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
+                    data_limite = datetime.now() - pd.Timedelta(days=90)
+                    ultimos_abastecimentos = df.groupby('Cod_Equip')['Data'].max()
 
-                        frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
-                        frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
+                    frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
+                    frotas_ativas['Ultimo_Abastecimento'] = frotas_ativas['Cod_Equip'].map(ultimos_abastecimentos)
 
-                        frotas_inativas = frotas_ativas[
+                    frotas_inativas = frotas_ativas[
                             (frotas_ativas['Ultimo_Abastecimento'].isna()) | 
                             (frotas_ativas['Ultimo_Abastecimento'] < data_limite)
                         ]
 
-                        if not frotas_inativas.empty:
+                    if not frotas_inativas.empty:
                             st.warning(f"**Atenção:** Foram encontradas {len(frotas_inativas)} frotas marcadas como 'ATIVAS' que não têm abastecimentos nos últimos 90 dias.")
                             st.dataframe(frotas_inativas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Ultimo_Abastecimento']])
-                        else:
+                    else:
                             st.success("✅ Todas as frotas ativas têm registos de abastecimento recentes.")
                         
         if tab_gerir_users is not None:
@@ -4801,8 +4804,9 @@ def main():
                     # Criar abas para organizar melhor as funcionalidades
                     tab_config, tab_historico = st.tabs(["⚙️ Configuração", "🗑️ Histórico"])
                     
-                    with tab_config:
-                        col_regras, col_itens = st.columns(2)
+                    if tab_config is not None:
+                        with tab_config:
+                            col_regras, col_itens = st.columns(2)
                         with col_regras:
 
                             st.subheader("📋 Regras de Checklist")
