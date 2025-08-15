@@ -1243,6 +1243,129 @@ def importar_lubrificantes_de_planilha(db_path: str, arquivo_carregado):
     except Exception as e:
         return 0, 0, f"Erro ao importar lubrificantes: {e}"
 
+def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_operacional: str):
+    """Importa componentes de uma planilha Excel, verificando duplicatas e criando lubrificantes se necessário."""
+    try:
+        df_comp = pd.read_excel(arquivo_carregado)
+        df_comp.columns = [c.strip() for c in df_comp.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome_componente': 'nome_componente',
+            'componente': 'nome_componente',
+            'intervalo_padrao': 'intervalo_padrao',
+            'intervalo': 'intervalo_padrao',
+            'lubrificante_nome': 'lubrificante_nome',
+            'lubrificante': 'lubrificante_nome',
+            'tipo_manutencao': 'tipo_manutencao',
+            'tipo': 'tipo_manutencao'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_comp.columns:
+                df_comp = df_comp.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome_componente', 'intervalo_padrao']
+        faltando = [c for c in obrig if c not in df_comp.columns]
+        if faltando:
+            return 0, 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'lubrificante_nome' not in df_comp.columns:
+            df_comp['lubrificante_nome'] = None
+        if 'tipo_manutencao' not in df_comp.columns:
+            df_comp['tipo_manutencao'] = 'Troca'
+        
+        # Limpar e normalizar dados
+        df_comp = df_comp.dropna(subset=['nome_componente'])
+        df_comp['nome_componente'] = df_comp['nome_componente'].astype(str).str.strip()
+        df_comp['intervalo_padrao'] = pd.to_numeric(df_comp['intervalo_padrao'], errors='coerce')
+        df_comp = df_comp.dropna(subset=['intervalo_padrao'])
+        df_comp['lubrificante_nome'] = df_comp['lubrificante_nome'].astype(str).str.strip().replace('nan', None)
+        df_comp['tipo_manutencao'] = df_comp['tipo_manutencao'].astype(str).str.strip().fillna('Troca')
+        
+        # Validar tipo de manutenção
+        tipos_validos = ['Troca', 'Remonta', 'Ambos']
+        df_comp['tipo_manutencao'] = df_comp['tipo_manutencao'].apply(
+            lambda x: x if x in tipos_validos else 'Troca'
+        )
+        
+        # Remover duplicatas na própria planilha baseada no nome do componente
+        df_comp = df_comp.drop_duplicates(subset=['nome_componente'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que as tabelas existem
+            ensure_lubrificantes_schema()
+            
+            # Buscar componentes existentes na classe
+            df_existente = pd.read_sql_query(
+                "SELECT nome_componente FROM componentes_regras WHERE classe_operacional = ?", 
+                conn, params=(classe_operacional,)
+            )
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome_componente'] = df_existente['nome_componente'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem na classe
+                df_para_inserir = df_comp[~df_comp['nome_componente'].isin(df_existente['nome_componente'])]
+            else:
+                df_para_inserir = df_comp
+            
+            num_duplicados = len(df_comp) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, 0, "Nenhum componente novo para importar. Todos os registros da planilha já existem na classe selecionada."
+            
+            # Processar lubrificantes
+            lubrificantes_criados = 0
+            for _, row in df_para_inserir.iterrows():
+                if pd.notna(row['lubrificante_nome']) and row['lubrificante_nome']:
+                    # Verificar se o lubrificante existe
+                    df_lub_existente = pd.read_sql_query(
+                        "SELECT id FROM lubrificantes WHERE nome = ?", 
+                        conn, params=(row['lubrificante_nome'],)
+                    )
+                    
+                    if df_lub_existente.empty:
+                        # Criar lubrificante automaticamente
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                            (row['lubrificante_nome'], 'óleo', '', 0, 'L', f'Criado automaticamente durante importação de componentes')
+                        )
+                        lubrificantes_criados += 1
+                        
+                        # Buscar o ID do lubrificante criado
+                        lub_id = cur.lastrowid
+                    else:
+                        lub_id = df_lub_existente.iloc[0]['id']
+                else:
+                    lub_id = None
+                
+                # Inserir componente
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao) VALUES (?, ?, ?, ?, ?)",
+                    (classe_operacional, row['nome_componente'], row['intervalo_padrao'], lub_id, row['tipo_manutencao'])
+                )
+            
+            conn.commit()
+            num_inseridos = len(df_para_inserir)
+            
+            mensagem_sucesso = f"{num_inseridos} componentes foram importados com sucesso para a classe '{classe_operacional}'."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} componentes duplicados foram ignorados."
+            if lubrificantes_criados > 0:
+                mensagem_sucesso += f" {lubrificantes_criados} lubrificantes foram criados automaticamente."
+            
+            return num_inseridos, num_duplicados, lubrificantes_criados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, 0, f"Erro ao importar componentes: {e}"
+
 def movimentar_lubrificante(id_lubrificante, tipo, quantidade, data, cod_equip=None, observacoes=""):
     try:
         with sqlite3.connect(DB_PATH) as conn:
@@ -5241,8 +5364,8 @@ def main():
         if tab_importar is not None:
             with tab_importar:
                 st.header("📤 Importar Dados")
-                sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes = st.tabs(
-                    ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes"]
+                sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes, sub_tab_componentes = st.tabs(
+                    ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes", "⚙️ Componentes"]
                 )
 
                 with sub_tab_abastec:
@@ -5466,6 +5589,90 @@ def main():
                                     conn.commit()
                                 st.success("Lubrificante cadastrado!")
                                 st.rerun()
+
+                with sub_tab_componentes:
+                    st.subheader("Importar Componentes por Planilha")
+                    st.info(
+                        "**Colunas obrigatórias:** `nome_componente`, `intervalo_padrao`\n"
+                        "**Colunas opcionais:** `lubrificante_nome`, `tipo_manutencao` (Troca/Remonta/Ambos)\n\n"
+                        "💡 **Dicas:**\n"
+                        "• Se o lubrificante não existir, será criado automaticamente\n"
+                        "• Componentes duplicados na mesma classe serão ignorados\n"
+                        "• Componentes com mesmo nome em classes diferentes serão adicionados normalmente"
+                    )
+                    
+                    # Seleção da classe operacional
+                    classes_operacionais = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
+                    classe_selecionada = st.selectbox("Classe Operacional para importação", options=classes_operacionais, 
+                                                    help="Selecione a classe onde os componentes serão importados")
+                    
+                    arquivo_componentes = st.file_uploader("Selecione a planilha de componentes", type=['xlsx'], key="upl_componentes")
+                    if arquivo_componentes is not None:
+                        try:
+                            df_comp_import = pd.read_excel(arquivo_componentes)
+                            st.write("**Pré-visualização dos dados:**")
+                            st.dataframe(df_comp_import.head())
+                            
+                            if st.button("Confirmar e Inserir Componentes", type="primary"):
+                                with st.spinner("Importando componentes..."):
+                                    # Garantir que as tabelas existem
+                                    ensure_lubrificantes_schema()
+                                    
+                                    # Importar componentes
+                                    inseridos, duplicados, lubrificantes_criados, msg = importar_componentes_de_planilha(
+                                        DB_PATH, arquivo_componentes, classe_selecionada
+                                    )
+                                
+                                if inseridos > 0:
+                                    msg_sucesso = f"✅ **{inseridos}** componentes importados com sucesso!"
+                                    if duplicados > 0:
+                                        msg_sucesso += f"\n⚠️ **{duplicados}** componentes duplicados ignorados"
+                                    if lubrificantes_criados > 0:
+                                        msg_sucesso += f"\n🛢️ **{lubrificantes_criados}** lubrificantes criados automaticamente"
+                                    
+                                    st.success(msg_sucesso)
+                                    st.info(f"📋 **Detalhes:** {msg}")
+                                    rerun_keep_tab("📤 Importar Dados")
+                                else:
+                                    st.error(f"❌ Erro na importação: {msg}")
+                        except Exception as e:
+                            st.error(f"Erro ao ler planilha: {e}")
+                    
+                    # Exemplo de planilha
+                    with st.expander("📋 Exemplo de Planilha de Componentes", expanded=False):
+                        st.write("**Estrutura recomendada da planilha:**")
+                        
+                        # Criar DataFrame de exemplo
+                        exemplo_data = {
+                            'nome_componente': ['Óleo do Motor', 'Filtro de Ar', 'Filtro de Óleo', 'Correia Dentada'],
+                            'intervalo_padrao': [5000, 10000, 5000, 80000],
+                            'lubrificante_nome': ['Óleo 15W40', 'Sem lubrificante', 'Óleo 15W40', 'Sem lubrificante'],
+                            'tipo_manutencao': ['Troca', 'Troca', 'Troca', 'Troca']
+                        }
+                        df_exemplo = pd.DataFrame(exemplo_data)
+                        
+                        st.dataframe(df_exemplo, use_container_width=True)
+                        
+                        st.write("**Colunas aceitas:**")
+                        st.markdown("""
+                        - **nome_componente** (obrigatório): Nome do componente
+                        - **componente**: Alternativa para nome_componente
+                        - **intervalo_padrao** (obrigatório): Intervalo em km/horas
+                        - **intervalo**: Alternativa para intervalo_padrao
+                        - **lubrificante_nome** (opcional): Nome do lubrificante associado
+                        - **lubrificante**: Alternativa para lubrificante_nome
+                        - **tipo_manutencao** (opcional): Troca/Remonta/Ambos (padrão: Troca)
+                        - **tipo**: Alternativa para tipo_manutencao
+                        """)
+                        
+                        # Botão para download do exemplo
+                        csv_exemplo = df_exemplo.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Baixar Planilha de Exemplo",
+                            data=csv_exemplo,
+                            file_name="exemplo_componentes.csv",
+                            mime="text/csv"
+                        )
         if tab_gerir_checklists is not None:
             with tab_gerir_checklists:
                     st.header("✅ Gerir Checklists")
