@@ -4886,9 +4886,17 @@ def main():
                             
                             # Criar DataFrame para exibição
                             df_display = regras_atuais.copy()
-                            df_display['Lubrificante'] = df_display['lubrificante_id'].apply(
-                                lambda x: df_lubrificantes[df_lubrificantes['id'] == x]['nome'].iloc[0] if x and not df_lubrificantes[df_lubrificantes['id'] == x].empty else "Sem lubrificante"
-                            )
+                            
+                            # Verificar se a coluna lubrificante_id existe
+                            if 'lubrificante_id' in df_display.columns:
+                                df_display['Lubrificante'] = df_display['lubrificante_id'].apply(
+                                    lambda x: df_lubrificantes[df_lubrificantes['id'] == x]['nome'].iloc[0] if x and not df_lubrificantes[df_lubrificantes['id'] == x].empty else "Sem lubrificante"
+                                )
+                            else:
+                                # Se a coluna não existe, criar coluna vazia
+                                df_display['lubrificante_id'] = None
+                                df_display['Lubrificante'] = "Sem lubrificante"
+                            
                             df_display['Unidade'] = 'km' if df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]['Tipo_Controle'].iloc[0] == 'QUILÔMETROS' else 'h'
                             df_display['Intervalo'] = df_display['intervalo_padrao'].astype(str) + ' ' + df_display['Unidade']
                             
@@ -4904,11 +4912,15 @@ def main():
                                         st.write(f"{regra['intervalo_padrao']} {df_display['Unidade'].iloc[0]}")
                                     
                                     with col3:
-                                        lub_info = df_display[df_display['nome_componente'] == regra['nome_componente']]['Lubrificante'].iloc[0]
-                                        st.write(lub_info)
+                                        if 'Lubrificante' in df_display.columns:
+                                            lub_info = df_display[df_display['nome_componente'] == regra['nome_componente']]['Lubrificante'].iloc[0]
+                                            st.write(lub_info)
+                                        else:
+                                            st.write("Sem lubrificante")
                                     
                                     with col4:
-                                        st.write(regra.get('tipo_manutencao', 'Troca'))
+                                        tipo_manut = regra.get('tipo_manutencao', 'Troca') if 'tipo_manutencao' in regra else 'Troca'
+                                        st.write(tipo_manut)
                                     
                                     with col5:
                                         # Botões de ação
@@ -4948,7 +4960,7 @@ def main():
                                     # Seleção de lubrificante (opcional)
                                     lubrificantes_opcoes = ["Sem lubrificante"] + df_lubrificantes['nome'].tolist()
                                     lub_atual = "Sem lubrificante"
-                                    if editing_data.get('lubrificante_id'):
+                                    if 'lubrificante_id' in editing_data and editing_data.get('lubrificante_id'):
                                         lub_info = df_lubrificantes[df_lubrificantes['id'] == editing_data['lubrificante_id']]
                                         if not lub_info.empty:
                                             lub_atual = lub_info.iloc[0]['nome']
@@ -4957,7 +4969,7 @@ def main():
                                     lubrificante_selecionado = st.selectbox("Lubrificante (opcional)", options=lubrificantes_opcoes, index=index_lub, key=f"edit_lub_{classe_selecionada}")
                                     
                                     # Tipo de manutenção
-                                    tipo_atual = editing_data.get('tipo_manutencao', 'Troca')
+                                    tipo_atual = editing_data.get('tipo_manutencao', 'Troca') if 'tipo_manutencao' in editing_data else 'Troca'
                                     tipo_opcoes = ["Troca", "Remonta", "Ambos"]
                                     index_tipo = tipo_opcoes.index(tipo_atual) if tipo_atual in tipo_opcoes else 0
                                     tipo_manutencao = st.selectbox("Tipo de Manutenção", options=tipo_opcoes, index=index_tipo, key=f"edit_tipo_{classe_selecionada}")
