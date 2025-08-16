@@ -970,13 +970,15 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
         
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
+        if 'vida_util_km' not in df_pneus.columns:
+            df_pneus['vida_util_km'] = 0.0
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -1025,7 +1027,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['observacoes']
+            colunas_insert = obrig + ['vida_util_km', 'observacoes']
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -3270,13 +3272,15 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
         
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
+        if 'vida_util_km' not in df_pneus.columns:
+            df_pneus['vida_util_km'] = 0.0
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -3325,7 +3329,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['observacoes']
+            colunas_insert = obrig + ['vida_util_km', 'observacoes']
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -6125,13 +6129,15 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
         
-        if 'observacoes' not in df_pneus.columns:
-            df_pneus['observacoes'] = ""
+            if 'observacoes' not in df_pneus.columns:
+                df_pneus['observacoes'] = ""
+            if 'vida_util_km' not in df_pneus.columns:
+                df_pneus['vida_util_km'] = 0.0
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -6180,7 +6186,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['observacoes']
+            colunas_insert = obrig + ['vida_util_km', 'observacoes']
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -8416,13 +8422,15 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
         
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
+        if 'vida_util_km' not in df_pneus.columns:
+            df_pneus['vida_util_km'] = 0.0
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -8471,7 +8479,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['observacoes']
+            colunas_insert = obrig + ['vida_util_km', 'observacoes']
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -11545,13 +11553,15 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
         
-        if 'observacoes' not in df_pneus.columns:
-            df_pneus['observacoes'] = ""
+            if 'observacoes' not in df_pneus.columns:
+                    df_pneus['observacoes'] = ""
+            if 'vida_util_km' not in df_pneus.columns:
+                    df_pneus['vida_util_km'] = 0.0
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -11600,7 +11610,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['observacoes']
+            colunas_insert = obrig + ['vida_util_km', 'observacoes']
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -17301,7 +17311,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                 with sub_tab_pneus:
                     st.subheader("Importar Histórico de Pneus")
                     st.info(
-                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `numero_fogo`, `data_instalacao`, `hodometro_instalacao`, `vida_util_km`. Opcional: `observacoes`.\n"
+                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `numero_fogo`, `data_instalacao`, `hodometro_instalacao`. Opcionais: `vida_util_km`, `observacoes`.\n"
                             "Cada pneu será vinculado à frota pelo campo `Cod_Equip`."
                         )
                     arquivo_pneus = st.file_uploader("Selecione a planilha de pneus", type=['xlsx'], key="upl_pneus")
