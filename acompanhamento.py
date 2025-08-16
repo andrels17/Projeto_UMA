@@ -945,7 +945,7 @@ def ensure_pneus_schema():
                     numero_fogo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
-                    vida_util_km REAL,
+                    
                     observacoes TEXT,
                     status TEXT DEFAULT 'Ativo',
                     vida_atual INTEGER DEFAULT 1
@@ -977,8 +977,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
         
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
-        if 'vida_util_km' not in df_pneus.columns:
-            df_pneus['vida_util_km'] = 0.0
+        
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -1027,7 +1026,10 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['vida_util_km', 'observacoes']
+            colunas_insert = obrig + ['observacoes']
+            # Garantir que a coluna observacoes exista no DataFrame
+            if 'observacoes' not in df_para_inserir.columns:
+                df_para_inserir['observacoes'] = ''
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -3240,7 +3242,7 @@ def ensure_pneus_schema():
                     modelo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
-                    vida_util_km REAL,
+                    
                     observacoes TEXT,
                     status TEXT DEFAULT 'Ativo',
                     vida_atual INTEGER DEFAULT 1,
@@ -3279,8 +3281,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
         
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
-        if 'vida_util_km' not in df_pneus.columns:
-            df_pneus['vida_util_km'] = 0.0
+        
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -3329,7 +3330,10 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['vida_util_km', 'observacoes']
+            colunas_insert = obrig + ['observacoes']
+            # Garantir que a coluna observacoes exista no DataFrame
+            if 'observacoes' not in df_para_inserir.columns:
+                df_para_inserir['observacoes'] = ''
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -6104,7 +6108,7 @@ def ensure_pneus_schema():
                     numero_fogo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
-                    vida_util_km REAL,
+                    
                     observacoes TEXT,
                     status TEXT DEFAULT 'Ativo',
                     vida_atual INTEGER DEFAULT 1
@@ -6136,8 +6140,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
         
             if 'observacoes' not in df_pneus.columns:
                 df_pneus['observacoes'] = ""
-            if 'vida_util_km' not in df_pneus.columns:
-                df_pneus['vida_util_km'] = 0.0
+            
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -6186,7 +6189,10 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['vida_util_km', 'observacoes']
+            colunas_insert = obrig + ['observacoes']
+            # Garantir que a coluna observacoes exista no DataFrame
+            if 'observacoes' not in df_para_inserir.columns:
+                df_para_inserir['observacoes'] = ''
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -8399,7 +8405,7 @@ def ensure_pneus_schema():
                     modelo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
-                    vida_util_km REAL,
+                    
                     observacoes TEXT,
                     status TEXT DEFAULT 'Ativo',
                     vida_atual INTEGER DEFAULT 1
@@ -8429,8 +8435,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
         
         if 'observacoes' not in df_pneus.columns:
             df_pneus['observacoes'] = ""
-        if 'vida_util_km' not in df_pneus.columns:
-            df_pneus['vida_util_km'] = 0.0
+        
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -8479,7 +8484,10 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['vida_util_km', 'observacoes']
+            colunas_insert = obrig + ['observacoes']
+            # Garantir que a coluna observacoes exista no DataFrame
+            if 'observacoes' not in df_para_inserir.columns:
+                df_para_inserir['observacoes'] = ''
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -11528,7 +11536,7 @@ def ensure_pneus_schema():
                     numero_fogo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
-                    vida_util_km REAL,
+                    
                     observacoes TEXT,
                     status TEXT DEFAULT 'Ativo',
                     vida_atual INTEGER DEFAULT 1
@@ -11560,8 +11568,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
         
             if 'observacoes' not in df_pneus.columns:
                     df_pneus['observacoes'] = ""
-            if 'vida_util_km' not in df_pneus.columns:
-                    df_pneus['vida_util_km'] = 0.0
+            
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
         df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
@@ -11610,7 +11617,10 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
                 return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
             
             # Preparar registros para inserção
-            colunas_insert = obrig + ['vida_util_km', 'observacoes']
+            colunas_insert = obrig + ['observacoes']
+            # Garantir que a coluna observacoes exista no DataFrame
+            if 'observacoes' not in df_para_inserir.columns:
+                df_para_inserir['observacoes'] = ''
             df_para_inserir_final = df_para_inserir[colunas_insert]
             registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
             
@@ -17030,26 +17040,27 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                 tipo_manutencao = st.selectbox("Tipo de Manutenção", options=["Troca", "Remonta", "Ambos"], key=f"tipo_{classe_selecionada}")
                             
                             # Informações sobre tipos de manutenção
-                            with st.expander("💡 Sobre Tipos de Manutenção", expanded=False):
-                                st.info("""
-                                **🔄 Troca vs Remonta:**
-                                
-                                **Troca:**
-                                - Reinicia o contador de km/horas
-                                - Exemplos: troca de óleo, filtros, correias
-                                - Usado para manutenções que "zeram" o ciclo
-                                
-                                **Remonta:**
-                                - NÃO reinicia o contador de km/horas
-                                - Exemplos: ajuste, limpeza, reparo
-                                - Usado para manutenções complementares
-                                
-                                **Ambos:**
-                                - Permite escolher entre troca ou remonta
-                                - Flexível para componentes que podem ter ambos os tipos
-                                
-                                **⚠️ Importante:** Apenas TROCAS reiniciam o contador para calcular próxima manutenção!
-                                """)
+                            st.info("""
+                            **💡 Sobre Tipos de Manutenção:**
+                            
+                            **🔄 Troca vs Remonta:**
+                            
+                            **Troca:**
+                            - Reinicia o contador de km/horas
+                            - Exemplos: troca de óleo, filtros, correias
+                            - Usado para manutenções que "zeram" o ciclo
+                            
+                            **Remonta:**
+                            - NÃO reinicia o contador de km/horas
+                            - Exemplos: ajuste, limpeza, reparo
+                            - Usado para manutenções complementares
+                            
+                            **Ambos:**
+                            - Permite escolher entre troca ou remonta
+                            - Flexível para componentes que podem ter ambos os tipos
+                            
+                            **⚠️ Importante:** Apenas TROCAS reiniciam o contador para calcular próxima manutenção!
+                            """)
                             
                             if st.form_submit_button("➕ Adicionar Componente"):
                                 if novo_comp_nome:
@@ -17118,16 +17129,16 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                 # Mostrar itens do checklist
                                 itens_checklist = get_checklist_items(regra['id_regra'])
                                 if not itens_checklist.empty:
-                                    with st.expander(f"Ver itens do checklist '{regra['titulo_checklist']}'", expanded=False):
-                                        for _, item in itens_checklist.iterrows():
-                                            col_item, col_del_item = st.columns([4, 1])
-                                            with col_item:
-                                                st.write(f"• {item['nome_item']}")
-                                            with col_del_item:
-                                                if st.button("🗑️", key=f"del_item_{item['id_item']}", help="Remover item"):
-                                                    delete_checklist_item(item['id_item'])
-                                                    st.success("Item removido!")
-                                                    rerun_keep_tab("⚙️ Configurações")
+                                    st.write(f"**Itens do checklist '{regra['titulo_checklist']}':**")
+                                    for _, item in itens_checklist.iterrows():
+                                        col_item, col_del_item = st.columns([4, 1])
+                                        with col_item:
+                                            st.write(f"• {item['nome_item']}")
+                                        with col_del_item:
+                                            if st.button("🗑️", key=f"del_item_{item['id_item']}", help="Remover item"):
+                                                delete_checklist_item(item['id_item'])
+                                                st.success("Item removido!")
+                                                rerun_keep_tab("⚙️ Configurações")
                                 
                                 st.markdown("---")
                     else:
@@ -17311,7 +17322,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                 with sub_tab_pneus:
                     st.subheader("Importar Histórico de Pneus")
                     st.info(
-                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `numero_fogo`, `data_instalacao`, `hodometro_instalacao`. Opcionais: `vida_util_km`, `observacoes`.\n"
+                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `numero_fogo`, `data_instalacao`, `hodometro_instalacao`. Opcional: `observacoes`.\n"
                             "Cada pneu será vinculado à frota pelo campo `Cod_Equip`."
                         )
                     arquivo_pneus = st.file_uploader("Selecione a planilha de pneus", type=['xlsx'], key="upl_pneus")
@@ -17340,7 +17351,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                             numero_fogo = st.text_input("Nº de Fogo do Pneu")
                             data_instalacao = st.date_input("Data de Instalação")
                             hodometro_instalacao = st.number_input("Leitura na Instalação", min_value=0.0, format="%.2f")
-                            vida_util_km = st.number_input("Vida Útil Estimada (km)", min_value=0.0, format="%.2f")
+                            
                             observacoes = st.text_area("Observações", height=50)
                             status = st.selectbox("Status do Pneu", ["Ativo", "Sucateado", "Reformado"])
                             vida_atual = st.number_input("Vida Atual do Pneu", min_value=1, step=1, value=1)
@@ -17350,8 +17361,8 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                     with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
                                         cur = conn.cursor()
                                         cur.execute(
-                                            "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, numero_fogo, data_instalacao, hodometro_instalacao, vida_util_km, observacoes, status, vida_atual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                            (cod_equip, posicao, marca, modelo, numero_fogo, data_instalacao.strftime("%Y-%m-%d"), hodometro_instalacao, vida_util_km, observacoes, status, vida_atual)
+                                            "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, numero_fogo, data_instalacao, hodometro_instalacao, observacoes, status, vida_atual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                            (cod_equip, posicao, marca, modelo, numero_fogo, data_instalacao.strftime("%Y-%m-%d"), hodometro_instalacao, observacoes, status, vida_atual)
                                         )
                                         conn.commit()
                                     st.success("Pneu cadastrado com sucesso!")
@@ -17371,7 +17382,74 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                             if filtro_posicao:
                                 df_hist_pneus = df_hist_pneus[df_hist_pneus['posicao'].str.contains(filtro_posicao, case=False, na=False)]
                             if not df_hist_pneus.empty:
-                                st.dataframe(df_hist_pneus)
+                                # Mostrar estatísticas resumidas
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Total de Pneus", len(df_hist_pneus))
+                                with col2:
+                                    ativos = len(df_hist_pneus[df_hist_pneus['status'] == 'Ativo'])
+                                    st.metric("Pneus Ativos", ativos)
+                                with col3:
+                                    sucateados = len(df_hist_pneus[df_hist_pneus['status'] == 'Sucateado'])
+                                    st.metric("Pneus Sucateados", sucateados)
+                                with col4:
+                                    vida_media = df_hist_pneus[df_hist_pneus['status'] == 'Ativo']['vida_atual'].mean()
+                                    st.metric("Vida Média Atual", f"{vida_media:.1f}" if not pd.isna(vida_media) else "N/A")
+                                
+                                # Filtros avançados
+                                st.markdown("### 🔍 Filtros Avançados")
+                                col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+                                with col_filtro1:
+                                    filtro_status = st.selectbox("Status", options=['Todos', 'Ativo', 'Sucateado'])
+                                with col_filtro2:
+                                    filtro_vida = st.selectbox("Vida Atual", options=['Todas', '1ª', '2ª', '3ª', '4ª+'])
+                                with col_filtro3:
+                                    filtro_data = st.date_input("Instalados a partir de", value=None)
+                                
+                                # Aplicar filtros
+                                df_filtrado = df_hist_pneus.copy()
+                                if filtro_status != 'Todos':
+                                    df_filtrado = df_filtrado[df_filtrado['status'] == filtro_status]
+                                if filtro_vida != 'Todas':
+                                    if filtro_vida == '1ª':
+                                        df_filtrado = df_filtrado[df_filtrado['vida_atual'] == 1]
+                                    elif filtro_vida == '2ª':
+                                        df_filtrado = df_filtrado[df_filtrado['vida_atual'] == 2]
+                                    elif filtro_vida == '3ª':
+                                        df_filtrado = df_filtrado[df_filtrado['vida_atual'] == 3]
+                                    elif filtro_vida == '4ª+':
+                                        df_filtrado = df_filtrado[df_filtrado['vida_atual'] >= 4]
+                                if filtro_data:
+                                    df_filtrado = df_filtrado[pd.to_datetime(df_filtrado['data_instalacao']) >= filtro_data]
+                                
+                                # Mostrar resultados filtrados em cards
+                                st.markdown(f"### 📊 Resultados ({len(df_filtrado)} pneus)")
+                                if not df_filtrado.empty:
+                                    for _, pneu in df_filtrado.iterrows():
+                                        with st.container():
+                                            col_info, col_acoes = st.columns([4, 1])
+                                            with col_info:
+                                                # Card do pneu
+                                                st.markdown(f'''
+                                                <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin: 10px 0; background-color: {'#e8f5e8' if pneu['status'] == 'Ativo' else '#ffe8e8'}">
+                                                    <h4 style="margin: 0; color: {'#2e7d32' if pneu['status'] == 'Ativo' else '#c62828'}">
+                                                        {pneu['marca']} {pneu['modelo']} - {pneu['posicao']}
+                                                    </h4>
+                                                    <p style="margin: 5px 0; font-size: 14px;">
+                                                        <strong>Nº Fogo:</strong> {pneu.get('numero_fogo', 'N/A')} | 
+                                                        <strong>Status:</strong> {pneu['status']} | 
+                                                        <strong>Vida Atual:</strong> {pneu['vida_atual']}ª
+                                                    </p>
+                                                    <p style="margin: 5px 0; font-size: 12px; color: #666;">
+                                                        <strong>Instalado:</strong> {pneu['data_instalacao']} | 
+                                                        <strong>Hodômetro:</strong> {pneu['hodometro_instalacao']:,.0f}
+                                                    </p>
+                                                </div>
+                                                ''', unsafe_allow_html=True)
+                                            with col_acoes:
+                                                if pneu['status'] == 'Ativo':
+                                                    st.button("✏️", key=f"edit_{pneu['id']}", help="Editar pneu")
+                                                st.button("🗑️", key=f"delete_{pneu['id']}", help="Excluir pneu")
                                 # Edição e exclusão
                                 st.markdown("### Editar ou Excluir Pneus")
                                 df_hist_pneus['label'] = (
@@ -17392,15 +17470,15 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                             novo_numero_fogo = st.text_input("Nº de Fogo do Pneu", value=pneu_row.get('numero_fogo', ''))
                                             nova_data = st.date_input("Data de Instalação", value=pd.to_datetime(pneu_row['data_instalacao']))
                                             novo_hod = st.number_input("Leitura na Instalação", value=float(pneu_row['hodometro_instalacao']), format="%.2f")
-                                            nova_vida = st.number_input("Vida Útil Estimada (km)", value=float(pneu_row['vida_util_km']), format="%.2f")
+                                            
                                             novas_obs = st.text_area("Observações", value=pneu_row['observacoes'], height=50)
                                             if st.form_submit_button("Salvar Alterações"):
                                                 try:
                                                     with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
                                                         cur = conn.cursor()
                                                         cur.execute(
-                                                            "UPDATE pneus_historico SET posicao=?, marca=?, modelo=?, numero_fogo=?, data_instalacao=?, hodometro_instalacao=?, vida_util_km=?, observacoes=? WHERE id=?",
-                                                            (nova_posicao, nova_marca, novo_modelo, novo_numero_fogo, nova_data.strftime("%Y-%m-%d"), novo_hod, nova_vida, novas_obs, pneu_row['id'])
+                                                            "UPDATE pneus_historico SET posicao=?, marca=?, modelo=?, numero_fogo=?, data_instalacao=?, hodometro_instalacao=?, observacoes=? WHERE id=?",
+                                                            (nova_posicao, nova_marca, novo_modelo, novo_numero_fogo, nova_data.strftime("%Y-%m-%d"), novo_hod, novas_obs, pneu_row['id'])
                                                         )
                                                         conn.commit()
                                                     st.success("Pneu atualizado com sucesso!")
