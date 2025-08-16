@@ -6968,13 +6968,22 @@ def main():
                             consumo_classe = df[(df['Classe_Operacional'] == classe_selecionada) & (df['Media'].notna()) & (df['Media'] > 0)]
                             media_da_classe = consumo_classe['Media'].mean()
                             
+                            # Verificar meta da classe
                             meta_consumo = st.session_state.intervalos_por_classe.get(classe_selecionada, {}).get('meta_consumo', 0)
+                            
+                            # Verificar se há meta individual para esta frota (que sobrescreve a da classe)
+                            meta_individual = 0
+                            if 'metas_individuals' in st.session_state:
+                                meta_individual = st.session_state.metas_individuals.get(cod_sel, {}).get('meta_consumo', 0)
+                            
+                            # Usar meta individual se existir e sobrescrever classe, senão usar meta da classe
+                            meta_final = meta_individual if meta_individual > 0 and st.session_state.metas_individuals.get(cod_sel, {}).get('sobrescrever_classe', False) else meta_consumo
 
                             if pd.notna(media_equip_selecionado) and pd.notna(media_da_classe):
                                 with col_alerta:
                                     st.write("") 
                                     st.write("")
-                                    if meta_consumo > 0 and media_equip_selecionado > meta_consumo * 1.05:
+                                    if meta_final > 0 and media_equip_selecionado > meta_final * 1.05:
                                         st.error(f"**ALERTA DE META!** O consumo está acima da meta definida.")
                                     elif media_equip_selecionado <= media_da_classe * 1.05:
                                         st.success(f"**EFICIENTE!** O consumo está dentro ou abaixo da média da sua classe.")
@@ -6983,8 +6992,12 @@ def main():
                                     
                                     st.metric(label=f"Média do Equipamento", value=formatar_brasileiro(media_equip_selecionado))
                                     st.metric(label=f"Média da Classe", value=formatar_brasileiro(media_da_classe))
-                                    if meta_consumo > 0:
-                                        st.metric(label=f"Meta da Classe", value=formatar_brasileiro(meta_consumo))
+                                    if meta_final > 0:
+                                        # Mostrar qual meta está sendo usada
+                                        if meta_individual > 0 and st.session_state.metas_individuals.get(cod_sel, {}).get('sobrescrever_classe', False):
+                                            st.metric(label=f"Meta Individual", value=formatar_brasileiro(meta_final), help="Meta individual que sobrescreve a da classe")
+                                        else:
+                                            st.metric(label=f"Meta da Classe", value=formatar_brasileiro(meta_final))
 
                                 with col_grafico:
                                     # --- INÍCIO DA CORREÇÃO ---
@@ -6994,7 +7007,7 @@ def main():
 
                                     df_comp = pd.DataFrame({
                                         'Categoria': [nome_frota, nome_classe, "Meta Definida"],
-                                        'Média Consumo': [media_equip_selecionado, media_da_classe, meta_consumo]
+                                        'Média Consumo': [media_equip_selecionado, media_da_classe, meta_final]
                                     })
                                     df_comp['texto_formatado'] = df_comp['Média Consumo'].apply(lambda x: formatar_brasileiro(x))
 
@@ -7003,7 +7016,7 @@ def main():
                                         x='Categoria', 
                                         y='Média Consumo', 
                                         text='texto_formatado', 
-                                        title="Eficiência de Consumo vs. Meta",
+                                        title=f"Eficiência de Consumo vs. Meta ({'Individual' if meta_individual > 0 and st.session_state.metas_individuals.get(cod_sel, {}).get('sobrescrever_classe', False) else 'da Classe'})",
                                         color='Categoria',
                                         # 2. Atualiza o mapa de cores com os novos nomes
                                         color_discrete_map={
@@ -8917,6 +8930,347 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                             st.write(f"- **{combustivel}: {count} frotas ({percentual:.1f}%)")
                     else:
                         st.warning("Coluna de tipo de combustível não encontrada. Execute a aplicação para criar automaticamente.")
+
+                # ===== NOVA SEÇÃO: METAS DE CONSUMO =====
+                st.markdown("---")
+                st.subheader("🎯 Gerenciar Metas de Consumo das Frotas")
+                st.info("""
+                **📋 Sobre as Metas de Consumo:**
+                
+                **• Por Classe Operacional:** Define uma meta padrão para todas as frotas de uma classe específica
+                **• Por Frota Individual:** Permite definir metas personalizadas para frotas específicas
+                **• Unidades:** L/h (Litros por Hora) para equipamentos com controle por horas, ou Km/L (Quilômetros por Litro) para equipamentos com controle por quilômetros
+                **• Alertas:** O sistema alerta quando o consumo está acima de 105% da meta definida
+                """)
+                
+                # Criar abas para organizar as funcionalidades
+                tab_meta_classe, tab_meta_frota, tab_meta_analise = st.tabs(["🔄 Por Classe", "✏️ Por Frota", "📊 Análise"])
+                
+                with tab_meta_classe:
+                    st.subheader("🔄 Definir Metas por Classe Operacional")
+                    st.write("Define uma meta de consumo padrão para todas as frotas de uma classe específica. Útil para padronização em massa.")
+                    
+                    # Selecionar classe
+                    classes_disponiveis = sorted([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
+                    
+                    if not classes_disponiveis:
+                        st.warning("Nenhuma classe operacional encontrada. Verifique se há frotas cadastradas.")
+                    else:
+                        classe_selecionada = st.selectbox(
+                            "Selecione a Classe:",
+                            options=classes_disponiveis,
+                            key="classe_meta_admin"
+                        )
+                        
+                        if classe_selecionada:
+                            # Mostrar informações sobre a classe selecionada
+                            frotas_da_classe = df_frotas[df_frotas['Classe_Operacional'] == classe_selecionada]
+                            tipo_controle = frotas_da_classe['Tipo_Controle'].iloc[0] if 'Tipo_Controle' in frotas_da_classe.columns else 'QUILÔMETROS'
+                            
+                            col_info1, col_info2, col_info3 = st.columns(3)
+                            with col_info1:
+                                st.info(f"**Classe:** {classe_selecionada}")
+                            with col_info2:
+                                st.info(f"**Total de frotas:** {len(frotas_da_classe)}")
+                            with col_info3:
+                                st.info(f"**Tipo de controle:** {tipo_controle}")
+                            
+                            # Verificar meta atual
+                            meta_atual = 0.0
+                            if 'intervalos_por_classe' in st.session_state:
+                                if classe_selecionada in st.session_state.intervalos_por_classe:
+                                    meta_atual = st.session_state.intervalos_por_classe[classe_selecionada].get('meta_consumo', 0.0)
+                            
+                            # Formulário para definir meta
+                            with st.form(f"form_meta_classe_{classe_selecionada}", clear_on_submit=False):
+                                st.write(f"**Meta de Consumo para Classe: {classe_selecionada}**")
+                                
+                                # Determinar unidade baseada no tipo de controle
+                                if tipo_controle == 'HORAS':
+                                    unidade = "L/h (Litros por Hora)"
+                                    placeholder = "Ex: 5.0 para 5 litros por hora"
+                                    step_value = 0.1
+                                else:
+                                    unidade = "Km/L (Quilômetros por Litro)"
+                                    placeholder = "Ex: 2.5 para 2.5 km por litro"
+                                    step_value = 0.1
+                                
+                                nova_meta = st.number_input(
+                                    f"Meta de Consumo ({unidade})",
+                                    min_value=0.0,
+                                    step=step_value,
+                                    value=float(meta_atual),
+                                    format="%.2f",
+                                    help=placeholder,
+                                    key=f"meta_classe_{classe_selecionada}"
+                                )
+                                
+                                # Campo para descrição da meta
+                                descricao_meta = st.text_area(
+                                    "Descrição/Observações da Meta (opcional)",
+                                    value="",
+                                    placeholder="Ex: Meta baseada na média histórica da classe, considerando operação em terreno plano",
+                                    max_chars=200,
+                                    key=f"desc_meta_{classe_selecionada}"
+                                )
+                                
+                                submitted_meta = st.form_submit_button("💾 Salvar Meta da Classe", type="primary")
+                                
+                                if submitted_meta:
+                                    if nova_meta > 0:
+                                        # Inicializar estrutura se não existir
+                                        if 'intervalos_por_classe' not in st.session_state:
+                                            st.session_state.intervalos_por_classe = {}
+                                        if classe_selecionada not in st.session_state.intervalos_por_classe:
+                                            st.session_state.intervalos_por_classe[classe_selecionada] = {}
+                                        
+                                        # Salvar meta
+                                        st.session_state.intervalos_por_classe[classe_selecionada]['meta_consumo'] = nova_meta
+                                        st.session_state.intervalos_por_classe[classe_selecionada]['descricao_meta'] = descricao_meta
+                                        st.session_state.intervalos_por_classe[classe_selecionada]['unidade_meta'] = unidade
+                                        st.session_state.intervalos_por_classe[classe_selecionada]['data_meta'] = datetime.now().strftime('%d/%m/%Y %H:%M')
+                                        
+                                        st.success(f"✅ Meta de consumo definida com sucesso para a classe '{classe_selecionada}': **{nova_meta} {unidade}**")
+                                        
+                                        # Mostrar resumo da meta
+                                        st.info(f"""
+                                        **📋 Resumo da Meta Definida:**
+                                        - **Classe:** {classe_selecionada}
+                                        - **Meta:** {nova_meta} {unidade}
+                                        - **Descrição:** {descricao_meta if descricao_meta else 'Nenhuma descrição fornecida'}
+                                        - **Data de Definição:** {st.session_state.intervalos_por_classe[classe_selecionada]['data_meta']}
+                                        - **Frotas Afetadas:** {len(frotas_da_classe)} equipamentos
+                                        """)
+                                    else:
+                                        st.error("❌ A meta deve ser maior que zero!")
+                
+                with tab_meta_frota:
+                    st.subheader("✏️ Definir Metas por Frota Individual")
+                    st.write("Define uma meta de consumo personalizada para uma frota específica. Útil para casos especiais ou exceções.")
+                    
+                    # Selecionar frota
+                    frotas_disponiveis = df_frotas[df_frotas['ATIVO'] == 'ATIVO'].copy()
+                    
+                    if frotas_disponiveis.empty:
+                        st.warning("Nenhuma frota ativa encontrada. Verifique se há frotas cadastradas e ativas.")
+                    else:
+                        frotas_disponiveis['label_meta'] = (
+                            frotas_disponiveis['Cod_Equip'].astype(str) + " - " + 
+                            frotas_disponiveis['DESCRICAO_EQUIPAMENTO'].fillna('') + 
+                            " (" + frotas_disponiveis['PLACA'].fillna('Sem Placa') + ")"
+                        )
+                        
+                        frota_selecionada = st.selectbox(
+                            "Selecione a Frota:",
+                            options=frotas_disponiveis['label_meta'].tolist(),
+                            key="frota_meta_admin"
+                        )
+                        
+                        if frota_selecionada:
+                            # Obter código da frota selecionada
+                            cod_equip_frota = int(frota_selecionada.split(" - ")[0])
+                            
+                            # Obter dados da frota
+                            dados_frota = frotas_disponiveis[frotas_disponiveis['Cod_Equip'] == cod_equip_frota].iloc[0]
+                            classe_frota = dados_frota['Classe_Operacional']
+                            tipo_controle_frota = dados_frota.get('Tipo_Controle', 'QUILÔMETROS')
+                            
+                            # Verificar meta atual da classe
+                            meta_classe = 0.0
+                            if 'intervalos_por_classe' in st.session_state:
+                                if classe_frota in st.session_state.intervalos_por_classe:
+                                    meta_classe = st.session_state.intervalos_por_classe[classe_frota].get('meta_consumo', 0.0)
+                            
+                            # Verificar meta individual da frota
+                            meta_individual = 0.0
+                            if 'metas_individuals' not in st.session_state:
+                                st.session_state.metas_individuals = {}
+                            if cod_equip_frota in st.session_state.metas_individuals:
+                                meta_individual = st.session_state.metas_individuals[cod_equip_frota].get('meta_consumo', 0.0)
+                            
+                            # Mostrar informações da frota
+                            col_info1, col_info2 = st.columns(2)
+                            with col_info1:
+                                st.write(f"**Código:** {dados_frota['Cod_Equip']}")
+                                st.write(f"**Descrição:** {dados_frota['DESCRICAO_EQUIPAMENTO']}")
+                                st.write(f"**Classe:** {classe_frota}")
+                            with col_info2:
+                                st.write(f"**Placa:** {dados_frota['PLACA']}")
+                                st.write(f"**Tipo de Controle:** {tipo_controle_frota}")
+                                if meta_classe > 0:
+                                    st.write(f"**Meta da Classe:** {meta_classe}")
+                                else:
+                                    st.write("**Meta da Classe:** Não definida")
+                            
+                            # Formulário para definir meta individual
+                            with st.form(f"form_meta_frota_{cod_equip_frota}", clear_on_submit=False):
+                                st.write(f"**Meta de Consumo Individual para: {dados_frota['DESCRICAO_EQUIPAMENTO']}**")
+                                
+                                # Determinar unidade baseada no tipo de controle
+                                if tipo_controle_frota == 'HORAS':
+                                    unidade = "L/h (Litros por Hora)"
+                                    placeholder = "Ex: 4.5 para 4.5 litros por hora"
+                                    step_value = 0.1
+                                else:
+                                    unidade = "Km/L (Quilômetros por Litro)"
+                                    placeholder = "Ex: 2.8 para 2.8 km por litro"
+                                    step_value = 0.1
+                                
+                                nova_meta_individual = st.number_input(
+                                    f"Meta de Consumo Individual ({unidade})",
+                                    min_value=0.0,
+                                    step=step_value,
+                                    value=float(meta_individual) if meta_individual > 0 else float(meta_classe) if meta_classe > 0 else 0.0,
+                                    format="%.2f",
+                                    help=placeholder,
+                                    key=f"meta_frota_{cod_equip_frota}"
+                                )
+                                
+                                # Campo para descrição da meta
+                                descricao_meta_individual = st.text_area(
+                                    "Descrição/Observações da Meta (opcional)",
+                                    value=st.session_state.metas_individuals.get(cod_equip_frota, {}).get('descricao_meta', ''),
+                                    placeholder="Ex: Meta personalizada devido a operação em terreno acidentado",
+                                    max_chars=200,
+                                    key=f"desc_meta_frota_{cod_equip_frota}"
+                                )
+                                
+                                # Checkbox para sobrescrever meta da classe
+                                sobrescrever_classe = st.checkbox(
+                                    "Sobrescrever meta da classe (usar apenas esta meta individual)",
+                                    value=meta_individual > 0,
+                                    help="Se marcado, apenas a meta individual será considerada, ignorando a meta da classe"
+                                )
+                                
+                                submitted_meta_individual = st.form_submit_button("💾 Salvar Meta Individual", type="primary")
+                                
+                                if submitted_meta_individual:
+                                    if nova_meta_individual > 0:
+                                        # Salvar meta individual
+                                        st.session_state.metas_individuals[cod_equip_frota] = {
+                                            'meta_consumo': nova_meta_individual,
+                                            'descricao_meta': descricao_meta_individual,
+                                            'unidade_meta': unidade,
+                                            'data_meta': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                                            'sobrescrever_classe': sobrescrever_classe,
+                                            'classe_operacional': classe_frota
+                                        }
+                                        
+                                        st.success(f"✅ Meta individual definida com sucesso para '{dados_frota['DESCRICAO_EQUIPAMENTO']}': **{nova_meta_individual} {unidade}**")
+                                        
+                                        # Mostrar resumo da meta
+                                        st.info(f"""
+                                        **📋 Resumo da Meta Individual:**
+                                        - **Frota:** {dados_frota['DESCRICAO_EQUIPAMENTO']} (Cód: {cod_equip_frota})
+                                        - **Meta Individual:** {nova_meta_individual} {unidade}
+                                        - **Descrição:** {descricao_meta_individual if descricao_meta_individual else 'Nenhuma descrição fornecida'}
+                                        - **Data de Definição:** {st.session_state.metas_individuals[cod_equip_frota]['data_meta']}
+                                        - **Sobrescreve Classe:** {'Sim' if sobrescrever_classe else 'Não'}
+                                        """)
+                                    else:
+                                        st.error("❌ A meta deve ser maior que zero!")
+                
+                with tab_meta_analise:
+                    st.subheader("📊 Análise e Resumo das Metas")
+                    st.write("Visualize e analise todas as metas de consumo definidas no sistema.")
+                    
+                    # Resumo geral das metas
+                    col_res1, col_res2, col_res3 = st.columns(3)
+                    
+                    with col_res1:
+                        total_classes = len([c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()])
+                        classes_com_meta = 0
+                        if 'intervalos_por_classe' in st.session_state:
+                            classes_com_meta = len([c for c in st.session_state.intervalos_por_classe.keys() if st.session_state.intervalos_por_classe[c].get('meta_consumo', 0) > 0])
+                        st.metric("Classes com Meta", f"{classes_com_meta}/{total_classes}")
+                    
+                    with col_res2:
+                        total_frotas_ativas = len(df_frotas[df_frotas['ATIVO'] == 'ATIVO'])
+                        frotas_com_meta_individual = 0
+                        if 'metas_individuals' in st.session_state:
+                            frotas_com_meta_individual = len(st.session_state.metas_individuals.keys())
+                        st.metric("Frotas com Meta Individual", f"{frotas_com_meta_individual}/{total_frotas_ativas}")
+                    
+                    with col_res3:
+                        total_metas = classes_com_meta + frotas_com_meta_individual
+                        st.metric("Total de Metas", total_metas)
+                    
+                    # Tabela de metas por classe
+                    if 'intervalos_por_classe' in st.session_state and any(st.session_state.intervalos_por_classe.values()):
+                        st.write("**📋 Metas por Classe Operacional:**")
+                        
+                        dados_metas_classe = []
+                        for classe, config in st.session_state.intervalos_por_classe.items():
+                            if config.get('meta_consumo', 0) > 0:
+                                dados_metas_classe.append({
+                                    'Classe': classe,
+                                    'Meta': f"{config.get('meta_consumo', 0):.2f}",
+                                    'Unidade': config.get('unidade_meta', 'N/A'),
+                                    'Descrição': config.get('descricao_meta', 'Nenhuma'),
+                                    'Data': config.get('data_meta', 'N/A'),
+                                    'Frotas': len(df_frotas[df_frotas['Classe_Operacional'] == classe])
+                                })
+                        
+                        if dados_metas_classe:
+                            df_metas_classe = pd.DataFrame(dados_metas_classe)
+                            st.dataframe(df_metas_classe, use_container_width=True)
+                        else:
+                            st.info("Nenhuma meta de classe definida.")
+                    else:
+                        st.info("Nenhuma meta de classe definida.")
+                    
+                    # Tabela de metas individuais
+                    if 'metas_individuals' in st.session_state and st.session_state.metas_individuals:
+                        st.write("**📋 Metas Individuais por Frota:**")
+                        
+                        dados_metas_individuals = []
+                        for cod_equip, config in st.session_state.metas_individuals.items():
+                            frota_info = df_frotas[df_frotas['Cod_Equip'] == cod_equip]
+                            if not frota_info.empty:
+                                dados_metas_individuals.append({
+                                    'Código': cod_equip,
+                                    'Frota': frota_info.iloc[0]['DESCRICAO_EQUIPAMENTO'],
+                                    'Classe': config.get('classe_operacional', 'N/A'),
+                                    'Meta': f"{config.get('meta_consumo', 0):.2f}",
+                                    'Unidade': config.get('unidade_meta', 'N/A'),
+                                    'Sobrescreve Classe': 'Sim' if config.get('sobrescrever_classe', False) else 'Não',
+                                    'Data': config.get('data_meta', 'N/A')
+                                })
+                        
+                        if dados_metas_individuals:
+                            df_metas_individuals = pd.DataFrame(dados_metas_individuals)
+                            st.dataframe(df_metas_individuals, use_container_width=True)
+                        else:
+                            st.info("Nenhuma meta individual definida.")
+                    else:
+                        st.info("Nenhuma meta individual definida.")
+                    
+                    # Botão para exportar todas as metas
+                    if (('intervalos_por_classe' in st.session_state and any(st.session_state.intervalos_por_classe.values())) or 
+                        ('metas_individuals' in st.session_state and st.session_state.metas_individuals)):
+                        
+                        if st.button("📥 Exportar Relatório de Metas", type="secondary", use_container_width=True):
+                            # Criar relatório
+                            relatorio_metas = f"""
+RELATÓRIO DE METAS DE CONSUMO - SISTEMA DE GESTÃO DE FROTAS
+Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+METAS POR CLASSE OPERACIONAL:
+{chr(10).join([f"- {classe}: {config.get('meta_consumo', 0):.2f} {config.get('unidade_meta', 'N/A')} - {config.get('descricao_meta', 'Nenhuma descrição')}" for classe, config in st.session_state.intervalos_por_classe.items() if config.get('meta_consumo', 0) > 0])}
+
+METAS INDIVIDUAIS:
+{chr(10).join([f"- Código {cod_equip}: {config.get('meta_consumo', 0):.2f} {config.get('unidade_meta', 'N/A')} - {config.get('descricao_meta', 'Nenhuma descrição')}" for cod_equip, config in st.session_state.metas_individuals.items()])}
+
+---
+Relatório gerado automaticamente pelo sistema de gestão de frotas.
+                            """
+                            
+                            st.download_button(
+                                "📥 Download Relatório de Metas",
+                                relatorio_metas.encode('utf-8'),
+                                "relatorio_metas_consumo.txt",
+                                "text/plain"
+                            )
 
                 # APAGUE O CONTEÚDO DA SUA "with tab_config:" E SUBSTITUA-O POR ESTE BLOCO
 
