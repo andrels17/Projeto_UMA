@@ -7224,6 +7224,24 @@ def main():
                 st.markdown("---")
                 st.subheader("🧠 Insights e Recomendações Inteligentes")
                 
+                # Recalcular variáveis necessárias para os insights
+                total_frotas_ativas_insights = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
+                frotas_com_alerta_insights = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
+                
+                # Calcular gasto total para insights
+                gasto_total_combustivel_insights = 0
+                if precos_map:
+                    df_gastos_insights = df.copy()
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_gastos_insights = df_gastos_insights.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                        df_gastos_insights['tipo_combustivel'] = df_gastos_insights['tipo_combustivel'].fillna('Diesel S500')
+                    else:
+                        df_gastos_insights['tipo_combustivel'] = 'Diesel S500'
+                    
+                    df_gastos_insights['preco_unit'] = df_gastos_insights['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_gastos_insights['custo'] = df_gastos_insights['Qtde_Litros'].fillna(0.0) * df_gastos_insights['preco_unit']
+                    gasto_total_combustivel_insights = df_gastos_insights['custo'].sum()
+                
                 # Gerar insights baseados nos dados
                 insights = []
                 recomendacoes = []
@@ -7237,19 +7255,22 @@ def main():
                         recomendacoes.append("💡 Considere revisar a operação destes equipamentos ou agendar manutenção preventiva")
                 
                 # Insight 2: Análise de alertas
-                if not plan_df.empty:
-                    frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique()
-                    if frotas_com_alerta > 0:
-                        insights.append(f"⚠️ **{frotas_com_alerta} equipamentos** com alertas de manutenção pendentes")
-                        recomendacoes.append("🔧 Priorize a manutenção destes equipamentos para evitar paradas não programadas")
+                if frotas_com_alerta_insights > 0:
+                    insights.append(f"⚠️ **{frotas_com_alerta_insights} equipamentos** com alertas de manutenção pendentes")
+                    recomendacoes.append("🔧 Priorize a manutenção destes equipamentos para evitar paradas não programadas")
                 
                 # Insight 3: Análise de gastos
-                if precos_map and gasto_total_combustivel > 0:
-                    gasto_mensal_medio = gasto_total_combustivel / max(len(consumo_mensal), 1)
-                    insights.append(f"💰 Gasto mensal médio com combustível: **{formatar_brasileiro(gasto_mensal_medio, 'R$ ')}**")
-                    recomendacoes.append("📊 Monitore regularmente os gastos para identificar oportunidades de economia")
+                if gasto_total_combustivel_insights > 0:
+                    # Calcular gasto mensal médio se houver dados de consumo mensal
+                    if 'consumo_mensal' in locals() and len(consumo_mensal) > 0:
+                        gasto_mensal_medio = gasto_total_combustivel_insights / len(consumo_mensal)
+                        insights.append(f"💰 Gasto mensal médio com combustível: **{formatar_brasileiro(gasto_mensal_medio, 'R$ ')}**")
+                        recomendacoes.append("📊 Monitore regularmente os gastos para identificar oportunidades de economia")
+                    else:
+                        insights.append(f"💰 Gasto total com combustível: **{formatar_brasileiro(gasto_total_combustivel_insights, 'R$ ')}**")
+                        recomendacoes.append("📊 Monitore regularmente os gastos para identificar oportunidades de economia")
                 
-                # Insight 4: Análise de tendência
+                # Insight 4: Análise de tendência (se disponível)
                 if 'variacao' in locals() and abs(variacao) > 10:
                     if variacao > 0:
                         insights.append(f"📈 Consumo aumentou **{variacao:+.1f}%** no último período")
@@ -7260,8 +7281,8 @@ def main():
                 
                 # Insight 5: Análise de frotas ativas
                 total_frotas = df_frotas['Cod_Equip'].nunique()
-                if total_frotas_ativas < total_frotas * 0.9:
-                    frotas_inativas = total_frotas - total_frotas_ativas
+                if total_frotas_ativas_insights < total_frotas * 0.9:
+                    frotas_inativas = total_frotas - total_frotas_ativas_insights
                     insights.append(f"🚫 **{frotas_inativas} equipamentos** estão inativos")
                     recomendacoes.append("🔄 Avalie se estes equipamentos podem ser reativados ou se devem ser descartados")
                 
@@ -7285,11 +7306,11 @@ def main():
                 
                 col_res1, col_res2, col_res3 = st.columns(3)
                 with col_res1:
-                    st.metric("🚗 Frotas Analisadas", total_frotas_ativas)
+                    st.metric("🚗 Frotas Analisadas", total_frotas_ativas_insights)
                 with col_res2:
-                    st.metric("💰 Gasto Total", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
+                    st.metric("💰 Gasto Total", formatar_brasileiro(gasto_total_combustivel_insights, 'R$ '))
                 with col_res3:
-                    st.metric("⚠️ Alertas Ativos", frotas_com_alerta)
+                    st.metric("⚠️ Alertas Ativos", frotas_com_alerta_insights)
                 
                 # Botão para exportar relatório completo
                 if st.button("📄 Gerar Relatório Executivo", type="primary"):
@@ -7301,9 +7322,9 @@ RELATÓRIO EXECUTIVO - ANÁLISE DE FROTA
 Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
 RESUMO GERAL:
-- Frotas Ativas: {total_frotas_ativas}
-- Gasto Total com Combustível: {formatar_brasileiro(gasto_total_combustivel, 'R$ ')}
-- Equipamentos com Alerta: {frotas_com_alerta}
+- Frotas Ativas: {total_frotas_ativas_insights}
+- Gasto Total com Combustível: {formatar_brasileiro(gasto_total_combustivel_insights, 'R$ ')}
+- Equipamentos com Alerta: {frotas_com_alerta_insights}
 
 INSIGHTS:
 {chr(10).join([f"- {insight.replace('**', '')}" for insight in insights])}
