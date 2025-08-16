@@ -2498,7 +2498,72 @@ def main():
     
         if tab_analise is not None:
             with tab_analise:
-                st.header("📈 Análise Gráfica de Consumo")
+                st.header("📈 Análise Geral e Painel de Controle")
+                
+                # ===== SEÇÃO: VISÃO GERAL DA FROTA =====
+                st.subheader("🏠 Visão Geral da Frota")
+                
+                # Calcular gasto total com combustível
+                precos_map = get_precos_combustivel_map()
+                gasto_total_combustivel = 0
+                if precos_map:
+                    df_gastos_total = df.copy()
+                    # Verificar se a coluna tipo_combustivel existe em df_frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_gastos_total.columns:
+                            df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_gastos_total['tipo_combustivel'] = 'Diesel S500'
+                    else:
+                        # Se não existir, criar a coluna com valor padrão
+                        df_gastos_total['tipo_combustivel'] = 'Diesel S500'
+                    
+                    df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
+                    gasto_total_combustivel = df_gastos_total['custo'].sum()
+                
+                # KPIs principais
+                kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+                
+                # KPI 1: Frotas Ativas
+                total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
+                kpi1.metric("🚗 Frotas Ativas", total_frotas_ativas)
+                
+                # KPI 2: Frotas com Alerta
+                frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
+                kpi2.metric("⚠️ Frotas com Alerta", frotas_com_alerta)
+                
+                # KPI 3: Gasto Total com Combustível
+                kpi3.metric("💰 Gasto com Combustível", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
+                
+                # KPIs 4 e 5: Frotas Mais e Menos Eficientes
+                df_sem_filtro = df.copy()
+                df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
+                if not df_media_geral.empty:
+                    # Agrupa por Código e Descrição para ter acesso a ambos
+                    media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
+                    
+                    if not media_por_equip.empty:
+                        # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
+                        cod_mais_eficiente = media_por_equip.index[0][0]
+                        media_mais_eficiente = media_por_equip.iloc[0]
+                        # Exibe o CÓDIGO no KPI
+                        kpi4.metric("🏆 Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
+                
+                        # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
+                        cod_menos_eficiente = media_por_equip.index[-1][0]
+                        media_menos_eficiente = media_por_equip.iloc[-1]
+                        # Exibe o CÓDIGO no KPI
+                        kpi5.metric("📉 Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
+                else:
+                    # Se não há dados de eficiência, mostrar mensagem
+                    kpi4.metric("🏆 Mais Eficiente", "N/A")
+                    kpi5.metric("📉 Menos Eficiente", "N/A")
+
+                st.markdown("---")
+                st.subheader("📈 Análise Gráfica de Consumo")
 
                 # Aplica filtros apenas nesta aba
                 opts = st.session_state.get('filtro_opts_analise', None)
@@ -5845,57 +5910,270 @@ def main():
                     
                     st.markdown("---")
                      
-                    st.subheader("🏆 Ranking de Eficiência (vs. Média da Classe)")
+                    st.subheader("🏆 Ranking de Eficiência Inteligente")
+                    
+                    # Explicação do ranking
+                    with st.expander("ℹ️ Como interpretar o Ranking de Eficiência"):
+                        st.markdown("""
+                        **📊 Como funciona:**
+                        - **🟢 Verde (+5%+):** Equipamento mais eficiente que a média da sua classe
+                        - **⚪ Branco (-5% a +5%):** Eficiência próxima à média da classe  
+                        - **🔴 Vermelho (-5%-):** Equipamento menos eficiente que a média da sua classe
+                        
+                        **🎯 Objetivo:** Identificar equipamentos que consomem menos combustível por hora/km comparado aos similares.
+                        """)
+                    
                     if 'Media' in df.columns and not df['Media'].dropna().empty:
                         media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
                         ranking_df = df.copy()
                         ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
                         ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
                         
-                        ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
+                        ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Classe_Operacional'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
                         ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
                         
-                        # --- INÍCIO DA CORREÇÃO ---
-                        # Cria uma nova coluna "Equipamento" que combina o Código com a Descrição
-                        ranking['Equipamento'] = ranking['Cod_Equip'].astype(str) + " - " + ranking['Equipamento']
-                        # --- FIM DA CORREÇÃO ---
-                    
-                        def formatar_eficiencia(val):
+                        # Adicionar informações da frota
+                        ranking = ranking.merge(
+                            df_frotas[['Cod_Equip', 'PLACA', 'ATIVO']], 
+                            on='Cod_Equip', 
+                            how='left'
+                        )
+                        
+                        # Criar coluna combinada mais informativa
+                        ranking['Equipamento_Completo'] = ranking.apply(
+                            lambda row: f"{row['Cod_Equip']} - {row['Equipamento'][:25]}{'...' if len(str(row['Equipamento'])) > 25 else ''} ({row['PLACA']})", 
+                            axis=1
+                        )
+                        
+                        # Melhorar formatação da eficiência
+                        def formatar_eficiencia_melhorada(val):
                             if pd.isna(val): return "N/A"
-                            if val > 5: return f"🟢 {val:+.2f}%".replace('.',',')
-                            if val < -5: return f"🔴 {val:+.2f}%".replace('.',',')
-                            return f"⚪ {val:+.2f}%".replace('.',',')
+                            if val > 10: return f"🟢 Excelente (+{val:+.1f}%)".replace('.',',')
+                            elif val > 5: return f"🟢 Bom (+{val:+.1f}%)".replace('.',',')
+                            elif val > 0: return f"🟢 Acima (+{val:+.1f}%)".replace('.',',')
+                            elif val > -5: return f"⚪ Média ({val:+.1f}%)".replace('.',',')
+                            elif val > -10: return f"🟡 Abaixo ({val:+.1f}%)".replace('.',',')
+                            else: return f"🔴 Crítico ({val:+.1f}%)".replace('.',',')
                         
-                        ranking['Eficiência (%)'] = ranking['Eficiência (%)'].apply(formatar_eficiencia)
+                        ranking['Eficiência_Formatada'] = ranking['Eficiência (%)'].apply(formatar_eficiencia_melhorada)
                         
-                    # Exibe a nova coluna "Equipamento" formatada
-                    st.dataframe(ranking[['Equipamento', 'Eficiência (%)']])                    
-                                # NOVO: Botão de Exportação para o Ranking
-                    csv_ranking = para_csv(ranking)
-                    st.download_button("📥 Exportar Ranking para CSV", csv_ranking, "ranking_eficiencia.csv", "text/csv")
-                else:
+                        # Adicionar status do equipamento
+                        ranking['Status'] = ranking['ATIVO'].apply(lambda x: "✅ Ativo" if x == 'ATIVO' else "❌ Inativo")
+                        
+                        # Mostrar estatísticas rápidas
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            excelentes = len(ranking[ranking['Eficiência (%)'] > 10])
+                            st.metric("🟢 Excelentes", excelentes)
+                        with col2:
+                            bons = len(ranking[(ranking['Eficiência (%)'] > 5) & (ranking['Eficiência (%)'] <= 10)])
+                            st.metric("🟢 Bons", bons)
+                        with col3:
+                            criticos = len(ranking[ranking['Eficiência (%)'] < -10])
+                            st.metric("🔴 Críticos", criticos)
+                        with col4:
+                            total_analisados = len(ranking)
+                            st.metric("📊 Total", total_analisados)
+                        
+                        # Filtros para o ranking
+                        st.markdown("**🔍 Filtros:**")
+                        col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+                        
+                        with col_filtro1:
+                            mostrar_inativos = st.checkbox("Mostrar Inativos", value=False)
+                        with col_filtro2:
+                            classe_filtro = st.selectbox(
+                                "Filtrar por Classe",
+                                ["Todas"] + sorted(ranking['Classe_Operacional'].unique().tolist())
+                            )
+                        with col_filtro3:
+                            eficiencia_filtro = st.selectbox(
+                                "Filtrar por Eficiência",
+                                ["Todas", "Excelentes (+10%+)", "Bons (+5%+)", "Acima da Média", "Média", "Abaixo da Média", "Críticos (-10%-)"]
+                            )
+                        
+                        # Aplicar filtros
+                        ranking_filtrado = ranking.copy()
+                        
+                        if not mostrar_inativos:
+                            ranking_filtrado = ranking_filtrado[ranking_filtrado['ATIVO'] == 'ATIVO']
+                        
+                        if classe_filtro != "Todas":
+                            ranking_filtrado = ranking_filtrado[ranking_filtrado['Classe_Operacional'] == classe_filtro]
+                        
+                        if eficiencia_filtro != "Todas":
+                            if eficiencia_filtro == "Excelentes (+10%+)":
+                                ranking_filtrado = ranking_filtrado[ranking_filtrado['Eficiência (%)'] > 10]
+                            elif eficiencia_filtro == "Bons (+5%+)":
+                                ranking_filtrado = ranking_filtrado[ranking_filtrado['Eficiência (%)'] > 5]
+                            elif eficiencia_filtro == "Acima da Média":
+                                ranking_filtrado = ranking_filtrado[ranking_filtrado['Eficiência (%)'] > 0]
+                            elif eficiencia_filtro == "Média":
+                                ranking_filtrado = ranking_filtrado[(ranking_filtrado['Eficiência (%)'] >= -5) & (ranking_filtrado['Eficiência (%)'] <= 5)]
+                            elif eficiencia_filtro == "Abaixo da Média":
+                                ranking_filtrado = ranking_filtrado[ranking_filtrado['Eficiência (%)'] < 0]
+                            elif eficiencia_filtro == "Críticos (-10%-)":
+                                ranking_filtrado = ranking_filtrado[ranking_filtrado['Eficiência (%)'] < -10]
+                        
+                        # Exibir ranking com informações melhoradas
+                        if not ranking_filtrado.empty:
+                            # Criar gráfico de barras para visualização
+                            fig_ranking = px.bar(
+                                ranking_filtrado.head(20),
+                                x='Eficiência (%)',
+                                y='Equipamento_Completo',
+                                orientation='h',
+                                color='Eficiência (%)',
+                                color_continuous_scale='RdYlGn',
+                                title="Top 20 Equipamentos por Eficiência",
+                                labels={'Eficiência (%)': 'Eficiência vs Média da Classe (%)', 'Equipamento_Completo': 'Equipamento'}
+                            )
+                            fig_ranking.update_layout(
+                                yaxis={'categoryorder':'total ascending'},
+                                height=600,
+                                xaxis_title="Eficiência vs Média da Classe (%)",
+                                yaxis_title="Equipamento"
+                            )
+                            st.plotly_chart(fig_ranking, use_container_width=True)
+                            
+                            # Tabela detalhada
+                            st.markdown("**📋 Tabela Detalhada:**")
+                            colunas_exibir = ['Equipamento_Completo', 'Classe_Operacional', 'Eficiência_Formatada', 'Status']
+                            st.dataframe(
+                                ranking_filtrado[colunas_exibir].head(50),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                            
+                            # Botão de exportação
+                            csv_ranking = para_csv(ranking_filtrado)
+                            st.download_button(
+                                "📥 Exportar Ranking Filtrado para CSV", 
+                                csv_ranking, 
+                                "ranking_eficiencia_filtrado.csv", 
+                                "text/csv"
+                            )
+                        else:
+                            st.warning("Nenhum equipamento encontrado com os filtros selecionados.")
+                    else:
                         st.info("Não há dados de consumo médio para gerar o ranking.")
                         
                 st.markdown("---")
-                st.subheader("📈 Tendência de Consumo Mensal")
-
+                st.subheader("📈 Análise de Tendências e Evolução")
+                
+                # ===== SEÇÃO: TENDÊNCIA DE CONSUMO MENSAAL MELHORADA =====
+                st.markdown("**📊 Tendência de Consumo Mensal**")
+                
                 if not df.empty and 'Qtde_Litros' in df.columns:
                     # Agrupa os dados por Ano/Mês e soma o consumo
                     consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
                     
                     if not consumo_mensal.empty:
+                        # Calcular estatísticas da tendência
+                        consumo_atual = consumo_mensal['Qtde_Litros'].iloc[-1] if len(consumo_mensal) > 0 else 0
+                        consumo_anterior = consumo_mensal['Qtde_Litros'].iloc[-2] if len(consumo_mensal) > 1 else 0
+                        variacao = ((consumo_atual - consumo_anterior) / consumo_anterior * 100) if consumo_anterior > 0 else 0
+                        
+                        # Mostrar métricas de tendência
+                        col_tend1, col_tend2, col_tend3 = st.columns(3)
+                        with col_tend1:
+                            st.metric("📈 Consumo Atual", f"{formatar_brasileiro_int(consumo_atual)} L")
+                        with col_tend2:
+                            st.metric("📊 Consumo Anterior", f"{formatar_brasileiro_int(consumo_anterior)} L")
+                        with col_tend3:
+                            st.metric("🔄 Variação", f"{variacao:+.1f}%".replace('.',','))
+                        
+                        # Gráfico de tendência melhorado
                         fig_tendencia = px.line(
                             consumo_mensal,
                             x='AnoMes',
                             y='Qtde_Litros',
-                            title="Evolução do Consumo de Combustível (Litros)",
-                            labels={"AnoMes": "Mês", "Qtde_Litros": "Litros Consumidos"},
-                            markers=True # Adiciona marcadores para cada mês
+                            title="📈 Evolução do Consumo de Combustível",
+                            labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
+                            markers=True,
+                            line_shape='linear'
                         )
-                        fig_tendencia.update_layout(xaxis_title="Mês/Ano", yaxis_title="Litros Consumidos")
+                        fig_tendencia.update_layout(
+                            xaxis_title="Mês/Ano", 
+                            yaxis_title="Litros Consumidos",
+                            height=400,
+                            showlegend=False
+                        )
+                        fig_tendencia.update_traces(
+                            line=dict(width=3, color='#1f77b4'),
+                            marker=dict(size=8, color='#1f77b4')
+                        )
                         st.plotly_chart(fig_tendencia, use_container_width=True)
+                        
+                        # Análise de sazonalidade
+                        if len(consumo_mensal) >= 12:  # Pelo menos 1 ano de dados
+                            st.markdown("**📅 Análise de Sazonalidade:**")
+                            # Calcular média por mês
+                            consumo_mensal['Mes'] = consumo_mensal['AnoMes'].str[-2:] if 'AnoMes' in consumo_mensal.columns else '01'
+                            sazonalidade = consumo_mensal.groupby('Mes')['Qtde_Litros'].mean().reset_index()
+                            sazonalidade['Mes_Nome'] = sazonalidade['Mes'].map({
+                                '01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr',
+                                '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago',
+                                '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez'
+                            })
+                            
+                            fig_sazonalidade = px.bar(
+                                sazonalidade,
+                                x='Mes_Nome',
+                                y='Qtde_Litros',
+                                title="📅 Consumo Médio por Mês (Sazonalidade)",
+                                labels={'Mes_Nome': 'Mês', 'Qtde_Litros': 'Litros Médios'},
+                                color='Qtde_Litros',
+                                color_continuous_scale='Blues'
+                            )
+                            fig_sazonalidade.update_layout(height=300)
+                            st.plotly_chart(fig_sazonalidade, use_container_width=True)
                     else:
                         st.info("Não há dados suficientes para gerar o gráfico de tendência com os filtros selecionados.")
+                
+                # ===== NOVA SEÇÃO: ANÁLISE DE EFICIÊNCIA TEMPORAL =====
+                st.markdown("---")
+                st.markdown("**🎯 Análise de Eficiência Temporal**")
+                
+                if 'Media' in df.columns and not df['Media'].dropna().empty:
+                    # Análise de eficiência ao longo do tempo
+                    df_eficiencia_tempo = df[df['Media'].notna()].copy()
+                    df_eficiencia_tempo['AnoMes'] = df_eficiencia_tempo['AnoMes'] if 'AnoMes' in df_eficiencia_tempo.columns else '2024-01'
+                    
+                    eficiencia_temporal = df_eficiencia_tempo.groupby('AnoMes')['Media'].mean().reset_index()
+                    
+                    if not eficiencia_temporal.empty:
+                        fig_eficiencia_tempo = px.line(
+                            eficiencia_temporal,
+                            x='AnoMes',
+                            y='Media',
+                            title="📊 Evolução da Eficiência Média da Frota",
+                            labels={"AnoMes": "Mês/Ano", "Media": "Eficiência Média (L/h ou km/L)"},
+                            markers=True
+                        )
+                        fig_eficiencia_tempo.update_layout(
+                            xaxis_title="Mês/Ano", 
+                            yaxis_title="Eficiência Média",
+                            height=300
+                        )
+                        st.plotly_chart(fig_eficiencia_tempo, use_container_width=True)
+                        
+                        # Estatísticas de eficiência
+                        eficiencia_atual = eficiencia_temporal['Media'].iloc[-1] if len(eficiencia_temporal) > 0 else 0
+                        eficiencia_anterior = eficiencia_temporal['Media'].iloc[-2] if len(eficiencia_temporal) > 1 else 0
+                        variacao_eficiencia = ((eficiencia_atual - eficiencia_anterior) / eficiencia_anterior * 100) if eficiencia_anterior > 0 else 0
+                        
+                        col_ef1, col_ef2, col_ef3 = st.columns(3)
+                        with col_ef1:
+                            st.metric("🎯 Eficiência Atual", f"{formatar_brasileiro(eficiencia_atual)}")
+                        with col_ef2:
+                            st.metric("📊 Eficiência Anterior", f"{formatar_brasileiro(eficiencia_anterior)}")
+                        with col_ef3:
+                            st.metric("🔄 Variação", f"{variacao_eficiencia:+.1f}%".replace('.',','))
+                    else:
+                        st.info("Não há dados suficientes para análise de eficiência temporal.")
+                else:
+                    st.info("Não há dados de eficiência para análise temporal.")
 
                     st.markdown("---")
                     st.subheader("💰 Total de Gasto por Motorista")
@@ -6941,6 +7219,109 @@ def main():
                         st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display.columns]])
                     else:
                         st.info("Nenhum registo de abastecimento para este equipamento.")
+                
+                # ===== NOVA SEÇÃO: INSIGHTS E RECOMENDAÇÕES INTELIGENTES =====
+                st.markdown("---")
+                st.subheader("🧠 Insights e Recomendações Inteligentes")
+                
+                # Gerar insights baseados nos dados
+                insights = []
+                recomendacoes = []
+                
+                # Insight 1: Análise de eficiência
+                if 'Media' in df.columns and not df['Media'].dropna().empty:
+                    media_geral = df['Media'].mean()
+                    equipamentos_ineficientes = df[df['Media'] > media_geral * 1.2]['Cod_Equip'].nunique()
+                    if equipamentos_ineficientes > 0:
+                        insights.append(f"🔍 **{equipamentos_ineficientes} equipamentos** estão consumindo mais de 20% acima da média")
+                        recomendacoes.append("💡 Considere revisar a operação destes equipamentos ou agendar manutenção preventiva")
+                
+                # Insight 2: Análise de alertas
+                if not plan_df.empty:
+                    frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique()
+                    if frotas_com_alerta > 0:
+                        insights.append(f"⚠️ **{frotas_com_alerta} equipamentos** com alertas de manutenção pendentes")
+                        recomendacoes.append("🔧 Priorize a manutenção destes equipamentos para evitar paradas não programadas")
+                
+                # Insight 3: Análise de gastos
+                if precos_map and gasto_total_combustivel > 0:
+                    gasto_mensal_medio = gasto_total_combustivel / max(len(consumo_mensal), 1)
+                    insights.append(f"💰 Gasto mensal médio com combustível: **{formatar_brasileiro(gasto_mensal_medio, 'R$ ')}**")
+                    recomendacoes.append("📊 Monitore regularmente os gastos para identificar oportunidades de economia")
+                
+                # Insight 4: Análise de tendência
+                if 'variacao' in locals() and abs(variacao) > 10:
+                    if variacao > 0:
+                        insights.append(f"📈 Consumo aumentou **{variacao:+.1f}%** no último período")
+                        recomendacoes.append("🔍 Investigar causas do aumento de consumo (sazonalidade, operação, etc.)")
+                    else:
+                        insights.append(f"📉 Consumo diminuiu **{variacao:+.1f}%** no último período")
+                        recomendacoes.append("✅ Boa performance! Mantenha as práticas que levaram à redução")
+                
+                # Insight 5: Análise de frotas ativas
+                total_frotas = df_frotas['Cod_Equip'].nunique()
+                if total_frotas_ativas < total_frotas * 0.9:
+                    frotas_inativas = total_frotas - total_frotas_ativas
+                    insights.append(f"🚫 **{frotas_inativas} equipamentos** estão inativos")
+                    recomendacoes.append("🔄 Avalie se estes equipamentos podem ser reativados ou se devem ser descartados")
+                
+                # Exibir insights
+                if insights:
+                    st.markdown("**🔍 Insights Principais:**")
+                    for insight in insights:
+                        st.info(insight)
+                else:
+                    st.info("📊 Não há insights específicos para exibir no momento.")
+                
+                # Exibir recomendações
+                if recomendacoes:
+                    st.markdown("**💡 Recomendações:**")
+                    for i, recomendacao in enumerate(recomendacoes, 1):
+                        st.success(f"{i}. {recomendacao}")
+                
+                # Resumo executivo
+                st.markdown("---")
+                st.markdown("**📋 Resumo Executivo:**")
+                
+                col_res1, col_res2, col_res3 = st.columns(3)
+                with col_res1:
+                    st.metric("🚗 Frotas Analisadas", total_frotas_ativas)
+                with col_res2:
+                    st.metric("💰 Gasto Total", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
+                with col_res3:
+                    st.metric("⚠️ Alertas Ativos", frotas_com_alerta)
+                
+                # Botão para exportar relatório completo
+                if st.button("📄 Gerar Relatório Executivo", type="primary"):
+                    st.success("✅ Relatório gerado com sucesso! Use o botão de download abaixo.")
+                    
+                    # Criar relatório em formato de texto
+                    relatorio = f"""
+RELATÓRIO EXECUTIVO - ANÁLISE DE FROTA
+Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+RESUMO GERAL:
+- Frotas Ativas: {total_frotas_ativas}
+- Gasto Total com Combustível: {formatar_brasileiro(gasto_total_combustivel, 'R$ ')}
+- Equipamentos com Alerta: {frotas_com_alerta}
+
+INSIGHTS:
+{chr(10).join([f"- {insight.replace('**', '')}" for insight in insights])}
+
+RECOMENDAÇÕES:
+{chr(10).join([f"- {rec}" for rec in recomendacoes])}
+
+---
+Relatório gerado automaticamente pelo sistema de gestão de frotas.
+                    """
+                    
+                    # Botão de download do relatório
+                    st.download_button(
+                        "📥 Download Relatório Executivo",
+                        relatorio.encode('utf-8'),
+                        "relatorio_executivo_frota.txt",
+                        "text/plain"
+                    )
                                 
         if tab_manut is not None:
             with tab_manut:
