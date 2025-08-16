@@ -5916,18 +5916,63 @@ def main():
                     with st.expander("ℹ️ Como interpretar o Ranking de Eficiência"):
                         st.markdown("""
                         **📊 Como funciona:**
+                        
+                        **🎯 Com Metas Definidas:**
+                        - **🟢 Verde (+5%+):** Equipamento mais eficiente que a meta definida
+                        - **⚪ Branco (-5% a +5%):** Eficiência próxima à meta definida
+                        - **🔴 Vermelho (-5%-):** Equipamento menos eficiente que a meta definida
+                        
+                        **📈 Sem Metas (Fallback):**
                         - **🟢 Verde (+5%+):** Equipamento mais eficiente que a média da sua classe
                         - **⚪ Branco (-5% a +5%):** Eficiência próxima à média da classe  
                         - **🔴 Vermelho (-5%-):** Equipamento menos eficiente que a média da sua classe
                         
-                        **🎯 Objetivo:** Identificar equipamentos que consomem menos combustível por hora/km comparado aos similares.
+                        **💡 Prioridade:** Meta Individual > Meta da Classe > Média da Classe
+                        **🎯 Objetivo:** Identificar equipamentos que atendem ou superam as metas de consumo definidas.
                         """)
                     
                     if 'Media' in df.columns and not df['Media'].dropna().empty:
                         media_por_classe = df.groupby('Classe_Operacional')['Media'].mean().to_dict()
                         ranking_df = df.copy()
                         ranking_df['Media_Classe'] = ranking_df['Classe_Operacional'].map(media_por_classe)
-                        ranking_df['Eficiencia_%'] = ((ranking_df['Media_Classe'] / ranking_df['Media']) - 1) * 100
+                            
+                            # Calcular eficiência considerando metas de consumo
+                        def calcular_eficiencia_com_meta(row):
+                                media_equip = row['Media']
+                                media_classe = row['Media_Classe']
+                                cod_equip = row['Cod_Equip']
+                                classe = row['Classe_Operacional']
+                                
+                                # Verificar se há meta individual para esta frota
+                                meta_individual = 0
+                                if 'metas_individuals' in st.session_state:
+                                    meta_individual = st.session_state.metas_individuals.get(cod_equip, {}).get('meta_consumo', 0)
+                                
+                                # Verificar meta da classe
+                                meta_classe = 0
+                                if 'intervalos_por_classe' in st.session_state:
+                                    meta_classe = st.session_state.intervalos_por_classe.get(classe, {}).get('meta_consumo', 0)
+                                
+                                # Usar meta individual se existir e sobrescrever classe, senão usar meta da classe
+                                meta_final = meta_individual if meta_individual > 0 and st.session_state.metas_individuals.get(cod_equip, {}).get('sobrescrever_classe', False) else meta_classe
+                                
+                                # Se há meta definida, calcular eficiência vs meta
+                                if meta_final > 0:
+                                    # Para L/h: menor é melhor, para Km/L: maior é melhor
+                                    # Assumindo que o tipo de controle está em df_frotas
+                                    tipo_controle = df_frotas[df_frotas['Cod_Equip'] == cod_equip]['Tipo_Controle'].iloc[0] if 'Tipo_Controle' in df_frotas.columns else 'QUILÔMETROS'
+                                    
+                                    if tipo_controle == 'HORAS':  # L/h - menor é melhor
+                                        eficiencia_vs_meta = ((meta_final - media_equip) / meta_final) * 100
+                                    else:  # Km/L - maior é melhor
+                                        eficiencia_vs_meta = ((media_equip - meta_final) / meta_final) * 100
+                                    
+                                    return eficiencia_vs_meta
+                                else:
+                                    # Se não há meta, usar comparação com média da classe
+                                    return ((media_classe / media_equip) - 1) * 100
+                            
+                        ranking_df['Eficiencia_%'] = ranking_df.apply(calcular_eficiencia_com_meta, axis=1)
                         
                         ranking = ranking_df.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'Classe_Operacional'])['Eficiencia_%'].mean().sort_values(ascending=False).reset_index()
                         ranking.rename(columns={'DESCRICAO_EQUIPAMENTO': 'Equipamento', 'Eficiencia_%': 'Eficiência (%)'}, inplace=True)
@@ -6018,6 +6063,15 @@ def main():
                         # Exibir ranking com informações melhoradas
                         if not ranking_filtrado.empty:
                             # Criar gráfico de barras para visualização
+                            # Verificar se há metas definidas para ajustar o título
+                            tem_metas = False
+                            if 'intervalos_por_classe' in st.session_state or 'metas_individuals' in st.session_state:
+                                tem_metas = (any(st.session_state.intervalos_por_classe.values()) if 'intervalos_por_classe' in st.session_state else False) or \
+                                           (len(st.session_state.metas_individuals) > 0 if 'metas_individuals' in st.session_state else False)
+                            
+                            titulo_grafico = "Top 20 Equipamentos por Eficiência vs Metas" if tem_metas else "Top 20 Equipamentos por Eficiência vs Média da Classe"
+                            label_eixo_x = "Eficiência vs Meta (%)" if tem_metas else "Eficiência vs Média da Classe (%)"
+                            
                             fig_ranking = px.bar(
                                 ranking_filtrado.head(20),
                                 x='Eficiência (%)',
@@ -6025,13 +6079,13 @@ def main():
                                 orientation='h',
                                 color='Eficiência (%)',
                                 color_continuous_scale='RdYlGn',
-                                title="Top 20 Equipamentos por Eficiência",
-                                labels={'Eficiência (%)': 'Eficiência vs Média da Classe (%)', 'Equipamento_Completo': 'Equipamento'}
+                                title=titulo_grafico,
+                                labels={'Eficiência (%)': label_eixo_x, 'Equipamento_Completo': 'Equipamento'}
                             )
                             fig_ranking.update_layout(
                                 yaxis={'categoryorder':'total ascending'},
                                 height=600,
-                                xaxis_title="Eficiência vs Média da Classe (%)",
+                                xaxis_title=label_eixo_x,
                                 yaxis_title="Equipamento"
                             )
                             st.plotly_chart(fig_ranking, use_container_width=True)
