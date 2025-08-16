@@ -5082,13 +5082,13 @@ def main():
                         fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
                         st.plotly_chart(fig_vidas, use_container_width=True)
 
-                        fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
+                        fig_marcas = px.bar(marcas.reset_index(), x='marca', y='count', title='Quantidade por Marca')
                         st.plotly_chart(fig_marcas, use_container_width=True)
 
-                        fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
+                        fig_modelos = px.bar(modelos.reset_index(), x='modelo', y='count', title='Quantidade por Modelo')
                         st.plotly_chart(fig_modelos, use_container_width=True)
 
-                        fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
+                        fig_posicoes = px.bar(posicoes.reset_index(), x='posicao', y='count', title='Quantidade por Posição')
                         st.plotly_chart(fig_posicoes, use_container_width=True)
 
                     else:
@@ -10511,13 +10511,13 @@ def main():
                         fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
                         st.plotly_chart(fig_vidas, use_container_width=True)
 
-                        fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
+                        fig_marcas = px.bar(marcas.reset_index(), x='marca', y='count', title='Quantidade por Marca')
                         st.plotly_chart(fig_marcas, use_container_width=True)
 
-                        fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
+                        fig_modelos = px.bar(modelos.reset_index(), x='modelo', y='count', title='Quantidade por Modelo')
                         st.plotly_chart(fig_modelos, use_container_width=True)
 
-                        fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
+                        fig_posicoes = px.bar(posicoes.reset_index(), x='posicao', y='count', title='Quantidade por Posição')
                         st.plotly_chart(fig_posicoes, use_container_width=True)
 
                     else:
@@ -13893,13 +13893,13 @@ def main():
                         fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
                         st.plotly_chart(fig_vidas, use_container_width=True)
 
-                        fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
+                        fig_marcas = px.bar(marcas.reset_index(), x='marca', y='count', title='Quantidade por Marca')
                         st.plotly_chart(fig_marcas, use_container_width=True)
 
-                        fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
+                        fig_modelos = px.bar(modelos.reset_index(), x='modelo', y='count', title='Quantidade por Modelo')
                         st.plotly_chart(fig_modelos, use_container_width=True)
 
-                        fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
+                        fig_posicoes = px.bar(posicoes.reset_index(), x='posicao', y='count', title='Quantidade por Posição')
                         st.plotly_chart(fig_posicoes, use_container_width=True)
 
                     else:
@@ -16217,7 +16217,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                     st.header("⚙️ Gerir Frotas")
                     acao_frota = st.radio(
                         "Selecione a ação que deseja realizar:",
-                        ("Cadastrar Nova Frota", "Editar Frota Existente"),
+                        ("Cadastrar Nova Frota", "Editar Frota Existente", "🗑️ Excluir Frota/Classe"),
                         horizontal=True,
                         key="acao_frotas"
                     )
@@ -16302,6 +16302,535 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                     if editar_frota(DB_PATH, cod_equip_edit, dados_editados):
                                         st.success("Dados da frota atualizados com sucesso!")
                                         rerun_keep_tab("⚙️ Gerir Frotas")
+                
+                    elif acao_frota == "🗑️ Excluir Frota/Classe":
+                        st.subheader("🗑️ Excluir Frota ou Classe Operacional")
+                        st.warning("⚠️ **ATENÇÃO:** Esta ação é irreversível e pode afetar dados relacionados!")
+                        
+                        # Abas para escolher o tipo de exclusão
+                        tab_excluir_frota, tab_excluir_classe = st.tabs(["🚚 Excluir Frota", "🏷️ Excluir Classe"])
+                        
+                        with tab_excluir_frota:
+                            st.info("📋 **Excluir Frota Individual:** Remove um equipamento específico da base de dados.")
+                            
+                            # Mostrar frotas existentes com opção de exclusão
+                            if not df_frotas.empty:
+                                st.write("**Frotas Cadastradas:**")
+                                
+                                # Seção de destaque para frotas sem abastecimento
+                                st.markdown("""
+                                <div style="
+                                    background: linear-gradient(135deg, rgba(255, 165, 0, 0.1), rgba(255, 165, 0, 0.05));
+                                    border: 1px solid #ffa500;
+                                    border-radius: 8px;
+                                    padding: 16px;
+                                    margin: 16px 0;
+                                ">
+                                    <h4 style="margin: 0 0 8px 0; color: #ff8c00; font-size: 18px;">
+                                        🚨 Frotas Sem Histórico de Abastecimento
+                                    </h4>
+                                    <p style="margin: 0; color: #2c3e50; font-size: 14px;">
+                                        Estas frotas são candidatas ideais para exclusão, pois não possuem dados de consumo que afetem suas análises.
+                                    </p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                # Filtros para facilitar a busca
+                                col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+                                with col_filtro1:
+                                    filtro_status = st.selectbox("Filtrar por Status", options=['Todas', 'ATIVO', 'INATIVO'])
+                                with col_filtro2:
+                                    # Filtrar valores None e ordenar classes
+                                    classes_unicas = [classe for classe in df_frotas['Classe_Operacional'].unique() if pd.notna(classe)]
+                                    filtro_classe = st.selectbox("Filtrar por Classe", options=['Todas'] + sorted(classes_unicas))
+                                with col_filtro3:
+                                    filtro_abastecimento = st.selectbox("Filtrar por Abastecimento", options=['Todas', 'Com Abastecimento', 'Sem Abastecimento'])
+                                
+                                # Aplicar filtros
+                                df_filtrado = df_frotas.copy()
+                                if filtro_status != 'Todas':
+                                    df_filtrado = df_filtrado[df_filtrado['ATIVO'] == filtro_status]
+                                if filtro_classe != 'Todas':
+                                    df_filtrado = df_filtrado[df_filtrado['Classe_Operacional'] == filtro_classe]
+                                
+                                # Filtro por histórico de abastecimento
+                                if filtro_abastecimento != 'Todas':
+                                    try:
+                                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                            cur = conn.cursor()
+                                            
+                                            # Verificar se a tabela abastecimentos existe
+                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='abastecimentos'")
+                                            if cur.fetchone():
+                                                # Obter códigos de equipamentos com abastecimentos
+                                                # A coluna original é "Cód. Equip." (com acento e ponto)
+                                                cur.execute("SELECT DISTINCT \"Cód. Equip.\" FROM abastecimentos")
+                                                equip_com_abastecimento = [row[0] for row in cur.fetchall()]
+                                                
+                                                if filtro_abastecimento == 'Com Abastecimento':
+                                                    df_filtrado = df_filtrado[df_filtrado['Cod_Equip'].isin(equip_com_abastecimento)]
+                                                elif filtro_abastecimento == 'Sem Abastecimento':
+                                                    df_filtrado = df_filtrado[~df_filtrado['Cod_Equip'].isin(equip_com_abastecimento)]
+                                            
+                                            conn.close()
+                                    except Exception as e:
+                                        st.warning(f"⚠️ Erro ao verificar histórico de abastecimento: {e}")
+                                
+                                # Estatísticas das frotas filtradas
+                                total_frotas = len(df_filtrado)
+                                frotas_ativas = len(df_filtrado[df_filtrado['ATIVO'] == 'ATIVO'])
+                                frotas_inativas = len(df_filtrado[df_filtrado['ATIVO'] == 'INATIVO'])
+                                
+                                # Verificar frotas sem abastecimento de uma vez só (mais eficiente)
+                                equip_com_abastecimento = set()
+                                try:
+                                    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                        cur = conn.cursor()
+                                        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='abastecimentos'")
+                                        if cur.fetchone():
+                                            # A coluna original é "Cód. Equip." (com acento e ponto)
+                                            cur.execute("SELECT DISTINCT \"Cód. Equip.\" FROM abastecimentos")
+                                            equip_com_abastecimento = {row[0] for row in cur.fetchall()}
+                                            st.info(f"🔍 Debug: Encontrados {len(equip_com_abastecimento)} códigos de equipamentos com abastecimento")
+                                        else:
+                                            st.warning("⚠️ Tabela 'abastecimentos' não encontrada no banco de dados")
+                                        conn.close()
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao consultar banco: {e}")
+                                    equip_com_abastecimento = set()
+                                
+                                # Calcular métricas de uma vez
+                                frotas_sem_abastecimento = len(df_filtrado[~df_filtrado['Cod_Equip'].isin(equip_com_abastecimento)])
+                                
+                                # Debug adicional
+                                st.info(f"🔍 Debug: Total de frotas filtradas: {len(df_filtrado)}")
+                                st.info(f"🔍 Debug: Frotas com abastecimento: {len(df_filtrado[df_filtrado['Cod_Equip'].isin(equip_com_abastecimento)])}")
+                                st.info(f"🔍 Debug: Frotas sem abastecimento: {frotas_sem_abastecimento}")
+                                
+                                # Métricas de resumo
+                                col_metrica1, col_metrica2, col_metrica3, col_metrica4 = st.columns(4)
+                                with col_metrica1:
+                                    st.metric("Total de Frotas", total_frotas)
+                                with col_metrica2:
+                                    st.metric("Frotas Ativas", frotas_ativas)
+                                with col_metrica3:
+                                    st.metric("Frotas Inativas", frotas_inativas)
+                                with col_metrica4:
+                                    st.metric("Sem Abastecimento", frotas_sem_abastecimento)
+                                
+                                # Botões para exclusão em lote
+                                if frotas_sem_abastecimento > 0:
+                                    st.markdown("---")
+                                    st.subheader("🚀 Exclusão em Lote - Otimização de Tempo")
+                                    
+                                    # Exclusão de frotas sem abastecimento
+                                    col_lote1, col_lote2, col_lote3 = st.columns([2, 2, 1])
+                                    with col_lote1:
+                                        st.markdown(f"""
+                                        <div style="
+                                            background: linear-gradient(135deg, rgba(255, 165, 0, 0.1), rgba(255, 165, 0, 0.05));
+                                            border: 1px solid #ffa500;
+                                            border-radius: 8px;
+                                            padding: 12px;
+                                        ">
+                                            <p style="margin: 0; color: #ff8c00; font-size: 14px; font-weight: 600;">
+                                                🚀 <strong>Exclusão em Lote:</strong> {frotas_sem_abastecimento} frotas sem abastecimento
+                                            </p>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    with col_lote2:
+                                        if st.button("🗑️ Excluir Todas (Sem Abastecimento)", key="delete_lote_sem_abastecimento", type="primary"):
+                                            st.warning("⚠️ Esta ação excluirá TODAS as frotas sem histórico de abastecimento!")
+                                            if st.button("✅ CONFIRMAR EXCLUSÃO EM LOTE", key="confirm_delete_lote", type="primary"):
+                                                try:
+                                                    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                        cur = conn.cursor()
+                                                        
+                                                        # Obter códigos das frotas sem abastecimento
+                                                        frotas_sem_abastecimento_codigos = df_filtrado[~df_filtrado['Cod_Equip'].isin(equip_com_abastecimento)]['Cod_Equip'].tolist()
+                                                        
+                                                        # Verificar se há outros dados relacionados (pneus, manutenções)
+                                                        tem_outros_dados = False
+                                                        dados_relacionados = {}
+                                                        
+                                                        # Verificar pneus
+                                                        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pneus_historico'")
+                                                        if cur.fetchone():
+                                                            placeholders = ','.join(['?' for _ in frotas_sem_abastecimento_codigos])
+                                                            cur.execute(f"SELECT COUNT(*) FROM pneus_historico WHERE Cod_Equip IN ({placeholders})", frotas_sem_abastecimento_codigos)
+                                                            num_pneus = cur.fetchone()[0]
+                                                            dados_relacionados['pneus'] = num_pneus
+                                                            if num_pneus > 0:
+                                                                tem_outros_dados = True
+                                                        
+                                                        # Verificar manutenções
+                                                        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='manutencoes'")
+                                                        if cur.fetchone():
+                                                            placeholders = ','.join(['?' for _ in frotas_sem_abastecimento_codigos])
+                                                            cur.execute(f"SELECT COUNT(*) FROM manutencoes WHERE Cod_Equip IN ({placeholders})", frotas_sem_abastecimento_codigos)
+                                                            num_manutencoes = cur.fetchone()[0]
+                                                            dados_relacionados['manutencoes'] = num_manutencoes
+                                                            if num_manutencoes > 0:
+                                                                tem_outros_dados = True
+                                                        
+                                                        if tem_outros_dados:
+                                                            st.error(f"""
+                                                            ❌ **Algumas frotas possuem dados relacionados!**
+                                                            
+                                                            **Dados encontrados:**
+                                                            - Pneus: {dados_relacionados.get('pneus', 0)}
+                                                            - Manutenções: {dados_relacionados.get('manutencoes', 0)}
+                                                            
+                                                            **Solução:** Use a exclusão individual para verificar cada frota.
+                                                            """)
+                                                        else:
+                                                            # Excluir todas as frotas sem abastecimento
+                                                            placeholders = ','.join(['?' for _ in frotas_sem_abastecimento_codigos])
+                                                            cur.execute(f"DELETE FROM frotas WHERE Cod_Equip IN ({placeholders})", frotas_sem_abastecimento_codigos)
+                                                            conn.commit()
+                                                            st.success(f"✅ {len(frotas_sem_abastecimento_codigos)} frotas sem abastecimento excluídas com sucesso!")
+                                                            rerun_keep_tab("⚙️ Gerir Frotas")
+                                                except Exception as e:
+                                                    st.error(f"❌ Erro ao excluir frotas em lote: {e}")
+                                    with col_lote3:
+                                        st.info(f"💡 **Dica:** Use este botão para limpar rapidamente frotas irrelevantes")
+                                    
+                                    # Exclusão por classe operacional (apenas classes sem abastecimento)
+                                    st.markdown("---")
+                                    col_classe_lote1, col_classe_lote2 = st.columns([3, 2])
+                                    with col_classe_lote1:
+                                        st.markdown("""
+                                        <div style="
+                                            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.05));
+                                            border: 1px solid #667eea;
+                                            border-radius: 8px;
+                                            padding: 12px;
+                                        ">
+                                            <p style="margin: 0; color: #667eea; font-size: 14px; font-weight: 600;">
+                                                🎯 <strong>Exclusão por Classe:</strong> Classes operacionais SEM NENHUMA frota com abastecimento
+                                            </p>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    
+                                    # Identificar classes que podem ser excluídas em lote (VERDADEIRAMENTE sem abastecimento)
+                                    classes_sem_abastecimento = []
+                                    for classe in df_filtrado['Classe_Operacional'].dropna().unique():
+                                        frotas_da_classe = df_filtrado[df_filtrado['Classe_Operacional'] == classe]
+                                        # Verificar se TODAS as frotas da classe não têm abastecimento
+                                        todas_sem_abastecimento = True
+                                        for _, frota in frotas_da_classe.iterrows():
+                                            if frota['Cod_Equip'] in equip_com_abastecimento:
+                                                todas_sem_abastecimento = False
+                                                break
+                                        
+                                        if todas_sem_abastecimento and len(frotas_da_classe) > 0:
+                                            classes_sem_abastecimento.append({
+                                                'classe': classe,
+                                                'num_frotas': len(frotas_da_classe)
+                                            })
+                                    
+                                    if classes_sem_abastecimento:
+                                        with col_classe_lote2:
+                                            st.write(f"**Classes candidatas:** {len(classes_sem_abastecimento)}")
+                                            for idx_classe_lote, classe_info in enumerate(classes_sem_abastecimento):
+                                                if st.button(f"🗑️ {classe_info['classe']} ({classe_info['num_frotas']} frotas)", 
+                                                           key=f"delete_classe_lote_{idx_classe_lote}", 
+                                                           type="secondary"):
+                                                    st.warning(f"⚠️ Excluir classe '{classe_info['classe']}' e {classe_info['num_frotas']} frotas?")
+                                                    if st.button(f"✅ CONFIRMAR {classe_info['classe']}", 
+                                                               key=f"confirm_classe_lote_{idx_classe_lote}", 
+                                                               type="primary"):
+                                                        try:
+                                                            with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                                cur = conn.cursor()
+                                                                
+                                                                # Obter códigos das frotas da classe
+                                                                frotas_classe_codigos = df_filtrado[df_filtrado['Classe_Operacional'] == classe_info['classe']]['Cod_Equip'].tolist()
+                                                                
+                                                                # Verificar outros dados relacionados
+                                                                tem_outros_dados = False
+                                                                dados_relacionados = {}
+                                                                
+                                                                # Verificar pneus
+                                                                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pneus_historico'")
+                                                                if cur.fetchone():
+                                                                    placeholders = ','.join(['?' for _ in frotas_classe_codigos])
+                                                                    cur.execute(f"SELECT COUNT(*) FROM pneus_historico WHERE Cod_Equip IN ({placeholders})", frotas_classe_codigos)
+                                                                    num_pneus = cur.fetchone()[0]
+                                                                    dados_relacionados['pneus'] = num_pneus
+                                                                    if num_pneus > 0:
+                                                                        tem_outros_dados = True
+                                                                
+                                                                # Verificar manutenções
+                                                                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='manutencoes'")
+                                                                if cur.fetchone():
+                                                                    placeholders = ','.join(['?' for _ in frotas_classe_codigos])
+                                                                    cur.execute(f"SELECT COUNT(*) FROM manutencoes WHERE Cod_Equip IN ({placeholders})", frotas_classe_codigos)
+                                                                    num_manutencoes = cur.fetchone()[0]
+                                                                    dados_relacionados['manutencoes'] = num_manutencoes
+                                                                    if num_manutencoes > 0:
+                                                                        tem_outros_dados = True
+                                                                
+                                                                if tem_outros_dados:
+                                                                    st.error(f"""
+                                                                    ❌ **Classe '{classe_info['classe']}' possui dados relacionados!**
+                                                                    
+                                                                    **Dados encontrados:**
+                                                                    - Pneus: {dados_relacionados.get('pneus', 0)}
+                                                                    - Manutenções: {dados_relacionados.get('manutencoes', 0)}
+                                                                    """)
+                                                                else:
+                                                                    # Excluir todas as frotas da classe
+                                                                    placeholders = ','.join(['?' for _ in frotas_classe_codigos])
+                                                                    cur.execute(f"DELETE FROM frotas WHERE Cod_Equip IN ({placeholders})", frotas_classe_codigos)
+                                                                    conn.commit()
+                                                                    st.success(f"✅ Classe '{classe_info['classe']}' e {classe_info['num_frotas']} frotas excluídas com sucesso!")
+                                                                    rerun_keep_tab("⚙️ Gerir Frotas")
+                                                        except Exception as e:
+                                                            st.error(f"❌ Erro ao excluir classe: {e}")
+                                    else:
+                                        with col_classe_lote2:
+                                            st.info("✅ Todas as classes possuem pelo menos uma frota com abastecimento")
+                                    
+                                    # Debug: Mostrar informações sobre as classes
+                                    st.markdown("---")
+                                    st.subheader("🔍 Debug: Análise das Classes")
+                                    col_debug1, col_debug2 = st.columns(2)
+                                    with col_debug1:
+                                        st.write("**Classes analisadas:**")
+                                        for classe in df_filtrado['Classe_Operacional'].dropna().unique():
+                                            frotas_da_classe = df_filtrado[df_filtrado['Classe_Operacional'] == classe]
+                                            frotas_com_abastecimento = sum(1 for _, frota in frotas_da_classe.iterrows() if frota['Cod_Equip'] in equip_com_abastecimento)
+                                            frotas_sem_abastecimento = len(frotas_da_classe) - frotas_com_abastecimento
+                                            st.write(f"- **{classe}:** {frotas_com_abastecimento} com abastecimento, {frotas_sem_abastecimento} sem")
+                                    
+                                    with col_debug2:
+                                        st.write("**Frotas com abastecimento:**")
+                                        st.write(f"Total: {len(equip_com_abastecimento)}")
+                                        if len(equip_com_abastecimento) > 0:
+                                            st.write("Primeiros 5 códigos:")
+                                            for cod in list(equip_com_abastecimento)[:5]:
+                                                st.write(f"- {cod}")
+                                        
+                                        # Debug adicional para entender o problema
+                                        st.markdown("---")
+                                        st.write("**🔍 Debug Detalhado:**")
+                                        st.write(f"Tipo de equip_com_abastecimento: {type(equip_com_abastecimento)}")
+                                        st.write(f"Tamanho do set: {len(equip_com_abastecimento)}")
+                                        if len(equip_com_abastecimento) > 0:
+                                            st.write(f"Primeiros 3 códigos: {list(equip_com_abastecimento)[:3]}")
+                                        st.write(f"Tipo de df_filtrado['Cod_Equip']: {type(df_filtrado['Cod_Equip'].iloc[0])}")
+                                        st.write(f"Primeiros 3 códigos das frotas: {df_filtrado['Cod_Equip'].head(3).tolist()}")
+                                    
+                                    # Teste de comparação adicional
+                                    st.markdown("---")
+                                    st.subheader("🧪 Teste de Comparação")
+                                    if len(df_filtrado) > 0 and len(equip_com_abastecimento) > 0:
+                                        primeiro_codigo = df_filtrado['Cod_Equip'].iloc[0]
+                                        st.write(f"**Primeiro código da frota:** {primeiro_codigo} (tipo: {type(primeiro_codigo)})")
+                                        st.write(f"**Está no set?** {primeiro_codigo in equip_com_abastecimento}")
+                                        if len(equip_com_abastecimento) > 0:
+                                            st.write(f"**Comparação direta:** {primeiro_codigo == list(equip_com_abastecimento)[0]}")
+                                            st.write(f"**Valores no set:** {sorted(list(equip_com_abastecimento))[:10]}")
+                                    
+                                    st.markdown("---")
+                                
+                                # Mostrar frotas filtradas
+                                for idx, (_, frota) in enumerate(df_filtrado.iterrows()):
+                                    with st.container():
+                                        col_info, col_acoes = st.columns([4, 1])
+                                        with col_info:
+                                            # Verificar se a frota tem abastecimento (usando o set já carregado)
+                                            tem_abastecimento = frota['Cod_Equip'] in equip_com_abastecimento
+                                            
+                                            # Card da frota com destaque para sem abastecimento
+                                            cor_borda = '#00ff88' if frota['ATIVO'] == 'ATIVO' else '#ff6b6b'
+                                            cor_fundo = 'rgba(0, 255, 136, 0.1)' if frota['ATIVO'] == 'ATIVO' else 'rgba(255, 107, 107, 0.1)'
+                                            cor_sombra = 'rgba(0, 255, 136, 0.2)' if frota['ATIVO'] == 'ATIVO' else 'rgba(255, 107, 107, 0.2)'
+                                            
+                                            # Destacar frotas sem abastecimento
+                                            if not tem_abastecimento:
+                                                cor_borda = '#ffa500'  # Laranja
+                                                cor_fundo = 'rgba(255, 165, 0, 0.15)'
+                                                cor_sombra = 'rgba(255, 165, 0, 0.3)'
+                                            
+                                            st.markdown(f"""
+                                            <div style="
+                                                border: 2px solid {cor_borda}; 
+                                                border-radius: 8px; 
+                                                padding: 16px; 
+                                                margin: 8px 0; 
+                                                background: linear-gradient(135deg, {cor_fundo}, rgba(255, 255, 255, 0.05));
+                                                box-shadow: 0 2px 8px {cor_sombra};
+                                                position: relative;
+                                            ">
+                                                {f'<div style="position: absolute; top: 8px; right: 8px; background: #ffa500; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold;">SEM ABASTECIMENTO</div>' if not tem_abastecimento else ''}
+                                                <h4 style="
+                                                    margin: 0 0 8px 0; 
+                                                    color: {'#00cc6a' if frota['ATIVO'] == 'ATIVO' else '#ff4757'}; 
+                                                    font-size: 16px; 
+                                                    font-weight: 600;
+                                                ">
+                                                    {frota['DESCRICAO_EQUIPAMENTO']} (Cód: {frota['Cod_Equip']})
+                                                </h4>
+                                                <p style="margin: 4px 0; font-size: 13px; color: #2c3e50;">
+                                                    <strong>Classe:</strong> {frota['Classe_Operacional'] if pd.notna(frota['Classe_Operacional']) else 'N/A'} | 
+                                                    <strong>Placa:</strong> {frota['PLACA'] if pd.notna(frota['PLACA']) else 'N/A'} | 
+                                                    <strong>Status:</strong> {frota['ATIVO']}
+                                                </p>
+                                                <p style="margin: 4px 0; font-size: 12px; color: {'#ffa500' if not tem_abastecimento else '#27ae60'}; font-weight: 500;">
+                                                    📊 <strong>Histórico:</strong> {'❌ Sem abastecimento' if not tem_abastecimento else '✅ Com abastecimento'}
+                                                </p>
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                        with col_acoes:
+                                            if st.button("🗑️", key=f"delete_frota_{idx}", help="Excluir frota"):
+                                                # Confirmar exclusão
+                                                if st.button("✅ Confirmar Exclusão", key=f"confirm_delete_{idx}", type="primary"):
+                                                    try:
+                                                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                            cur = conn.cursor()
+                                                            
+                                                            # Verificar se há dados relacionados
+                                                            num_abastecimentos = 0
+                                                            num_pneus = 0
+                                                            num_manutencoes = 0
+                                                            
+                                                            # Verificar se as tabelas existem antes de consultar
+                                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='abastecimentos'")
+                                                            if cur.fetchone():
+                                                                # A coluna original é "Cód. Equip." (com acento e ponto)
+                                                                cur.execute("SELECT COUNT(*) FROM abastecimentos WHERE \"Cód. Equip.\" = ?", (frota['Cod_Equip'],))
+                                                                num_abastecimentos = cur.fetchone()[0]
+                                                            
+                                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pneus_historico'")
+                                                            if cur.fetchone():
+                                                                cur.execute("SELECT COUNT(*) FROM pneus_historico WHERE Cod_Equip = ?", (frota['Cod_Equip'],))
+                                                                num_pneus = cur.fetchone()[0]
+                                                            
+                                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='manutencoes'")
+                                                            if cur.fetchone():
+                                                                cur.execute("SELECT COUNT(*) FROM manutencoes WHERE Cod_Equip = ?", (frota['Cod_Equip'],))
+                                                                num_manutencoes = cur.fetchone()[0]
+                                                            
+                                                            if num_abastecimentos > 0 or num_pneus > 0 or num_manutencoes > 0:
+                                                                st.error(f"""
+                                                                ❌ **Não é possível excluir esta frota!**
+                                                                
+                                                                **Dados relacionados encontrados:**
+                                                                - Abastecimentos: {num_abastecimentos}
+                                                                - Pneus: {num_pneus}
+                                                                - Manutenções: {num_manutencoes}
+                                                                
+                                                                **Solução:** Primeiro remova todos os dados relacionados ou marque a frota como INATIVA.
+                                                                """)
+                                                            else:
+                                                                # Excluir a frota
+                                                                cur.execute("DELETE FROM frotas WHERE Cod_Equip = ?", (frota['Cod_Equip'],))
+                                                                conn.commit()
+                                                                st.success(f"✅ Frota '{frota['DESCRICAO_EQUIPAMENTO']}' excluída com sucesso!")
+                                                                rerun_keep_tab("⚙️ Gerir Frotas")
+                                                    except Exception as e:
+                                                        st.error(f"❌ Erro ao excluir frota: {e}")
+                            else:
+                                st.info("Nenhuma frota cadastrada.")
+                        
+                        with tab_excluir_classe:
+                            st.info("📋 **Excluir Classe Operacional:** Remove uma classe e todas as frotas associadas.")
+                            
+                            # Mostrar classes existentes
+                            if not df_frotas.empty:
+                                classes_existentes = sorted(df_frotas['Classe_Operacional'].unique())
+                                st.write("**Classes Operacionais Existentes:**")
+                                
+                                for idx_classe, classe in enumerate(classes_existentes):
+                                    # Contar frotas nesta classe
+                                    frotas_na_classe = df_frotas[df_frotas['Classe_Operacional'] == classe]
+                                    num_frotas = len(frotas_na_classe)
+                                    
+                                    with st.container():
+                                        col_classe_info, col_classe_acoes = st.columns([4, 1])
+                                        with col_classe_info:
+                                            # Card da classe
+                                            st.markdown(f"""
+                                            <div style="
+                                                border: 1px solid #667eea; 
+                                                border-radius: 8px; 
+                                                padding: 16px; 
+                                                margin: 8px 0; 
+                                                background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+                                                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+                                            ">
+                                                <h4 style="
+                                                    margin: 0 0 8px 0; 
+                                                    color: #667eea; 
+                                                    font-size: 16px; 
+                                                    font-weight: 600;
+                                                ">
+                                                    {classe}
+                                                </h4>
+                                                <p style="margin: 4px 0; font-size: 13px; color: #2c3e50;">
+                                                    <strong>Frotas na classe:</strong> {num_frotas} | 
+                                                    <strong>Status:</strong> {'Ativa' if num_frotas > 0 else 'Vazia'}
+                                                </p>
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                        with col_classe_acoes:
+                                            if st.button("🗑️", key=f"delete_classe_{idx_classe}", help="Excluir classe"):
+                                                # Confirmar exclusão
+                                                if st.button("✅ Confirmar Exclusão", key=f"confirm_delete_classe_{idx_classe}", type="primary"):
+                                                    try:
+                                                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                            cur = conn.cursor()
+                                                            
+                                                            # Verificar se há dados relacionados
+                                                            frotas_codigos = frotas_na_classe['Cod_Equip'].tolist()
+                                                            
+                                                            num_abastecimentos = 0
+                                                            num_pneus = 0
+                                                            num_manutencoes = 0
+                                                            
+                                                            # Verificar se as tabelas existem antes de consultar
+                                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='abastecimentos'")
+                                                            if cur.fetchone():
+                                                                placeholders = ','.join(['?' for _ in frotas_codigos])
+                                                                # A coluna original é "Cód. Equip." (com acento e ponto)
+                                                                cur.execute(f"SELECT COUNT(*) FROM abastecimentos WHERE \"Cód. Equip.\" IN ({placeholders})", frotas_codigos)
+                                                                num_abastecimentos = cur.fetchone()[0]
+                                                            
+                                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pneus_historico'")
+                                                            if cur.fetchone():
+                                                                placeholders = ','.join(['?' for _ in frotas_codigos])
+                                                                cur.execute(f"SELECT COUNT(*) FROM pneus_historico WHERE Cod_Equip IN ({placeholders})", frotas_codigos)
+                                                                num_pneus = cur.fetchone()[0]
+                                                            
+                                                            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='manutencoes'")
+                                                            if cur.fetchone():
+                                                                placeholders = ','.join(['?' for _ in frotas_codigos])
+                                                                cur.execute(f"SELECT COUNT(*) FROM manutencoes WHERE Cod_Equip IN ({placeholders})", frotas_codigos)
+                                                                num_manutencoes = cur.fetchone()[0]
+                                                            
+                                                            if num_abastecimentos > 0 or num_pneus > 0 or num_manutencoes > 0:
+                                                                st.error(f"""
+                                                                ❌ **Não é possível excluir esta classe!**
+                                                                
+                                                                **Dados relacionados encontrados:**
+                                                                - Abastecimentos: {num_abastecimentos}
+                                                                - Pneus: {num_pneus}
+                                                                - Manutenções: {num_manutencoes}
+                                                                
+                                                                **Solução:** Primeiro remova todos os dados relacionados ou exclua as frotas individualmente.
+                                                                """)
+                                                            else:
+                                                                # Excluir todas as frotas da classe
+                                                                cur.execute(f"DELETE FROM frotas WHERE Cod_Equip IN ({placeholders})", frotas_codigos)
+                                                                conn.commit()
+                                                                st.success(f"✅ Classe '{classe}' e {num_frotas} frotas excluídas com sucesso!")
+                                                                rerun_keep_tab("⚙️ Gerir Frotas")
+                                                    except Exception as e:
+                                                        st.error(f"❌ Erro ao excluir classe: {e}")
+                            else:
+                                st.info("Nenhuma classe operacional encontrada.")
                 
                         # NOVA SEÇÃO: Gerenciar Tipos de Combustível
                     st.markdown("---")
@@ -17385,19 +17914,37 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                 # Mostrar estatísticas resumidas
                                 col1, col2, col3, col4 = st.columns(4)
                                 with col1:
-                                    st.metric("Total de Pneus", len(df_hist_pneus))
+                                    st.metric("Total de Pneus", len(df_hist_pneus), delta=None)
                                 with col2:
                                     ativos = len(df_hist_pneus[df_hist_pneus['status'] == 'Ativo'])
-                                    st.metric("Pneus Ativos", ativos)
+                                    st.metric("Pneus Ativos", ativos, delta=None)
                                 with col3:
                                     sucateados = len(df_hist_pneus[df_hist_pneus['status'] == 'Sucateado'])
-                                    st.metric("Pneus Sucateados", sucateados)
+                                    st.metric("Pneus Sucateados", sucateados, delta=None)
                                 with col4:
                                     vida_media = df_hist_pneus[df_hist_pneus['status'] == 'Ativo']['vida_atual'].mean()
-                                    st.metric("Vida Média Atual", f"{vida_media:.1f}" if not pd.isna(vida_media) else "N/A")
+                                    st.metric("Vida Média Atual", f"{vida_media:.1f}" if not pd.isna(vida_media) else "N/A", delta=None)
                                 
                                 # Filtros avançados
-                                st.markdown("### 🔍 Filtros Avançados")
+                                st.markdown("""
+                                <div style="
+                                    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+                                    padding: 16px;
+                                    border-radius: 8px;
+                                    margin: 20px 0;
+                                    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                                ">
+                                    <h3 style="
+                                        color: white; 
+                                        margin: 0; 
+                                        font-size: 18px; 
+                                        font-weight: 600;
+                                        text-align: center;
+                                    ">
+                                        🔍 Filtros Avançados
+                                    </h3>
+                                </div>
+                                """, unsafe_allow_html=True)
                                 col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
                                 with col_filtro1:
                                     filtro_status = st.selectbox("Status", options=['Todos', 'Ativo', 'Sucateado'])
@@ -17423,7 +17970,25 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                     df_filtrado = df_filtrado[pd.to_datetime(df_filtrado['data_instalacao']) >= filtro_data]
                                 
                                 # Mostrar resultados filtrados em cards
-                                st.markdown(f"### 📊 Resultados ({len(df_filtrado)} pneus)")
+                                st.markdown(f"""
+                                <div style="
+                                    background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
+                                    padding: 16px;
+                                    border-radius: 8px;
+                                    margin: 20px 0;
+                                    box-shadow: 0 4px 12px rgba(17, 153, 142, 0.3);
+                                ">
+                                    <h3 style="
+                                        color: white; 
+                                        margin: 0; 
+                                        font-size: 18px; 
+                                        font-weight: 600;
+                                        text-align: center;
+                                    ">
+                                        📊 Resultados ({len(df_filtrado)} pneus)
+                                    </h3>
+                                </div>
+                                """, unsafe_allow_html=True)
                                 if not df_filtrado.empty:
                                     for _, pneu in df_filtrado.iterrows():
                                         with st.container():
@@ -17431,18 +17996,43 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                             with col_info:
                                                 # Card do pneu
                                                 st.markdown(f'''
-                                                <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin: 10px 0; background-color: {'#e8f5e8' if pneu['status'] == 'Ativo' else '#ffe8e8'}">
-                                                    <h4 style="margin: 0; color: {'#2e7d32' if pneu['status'] == 'Ativo' else '#c62828'}">
+                                                <div style="
+                                                    border: 1px solid {'#00ff88' if pneu['status'] == 'Ativo' else '#ff6b6b'}; 
+                                                    border-radius: 8px; 
+                                                    padding: 16px; 
+                                                    margin: 12px 0; 
+                                                    background: linear-gradient(135deg, {'rgba(0, 255, 136, 0.1)' if pneu['status'] == 'Ativo' else 'rgba(255, 107, 107, 0.1)'}, {'rgba(0, 255, 136, 0.05)' if pneu['status'] == 'Ativo' else 'rgba(255, 107, 107, 0.05)'});
+                                                    box-shadow: 0 2px 8px {'rgba(0, 255, 136, 0.2)' if pneu['status'] == 'Ativo' else 'rgba(255, 107, 107, 0.2)'};
+                                                    transition: all 0.3s ease;
+                                                ">
+                                                    <h4 style="
+                                                        margin: 0 0 12px 0; 
+                                                        color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}; 
+                                                        font-size: 18px; 
+                                                        font-weight: 600;
+                                                        border-bottom: 2px solid {'#00ff88' if pneu['status'] == 'Ativo' else '#ff6b6b'};
+                                                        padding-bottom: 8px;
+                                                    ">
                                                         {pneu['marca']} {pneu['modelo']} - {pneu['posicao']}
                                                     </h4>
-                                                    <p style="margin: 5px 0; font-size: 14px;">
-                                                        <strong>Nº Fogo:</strong> {pneu.get('numero_fogo', 'N/A')} | 
-                                                        <strong>Status:</strong> {pneu['status']} | 
-                                                        <strong>Vida Atual:</strong> {pneu['vida_atual']}ª
+                                                    <p style="
+                                                        margin: 8px 0; 
+                                                        font-size: 14px; 
+                                                        color: #2c3e50; 
+                                                        line-height: 1.4;
+                                                    ">
+                                                        <strong style="color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}">Nº Fogo:</strong> {pneu.get('numero_fogo', 'N/A')} | 
+                                                        <strong style="color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}">Status:</strong> {pneu['status']} | 
+                                                        <strong style="color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}">Vida Atual:</strong> {pneu['vida_atual']}ª
                                                     </p>
-                                                    <p style="margin: 5px 0; font-size: 12px; color: #666;">
-                                                        <strong>Instalado:</strong> {pneu['data_instalacao']} | 
-                                                        <strong>Hodômetro:</strong> {pneu['hodometro_instalacao']:,.0f}
+                                                    <p style="
+                                                        margin: 8px 0; 
+                                                        font-size: 13px; 
+                                                        color: #7f8c8d; 
+                        line-height: 1.3;
+                                                    ">
+                                                        <strong style="color: #34495e">Instalado:</strong> {pneu['data_instalacao']} | 
+                                                        <strong style="color: #34495e">Hodômetro:</strong> {pneu['hodometro_instalacao']:,.0f}
                                                     </p>
                                                 </div>
                                                 ''', unsafe_allow_html=True)
