@@ -942,6 +942,7455 @@ def ensure_pneus_schema():
                     posicao TEXT,
                     marca TEXT,
                     modelo TEXT,
+                    numero_fogo TEXT,
+                    data_instalacao TEXT,
+                    hodometro_instalacao REAL,
+                    vida_util_km REAL,
+                    observacoes TEXT,
+                    status TEXT DEFAULT 'Ativo',
+                    vida_atual INTEGER DEFAULT 1
+                )
+            """)
+            # Adiciona colunas se não existirem
+            cursor.execute("PRAGMA table_info(pneus_historico)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'status' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN status TEXT DEFAULT 'Ativo'")
+            if 'vida_atual' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN vida_atual INTEGER DEFAULT 1")
+            if 'numero_fogo' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN numero_fogo TEXT")
+            conn.commit()
+        return True, "Tabela de pneus verificada"
+    except Exception as e:
+        return False, f"Erro ao criar tabela de pneus: {e}"
+
+def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
+    """Importa histórico de pneus de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_pneus = pd.read_excel(arquivo_carregado)
+        df_pneus.columns = [c.strip() for c in df_pneus.columns]
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        faltando = [c for c in obrig if c not in df_pneus.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        if 'observacoes' not in df_pneus.columns:
+            df_pneus['observacoes'] = ""
+        
+        # Limpar dados e remover linhas com valores nulos obrigatórios
+        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
+        
+        # Normalizar tipos de dados
+        df_pneus['Cod_Equip'] = df_pneus['Cod_Equip'].astype(str)
+        df_pneus['posicao'] = df_pneus['posicao'].astype(str).str.strip()
+        df_pneus['numero_fogo'] = df_pneus['numero_fogo'].astype(str).str.strip()
+        df_pneus['data_instalacao'] = pd.to_datetime(df_pneus['data_instalacao']).dt.strftime('%Y-%m-%d')
+        
+        # Remover duplicatas na própria planilha baseada em chave única
+        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Buscar registros existentes para verificar duplicatas
+            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, numero_fogo, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
+            
+            if not df_existente.empty:
+                # Normalizar dados existentes para comparação
+                df_existente['Cod_Equip'] = df_existente['Cod_Equip'].astype(str)
+                df_existente['posicao'] = df_existente['posicao'].astype(str).str.strip()
+                df_existente['numero_fogo'] = df_existente['numero_fogo'].astype(str).str.strip()
+                df_existente['data_instalacao'] = pd.to_datetime(df_existente['data_instalacao']).dt.strftime('%Y-%m-%d')
+                
+                # Criar chaves únicas para comparação
+                df_pneus['chave_unica'] = (df_pneus['Cod_Equip'] + '_' + 
+                                          df_pneus['posicao'] + '_' + 
+                                          df_pneus['numero_fogo'] + '_' + 
+                                          df_pneus['data_instalacao'] + '_' + 
+                                          df_pneus['hodometro_instalacao'].astype(str))
+                
+                df_existente['chave_unica'] = (df_existente['Cod_Equip'] + '_' + 
+                                              df_existente['posicao'] + '_' + 
+                                              df_existente['numero_fogo'] + '_' + 
+                                              df_existente['data_instalacao'] + '_' + 
+                                              df_existente['hodometro_instalacao'].astype(str))
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_pneus[~df_pneus['chave_unica'].isin(df_existente['chave_unica'])]
+            else:
+                df_para_inserir = df_pneus
+            
+            num_duplicados = len(df_pneus) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = obrig + ['observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO pneus_historico ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} pneus novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar pneus: {e}"
+
+def get_pneus_historico(cod_equip=None):
+    """Retorna o histórico de pneus, opcionalmente filtrando por frota."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            query = "SELECT * FROM pneus_historico"
+            params = ()
+            if cod_equip:
+                query += " WHERE Cod_Equip = ?"
+                params = (cod_equip,)
+            return pd.read_sql_query(query, conn, params=params)
+    except Exception:
+        return pd.DataFrame()
+
+def ensure_precos_combustivel_schema():
+    """Garante a existência da tabela de preços por tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS precos_combustivel (
+                    tipo_combustivel TEXT PRIMARY KEY,
+                    preco REAL
+                )
+                """
+            )
+            tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+            for t in tipos:
+                cur.execute("INSERT OR IGNORE INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?)", (t, NULL))
+            conn.commit()
+        return True, "Tabela de preços verificada"
+    except Exception as e:
+        return False, f"Erro ao verificar tabela de preços: {e}"
+
+
+def get_precos_combustivel_map() -> dict:
+    """Retorna um dicionário {tipo_combustivel: preco}."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            dfp = pd.read_sql_query("SELECT tipo_combustivel, preco FROM precos_combustivel", conn)
+        return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
+    except Exception:
+        return {}
+
+
+def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
+    """Cria/atualiza preço para um tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?) ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco",
+                (tipo, preco)
+            )
+            conn.commit()
+        return True, f"Preço atualizado para {tipo}"
+    except Exception as e:
+        return False, f"Erro ao atualizar preço: {e}"
+    
+def ensure_lubrificantes_schema():
+    """Garante a existência da tabela de lubrificantes, movimentações e almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            
+            # Tabela de lubrificantes
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT,
+                    viscosidade TEXT,
+                    quantidade_estoque REAL,
+                    unidade TEXT,
+                    observacoes TEXT
+                )
+            """)
+            
+            # Verificar e adicionar coluna 'tipo' se não existir
+            cursor.execute("PRAGMA table_info(lubrificantes)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'tipo' not in cols:
+                cursor.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
+            
+            # Tabela de almoxarifados
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifados (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    tipo TEXT DEFAULT 'fixo', -- 'fixo' para oficina, 'movel' para caminhões
+                    localizacao TEXT,
+                    responsavel TEXT,
+                    observacoes TEXT,
+                    ativo BOOLEAN DEFAULT 1
+                )
+            """)
+            
+            # Tabela de estoque por almoxarifado
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifado_estoque (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_almoxarifado INTEGER,
+                    id_lubrificante INTEGER,
+                    quantidade_estoque REAL DEFAULT 0,
+                    unidade TEXT,
+                    data_atualizacao TEXT,
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id),
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    UNIQUE(id_almoxarifado, id_lubrificante)
+                )
+            """)
+            
+            # Tabela de movimentações (atualizada para incluir almoxarifado)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes_movimentacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_lubrificante INTEGER,
+                    id_almoxarifado INTEGER,
+                    tipo TEXT, -- 'entrada' ou 'saida'
+                    quantidade REAL,
+                    data TEXT,
+                    cod_equip INTEGER,
+                    observacoes TEXT,
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id)
+                )
+            """)
+            
+            # Verificar se a coluna id_almoxarifado existe na tabela de movimentações
+            cursor.execute("PRAGMA table_info(lubrificantes_movimentacoes)")
+            cols_mov = [c[1] for c in cursor.fetchall()]
+            if 'id_almoxarifado' not in cols_mov:
+                cursor.execute("ALTER TABLE lubrificantes_movimentacoes ADD COLUMN id_almoxarifado INTEGER")
+            
+            conn.commit()
+        return True, "Tabelas de lubrificantes e almoxarifados verificadas"
+    except Exception as e:
+        return False, f"Erro ao criar tabelas de lubrificantes: {e}"
+    
+def add_almoxarifado(nome, tipo="fixo", localizacao="", responsavel="", observacoes=""):
+    """Adiciona um novo almoxarifado."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO almoxarifados (nome, tipo, localizacao, responsavel, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, tipo, localizacao, responsavel, observacoes)
+            )
+            conn.commit()
+        return True, "Almoxarifado cadastrado com sucesso!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def get_almoxarifados():
+    """Retorna todos os almoxarifados ativos."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            df = pd.read_sql("SELECT * FROM almoxarifados WHERE ativo = 1 ORDER BY nome", conn)
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def get_estoque_por_almoxarifado(id_lubrificante):
+    """Retorna o estoque de um lubrificante distribuído por almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT 
+                a.nome as almoxarifado,
+                a.tipo,
+                COALESCE(ae.quantidade_estoque, 0) as quantidade,
+                COALESCE(ae.unidade, l.unidade) as unidade,
+                a.localizacao,
+                a.responsavel
+            FROM almoxarifados a
+            CROSS JOIN lubrificantes l
+            LEFT JOIN almoxarifado_estoque ae ON a.id = ae.id_almoxarifado AND l.id = ae.id_lubrificante
+            WHERE l.id = ? AND a.ativo = 1
+            ORDER BY a.nome
+            """
+            df = pd.read_sql(query, conn, params=(id_lubrificante,))
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def atualizar_estoque_almoxarifado(id_almoxarifado, id_lubrificante, quantidade, unidade):
+    """Atualiza o estoque de um lubrificante em um almoxarifado específico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO almoxarifado_estoque 
+                (id_almoxarifado, id_lubrificante, quantidade_estoque, unidade, data_atualizacao) 
+                VALUES (?, ?, ?, ?, ?)
+            """, (id_almoxarifado, id_lubrificante, quantidade, unidade, date.today().strftime("%Y-%m-%d")))
+            conn.commit()
+        return True, "Estoque atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao atualizar estoque: {e}"
+
+def add_lubrificante(nome, viscosidade, quantidade, unidade, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes (nome, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, viscosidade, quantidade, unidade, observacoes)
+            )
+            conn.commit()
+        return True, "Lubrificante cadastrado!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def importar_lubrificantes_de_planilha(db_path: str, arquivo_carregado):
+    """Importa lubrificantes de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_lub = pd.read_excel(arquivo_carregado)
+        df_lub.columns = [c.strip() for c in df_lub.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome': 'nome',
+            'tipo': 'tipo',
+            'viscosidade': 'viscosidade',
+            'quantidade_estoque': 'quantidade_estoque',
+            'unidade': 'unidade',
+            'observacoes': 'observacoes'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_lub.columns:
+                df_lub = df_lub.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome']
+        faltando = [c for c in obrig if c not in df_lub.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'tipo' not in df_lub.columns:
+            df_lub['tipo'] = 'óleo'
+        if 'viscosidade' not in df_lub.columns:
+            df_lub['viscosidade'] = ''
+        if 'quantidade_estoque' not in df_lub.columns:
+            df_lub['quantidade_estoque'] = 0
+        if 'unidade' not in df_lub.columns:
+            df_lub['unidade'] = 'L'
+        if 'observacoes' not in df_lub.columns:
+            df_lub['observacoes'] = ''
+        
+        # Limpar e normalizar dados
+        df_lub = df_lub.dropna(subset=['nome'])
+        df_lub['nome'] = df_lub['nome'].astype(str).str.strip()
+        df_lub['tipo'] = df_lub['tipo'].astype(str).str.strip().fillna('óleo')
+        df_lub['viscosidade'] = df_lub['viscosidade'].astype(str).str.strip().fillna('')
+        df_lub['quantidade_estoque'] = pd.to_numeric(df_lub['quantidade_estoque'], errors='coerce').fillna(0)
+        df_lub['unidade'] = df_lub['unidade'].astype(str).str.strip().fillna('L')
+        df_lub['observacoes'] = df_lub['observacoes'].astype(str).str.strip().fillna('')
+        
+        # Remover duplicatas na própria planilha baseada no nome
+        df_lub = df_lub.drop_duplicates(subset=['nome'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que a tabela existe com a coluna tipo
+            ensure_lubrificantes_schema()
+            
+            # Buscar lubrificantes existentes
+            df_existente = pd.read_sql_query("SELECT nome FROM lubrificantes", conn)
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome'] = df_existente['nome'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_lub[~df_lub['nome'].isin(df_existente['nome'])]
+            else:
+                df_para_inserir = df_lub
+            
+            num_duplicados = len(df_lub) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum lubrificante novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = ['nome', 'tipo', 'viscosidade', 'quantidade_estoque', 'unidade', 'observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO lubrificantes ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} lubrificantes novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar lubrificantes: {e}"
+
+def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_operacional: str):
+    """Importa componentes de uma planilha Excel, verificando duplicatas e criando lubrificantes se necessário."""
+    try:
+        df_comp = pd.read_excel(arquivo_carregado)
+        df_comp.columns = [c.strip() for c in df_comp.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome_componente': 'nome_componente',
+            'componente': 'nome_componente',
+            'intervalo_padrao': 'intervalo_padrao',
+            'intervalo': 'intervalo_padrao',
+            'lubrificante_nome': 'lubrificante_nome',
+            'lubrificante': 'lubrificante_nome',
+            'capacidade_litros': 'capacidade_litros',
+            'capacidade': 'capacidade_litros'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_comp.columns:
+                df_comp = df_comp.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome_componente', 'intervalo_padrao']
+        faltando = [c for c in obrig if c not in df_comp.columns]
+        if faltando:
+            return 0, 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'lubrificante_nome' not in df_comp.columns:
+            df_comp['lubrificante_nome'] = None
+        if 'capacidade_litros' not in df_comp.columns:
+            df_comp['capacidade_litros'] = 0.0
+        
+        # Limpar e normalizar dados
+        df_comp = df_comp.dropna(subset=['nome_componente'])
+        df_comp['nome_componente'] = df_comp['nome_componente'].astype(str).str.strip()
+        df_comp['intervalo_padrao'] = pd.to_numeric(df_comp['intervalo_padrao'], errors='coerce')
+        df_comp = df_comp.dropna(subset=['intervalo_padrao'])
+        df_comp['lubrificante_nome'] = df_comp['lubrificante_nome'].astype(str).str.strip().replace('nan', None)
+        df_comp['capacidade_litros'] = pd.to_numeric(df_comp['capacidade_litros'], errors='coerce').fillna(0.0)
+        
+        # Remover duplicatas na própria planilha baseada no nome do componente
+        df_comp = df_comp.drop_duplicates(subset=['nome_componente'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que as tabelas existem
+            ensure_lubrificantes_schema()
+            
+            # Verificar se a tabela componentes_regras tem a coluna capacidade_litros
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'capacidade_litros' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN capacidade_litros REAL DEFAULT 0.0")
+            
+            # Buscar componentes existentes na classe
+            df_existente = pd.read_sql_query(
+                "SELECT nome_componente FROM componentes_regras WHERE classe_operacional = ?", 
+                conn, params=(classe_operacional,)
+            )
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome_componente'] = df_existente['nome_componente'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem na classe
+                df_para_inserir = df_comp[~df_comp['nome_componente'].isin(df_existente['nome_componente'])]
+            else:
+                df_para_inserir = df_comp
+            
+            num_duplicados = len(df_comp) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, 0, "Nenhum componente novo para importar. Todos os registros da planilha já existem na classe selecionada."
+            
+            # Processar lubrificantes
+            lubrificantes_criados = 0
+            for _, row in df_para_inserir.iterrows():
+                if pd.notna(row['lubrificante_nome']) and row['lubrificante_nome']:
+                    # Verificar se o lubrificante existe
+                    df_lub_existente = pd.read_sql_query(
+                        "SELECT id FROM lubrificantes WHERE nome = ?", 
+                        conn, params=(row['lubrificante_nome'],)
+                    )
+                    
+                    if df_lub_existente.empty:
+                        # Criar lubrificante automaticamente
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                            (row['lubrificante_nome'], 'óleo', '', 0, 'L', f'Criado automaticamente durante importação de componentes')
+                        )
+                        lubrificantes_criados += 1
+                        
+                        # Buscar o ID do lubrificante criado
+                        lub_id = cur.lastrowid
+                    else:
+                        lub_id = df_lub_existente.iloc[0]['id']
+                else:
+                    lub_id = None
+                
+                # Inserir componente
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, capacidade_litros) VALUES (?, ?, ?, ?, ?)",
+                    (classe_operacional, row['nome_componente'], row['intervalo_padrao'], lub_id, row['capacidade_litros'])
+                )
+            
+            conn.commit()
+            num_inseridos = len(df_para_inserir)
+            
+            mensagem_sucesso = f"{num_inseridos} componentes foram importados com sucesso para a classe '{classe_operacional}'."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} componentes duplicados foram ignorados."
+            if lubrificantes_criados > 0:
+                mensagem_sucesso += f" {lubrificantes_criados} lubrificantes foram criados automaticamente."
+            
+            return num_inseridos, num_duplicados, lubrificantes_criados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, 0, f"Erro ao importar componentes: {e}"
+
+def movimentar_lubrificante(id_lubrificante, tipo, quantidade, data, cod_equip=None, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes_movimentacoes (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes)
+            )
+            # Atualiza estoque
+            sinal = 1 if tipo == "entrada" else -1
+            cur.execute(
+                "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque + ? WHERE id = ?",
+                (sinal * quantidade, id_lubrificante)
+            )
+            conn.commit()
+        return True, "Movimentação registrada!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+@st.cache_data(ttl=120)
+def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
+    # Garante que a coluna de data é do tipo datetime
+    df['Data'] = pd.to_datetime(df['Data'])
+    
+    # Filtra por período de datas
+    df_filtrado = df[
+        (df['Data'].dt.date >= opts['data_inicio']) & 
+        (df['Data'].dt.date <= opts['data_fim'])
+    ]
+    
+    # Filtra pelas outras seleções, se existirem
+    if opts.get("classes_op"):
+        df_filtrado = df_filtrado[df_filtrado["Classe_Operacional"].isin(opts["classes_op"])]
+    
+    if opts.get("safras"):
+        df_filtrado = df_filtrado[df_filtrado["Safra"].isin(opts["safras"])]
+        
+    return df_filtrado.copy()
+
+@st.cache_data(show_spinner="Calculando plano de manutenção...", ttl=300)
+def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimentos: pd.DataFrame, _df_componentes_regras: pd.DataFrame, _df_componentes_historico: pd.DataFrame) -> pd.DataFrame:
+    latest_readings = _df_abastecimentos.sort_values('Data').groupby('Cod_Equip')['Hod_Hor_Atual'].last()
+    plan_data = []
+
+    for _, frota_row in _df_frotas.iterrows():
+        cod_equip = frota_row['Cod_Equip']
+        classe_op = frota_row.get('Classe_Operacional')
+        hod_hor_atual = latest_readings.get(cod_equip)
+
+        if pd.isna(hod_hor_atual) or not classe_op:
+            continue
+        
+        regras_da_classe = _df_componentes_regras[_df_componentes_regras['classe_operacional'] == classe_op]
+        if regras_da_classe.empty:
+            continue
+
+        unidade = 'km' if frota_row['Tipo_Controle'] == 'QUILÔMETROS' else 'h'
+        alerta_default = ALERTAS_MANUTENCAO.get(frota_row['Tipo_Controle'], {}).get('default', 500)
+        
+        record = {
+            'Cod_Equip': cod_equip, 
+            'Equipamento': frota_row.get('DESCRICAO_EQUIPAMENTO'), 
+            'Leitura_Atual': hod_hor_atual, 
+            'Unidade': unidade, 
+            'Qualquer_Alerta': False, 
+            'Alertas': []
+        }
+
+        for _, regra in regras_da_classe.iterrows():
+            componente = regra['nome_componente']
+            intervalo = regra['intervalo_padrao']
+            
+            historico_componente = _df_componentes_historico[
+                (_df_componentes_historico['Cod_Equip'] == cod_equip) &
+                (_df_componentes_historico['nome_componente'] == componente)
+            ]
+            
+            ultimo_servico_hod_hor = 0
+            if not historico_componente.empty:
+                ultimo_servico_hod_hor = historico_componente['Hod_Hor_No_Servico'].max()
+
+            prox_servico = ((ultimo_servico_hod_hor // intervalo) * intervalo) + intervalo
+            while prox_servico < hod_hor_atual:
+                prox_servico += intervalo
+
+            restante = prox_servico - hod_hor_atual
+            
+            record[f'Restante_{componente}'] = restante
+            
+            if restante <= alerta_default:
+                record['Qualquer_Alerta'] = True
+                record['Alertas'].append(componente)
+
+        plan_data.append(record)
+
+    # 🔹 Garante que sempre retorna um DataFrame com as colunas básicas
+    if not plan_data:
+        return pd.DataFrame(columns=['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Qualquer_Alerta', 'Alertas'])
+
+    return pd.DataFrame(plan_data)
+
+
+def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
+    """Estima as datas das próximas manutenções com base no uso médio."""
+    if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
+        return pd.DataFrame()
+
+    # Calcula o uso diário médio de cada veículo
+    uso_diario = {}
+    for cod_equip in df_abastecimentos['Cod_Equip'].unique():
+        dados_equip = df_abastecimentos[df_abastecimentos['Cod_Equip'] == cod_equip].sort_values('Data')
+        if len(dados_equip) > 1:
+            total_dias = (dados_equip['Data'].max() - dados_equip['Data'].min()).days
+            total_uso = dados_equip['Hod_Hor_Atual'].max() - dados_equip['Hod_Hor_Atual'].min()
+            if total_dias > 0 and total_uso > 0: # Garante que houve uso e passagem de tempo
+                uso_diario[cod_equip] = total_uso / total_dias
+
+    previsoes = []
+    servicos_nomes = [col.replace('Restante_', '') for col in plan_df.columns if 'Restante_' in col]
+
+    for _, row in plan_df.iterrows():
+        cod_equip = row['Cod_Equip']
+        uso = uso_diario.get(cod_equip)
+        if uso:
+            for nome_servico in servicos_nomes:
+                col_restante = f'Restante_{nome_servico}'
+                if col_restante in row and pd.notna(row[col_restante]):
+                    dias_para_manut = row[col_restante] / uso
+                    data_prevista = datetime.now() + pd.Timedelta(days=dias_para_manut)
+                    previsoes.append({
+                        'Equipamento': row['Equipamento'],
+                        'Manutenção': nome_servico,
+                        'Data Prevista': data_prevista.strftime('%d/%m/%Y'),
+                        'Dias Restantes': int(dias_para_manut)
+                    })
+
+    if not previsoes:
+        return pd.DataFrame()
+
+    df_previsoes = pd.DataFrame(previsoes)
+    return df_previsoes.sort_values('Dias Restantes')
+
+
+# ---------------------------
+# Funções para Checklists
+# ---------------------------
+
+@st.cache_data(ttl=120)
+def get_checklist_rules():
+    """Busca todas as regras de checklist do banco de dados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+    except Exception as e:
+        st.error(f"Erro ao buscar regras de checklist: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=120)
+def get_checklist_items(id_regra):
+    """Busca os itens de checklist para uma determinada regra."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM checklist_itens WHERE id_regra = ?",
+                conn,
+                params=(id_regra,)
+            )
+    except Exception as e:
+        st.error(f"Erro ao buscar itens de checklist: {e}")
+        return pd.DataFrame()
+
+
+# ---------------------------
+# CRUD para Checklists
+# ---------------------------
+
+def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
+    """Adiciona uma nova regra de checklist ao banco de dados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_regras (classe_operacional, titulo_checklist, frequencia, turno)
+                VALUES (?, ?, ?, ?)
+                """ ,
+                (classe_operacional, titulo_checklist, frequencia, turno)
+            )
+            conn.commit()
+        return True, "Regra de checklist adicionada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar regra de checklist: {e}"
+
+
+def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
+    """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
+
+    Mantém a função "add_checklist_rule" para compatibilidade, mas quando for
+    necessário o ID imediatamente após a criação, utilize esta função.
+    """
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_regras (classe_operacional, titulo_checklist, frequencia, turno)
+                VALUES (?, ?, ?, ?)
+                """,
+                (classe_operacional, titulo_checklist, frequencia, turno)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    except Exception as e:
+        st.error(f"Erro ao adicionar regra de checklist: {e}")
+        return None
+
+
+def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
+    """Edita uma regra de checklist existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE checklist_regras
+                SET classe_operacional = ?, titulo_checklist = ?, frequencia = ?, turno = ?
+                WHERE id_regra = ?
+                """ ,
+                (classe_operacional, titulo_checklist, frequencia, turno, id_regra)
+            )
+            conn.commit()
+        return True, "Regra de checklist atualizada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao editar regra de checklist: {e}"
+
+
+def delete_checklist_rule(id_regra):
+    """Remove uma regra de checklist e seus itens associados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_itens WHERE id_regra = ?", (id_regra,))
+            cursor.execute("DELETE FROM checklist_regras WHERE id_regra = ?", (id_regra,))
+            conn.commit()
+        return True, "Regra de checklist removida com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao remover regra de checklist: {e}"
+
+
+def add_checklist_item(id_regra, nome_item):
+    """Adiciona um novo item de checklist a uma regra existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_itens (id_regra, nome_item)
+                VALUES (?, ?)
+                """ ,
+                (id_regra, nome_item)
+            )
+            conn.commit()
+        return True, "Item de checklist adicionado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar item de checklist: {e}"
+
+
+def edit_checklist_item(id_item, nome_item):
+    """Edita um item de checklist existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE checklist_itens
+                SET nome_item = ?
+                WHERE id_item = ?
+                """ ,
+                (nome_item, id_item)
+            )
+            conn.commit()
+        return True, "Item de checklist atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao editar item de checklist: {e}"
+
+
+def delete_checklist_item(id_item):
+    """Remove um item de checklist."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_itens WHERE id_item = ?", (id_item,))
+            conn.commit()
+        return True, "Item de checklist removido com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao remover item de checklist: {e}"
+
+
+def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
+    """Salva um checklist preenchido no histórico."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_historico 
+                (Cod_Equip, titulo_checklist, data_preenchimento, turno, status_geral) 
+                VALUES (?, ?, ?, ?, ?)
+                """ ,
+                (cod_equip, titulo_checklist, data_preenchimento, turno, status_geral)
+            )
+            conn.commit()
+    except Exception as e:
+        st.error(f"Erro ao salvar histórico de checklist: {e}")
+
+
+def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
+    """Remove um registro do histórico de checklists usando uma combinação única de campos."""
+    try:
+        # Primeira tentativa: usar conexão direta
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)  # Converter numpy.int64 para int
+        titulo_checklist = str(titulo_checklist)
+        data_preenchimento = str(data_preenchimento)
+        turno = str(turno)
+        
+        # Debug: verificar todos os registros na tabela ANTES da exclusão
+        cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
+        all_records_before = cursor.fetchall()
+        
+        # Tentar encontrar o registro com diferentes abordagens
+        rowid = None
+        
+        # Primeira tentativa: busca exata
+        cursor.execute(
+            "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+            (cod_equip, titulo_checklist, data_preenchimento, turno)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            rowid = result[0]
+        else:
+            # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
+            cursor.execute(
+                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, turno)
+            )
+            result = cursor.fetchone()
+            
+            if result:
+                rowid = result[0]
+            else:
+                # Terceira tentativa: buscar apenas por Cod_Equip e título
+                cursor.execute(
+                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
+                    (cod_equip, titulo_checklist)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    rowid = result[0]
+        
+        if rowid is None:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
+            - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
+            - Turno: {turno} (tipo: {type(turno)})
+            
+            Todos os registros na tabela ANTES da exclusão:
+            {all_records_before}
+            """
+            conn.close()
+            return False, debug_info
+        
+        # Agora vamos excluir usando rowid
+        cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
+            count_after = cursor.fetchone()[0]
+            
+            # Verificar também se o registro ainda existe pelos outros campos
+            cursor.execute(
+                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, data_preenchimento, turno)
+            )
+            count_by_fields = cursor.fetchone()[0]
+            
+            if count_after == 0 and count_by_fields == 0:
+                 # Verificar o total de registros na tabela
+                 cursor.execute("SELECT COUNT(*) FROM checklist_historico")
+                 total_after = cursor.fetchone()[0]
+                 
+                 # Forçar sincronização do banco
+                 cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                 cursor.execute("PRAGMA synchronous=FULL")
+                 conn.commit()
+                 
+                 success_msg = f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s)). Total na tabela: {total_after}"
+                 
+                 # Salvar backup automático para persistência no Streamlit Cloud
+                 backup_success, backup_msg = save_backup_to_session_state()
+                 if backup_success:
+                     success_msg += f" | Backup salvo: {backup_msg}"
+                 else:
+                     success_msg += f" | Aviso: {backup_msg}"
+                 
+                 conn.close()
+                 return True, success_msg
+            else:
+                conn.close()
+                return False, f"Erro: Registro ainda existe após exclusão. Count by rowid: {count_after}, Count by fields: {count_by_fields}"
+        else:
+            conn.close()
+            return False, "Nenhum registro foi excluído"
+                
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return False, f"Erro ao excluir checklist: {e}"
+
+
+def force_cache_clear():
+    """Força a limpeza completa de todos os caches."""
+    try:
+        # Limpar cache de dados
+        st.cache_data.clear()
+        
+        # Limpar cache de recursos
+        st.cache_resource.clear()
+        
+        # Forçar rerun da aplicação
+        st.rerun()
+    except Exception as e:
+        st.error(f"Erro ao limpar cache: {e}")
+
+
+def force_database_sync():
+    """Força a sincronização do banco de dados com o disco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Forçar commit
+        conn.commit()
+        
+        # Executar PRAGMA para forçar sincronização
+        cursor.execute("PRAGMA wal_checkpoint(FULL)")
+        cursor.execute("PRAGMA synchronous=FULL")
+        cursor.execute("PRAGMA journal_mode=DELETE")
+        
+        # Forçar commit novamente
+        conn.commit()
+        
+        # Verificar se o banco está em modo WAL
+        cursor.execute("PRAGMA journal_mode")
+        journal_mode = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return True, f"Banco sincronizado. Modo journal: {journal_mode}"
+    except Exception as e:
+        return False, f"Erro ao sincronizar banco: {e}"
+
+
+def export_database_backup():
+    """Exporta todos os dados do banco para um arquivo de backup."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        
+        # Obter todas as tabelas
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        backup_data = {}
+        
+        for table in tables:
+            table_name = table[0]
+            if table_name != 'sqlite_master':
+                # Exportar dados da tabela
+                df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+                backup_data[table_name] = df.to_dict('records')
+        
+        conn.close()
+        
+        # Converter para JSON
+        backup_json = json.dumps(backup_data, default=str, indent=2)
+        
+        # Criar arquivo de download
+        backup_bytes = backup_json.encode('utf-8')
+        backup_b64 = base64.b64encode(backup_bytes).decode()
+        
+        return backup_b64, backup_data
+        
+    except Exception as e:
+        return None, f"Erro ao exportar backup: {e}"
+
+
+def import_database_backup(backup_data):
+    """Importa dados de backup para o banco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        for table_name, records in backup_data.items():
+            if records:  # Se a tabela tem dados
+                # Limpar tabela existente
+                cursor.execute(f"DELETE FROM {table_name}")
+                
+                # Inserir novos dados
+                for record in records:
+                    columns = list(record.keys())
+                    placeholders = ', '.join(['?' for _ in columns])
+                    values = list(record.values())
+                    
+                    # Converter tipos de dados
+                    converted_values = []
+                    for value in values:
+                        if isinstance(value, str):
+                            # Tentar converter para datetime se for uma data
+                            try:
+                                if 'T' in value or '-' in value:
+                                    dt = pd.to_datetime(value)
+                                    converted_values.append(dt.strftime('%Y-%m-%d %H:%M:%S'))
+                                else:
+                                    converted_values.append(value)
+                            except:
+                                converted_values.append(value)
+                        else:
+                            converted_values.append(value)
+                    
+                    cursor.execute(
+                        f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})",
+                        converted_values
+                    )
+        
+        conn.commit()
+        conn.close()
+        
+        return True, "Backup restaurado com sucesso!"
+        
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def save_backup_to_session_state():
+    """Salva backup dos dados na sessão do Streamlit."""
+    try:
+        backup_b64, backup_data = export_database_backup()
+        if backup_b64:
+            st.session_state['database_backup'] = backup_b64
+            st.session_state['backup_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            return True, "Backup salvo na sessão"
+        else:
+            return False, "Erro ao criar backup"
+    except Exception as e:
+        return False, f"Erro ao salvar backup: {e}"
+
+
+def restore_backup_from_session_state():
+    """Restaura backup dos dados da sessão do Streamlit."""
+    try:
+        if 'database_backup' in st.session_state:
+            backup_b64 = st.session_state['database_backup']
+            backup_bytes = base64.b64decode(backup_b64)
+            backup_json = backup_bytes.decode('utf-8')
+            backup_data = json.loads(backup_json)
+            
+            success, message = import_database_backup(backup_data)
+            if success:
+                # Limpar cache para forçar recarregamento
+                force_cache_clear()
+                return True, message
+            else:
+                return False, message
+        else:
+            return False, "Nenhum backup encontrado na sessão"
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def auto_restore_backup_on_startup():
+    """Tenta restaurar backup automaticamente na inicialização da aplicação."""
+    try:
+        if 'database_backup' in st.session_state:
+            # Verificar se o banco está vazio
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            num_tables = cursor.fetchone()[0]
+            conn.close()
+            
+            if num_tables == 0:
+                # Banco vazio, tentar restaurar
+                success, message = restore_backup_from_session_state()
+                if success:
+                    st.info("🔄 Backup restaurado automaticamente na inicialização!")
+                    return True
+                else:
+                    st.warning(f"⚠️ Falha na restauração automática: {message}")
+                    return False
+        return False
+    except Exception as e:
+        st.warning(f"⚠️ Erro na restauração automática: {e}")
+        return False
+
+
+def main():
+    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    # Garante tema dark coerente mesmo sem config.toml
+    st.markdown(
+        """
+        <style>
+        :root {
+            --primary: #10b981;
+            --bg: #0f172a;
+            --bg2: #111827;
+            --text: #e5e7eb;
+        }
+        body { background: var(--bg); color: var(--text); }
+        section.main > div { background: var(--bg); }
+        .stApp { background: var(--bg); }
+        .st-emotion-cache-1r4qj8v, .st-emotion-cache-13ln4jf { background: var(--bg2) !important; }
+        .stButton>button { background: var(--primary); color: #062e24; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # CSS fino para polir a UI
+    st.markdown(
+        """
+        <style>
+        /* Cartões/containers */
+        .stExpander, .stDataFrame, .stTable { border-radius: 10px !important; }
+        .stButton>button { border-radius: 8px; padding: 0.5rem 1rem; }
+        .stSelectbox, .stTextInput, .stNumberInput, .stDateInput, .stTextArea { border-radius: 8px !important; }
+        /* Métricas com mais destaque */
+        div[data-testid="stMetric"] { background: rgba(255,255,255,0.04); padding: 10px 14px; border-radius: 12px; }
+        /* Títulos com leve gradiente */
+        h1, h2, h3 { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        /* Linhas divisórias mais suaves */
+        hr { border: none; height: 1px; background: rgba(255,255,255,0.08); }
+        /* Subtítulo de marca (opcional) */
+        .brand-subtitle { display: none; }
+        /* Centralizar e limitar logo na sidebar */
+        section[data-testid="stSidebar"] img { display: block; margin: 0.5rem auto 0.75rem; max-width: 140px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+        st.session_state.role = None
+        st.session_state.username = ""
+
+    if not st.session_state.authenticated:
+        _ , col_central, _ = st.columns([1, 1.5, 1])
+    
+        with col_central:
+            
+            if os.path.exists("logo.png"):
+                # Cria 3 sub-colunas dentro da coluna central
+                _, logo_col, _ = st.columns([1, 2, 1])
+                with logo_col:
+                    st.image("logo.png", width=140)
+            
+            st.title("Bem vindo ao Aplicativo de Controle do PCMA")
+
+            username = st.text_input("Usuário", key="login_user")
+            password = st.text_input("Senha", type="password", key="login_pass")
+
+            if st.button("Entrar", use_container_width=True):
+                role = check_login_db(username, password)
+                if role:
+                    st.session_state.authenticated = True
+                    st.session_state.role = role
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("Usuário ou Senha incorretos.")
+    else:
+
+        # Cabeçalho com logo + título
+        if os.path.exists("logo.png"):
+            col_logo, col_title = st.columns([1, 8])
+            with col_logo:
+                st.image("logo.png", width=80)
+            with col_title:
+                st.title("📊 Dashboard de Frotas e Abastecimentos")
+        else:
+            st.title("📊 Dashboard de Frotas e Abastecimentos")
+
+        # Tentar restaurar backup automaticamente na inicialização
+        auto_restore_backup_on_startup()
+        
+        # Adicionar coluna de tipo de combustível se não existir
+        add_tipo_combustivel_column()
+        
+        # Setup de esquemas (motoristas, preços, combustível)
+        ensure_motoristas_schema()
+        ensure_precos_combustivel_schema()
+
+        # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
+        ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
+        df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
+        
+
+
+        if 'intervalos_por_classe' not in st.session_state:
+            st.session_state.intervalos_por_classe = {}
+        classes_operacionais = [c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()]
+        for classe in classes_operacionais:
+            if classe not in st.session_state.intervalos_por_classe:
+                tipo_controle = df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0]
+                if tipo_controle == 'HORAS':
+                    st.session_state.intervalos_por_classe[classe] = {
+                        'meta_consumo': 5.0,
+                        'servicos': {
+                            'servico_1': {'nome': 'Lubrificacao', 'intervalo': 250},
+                            'servico_2': {'nome': 'Revisao A', 'intervalo': 100},
+                            'servico_3': {'nome': 'Revisao B', 'intervalo': 300},
+                            'servico_4': {'nome': 'Revisao C', 'intervalo': 500}
+                        }
+                    }
+                else: # QUILÔMETROS
+                    st.session_state.intervalos_por_classe[classe] = {
+                        'meta_consumo': 2.5,
+                        'servicos': {
+                            'servico_1': {'nome': 'Lubrificacao', 'intervalo': 5000},
+                            'servico_2': {'nome': 'Revisao 5k', 'intervalo': 5000},
+                            'servico_3': {'nome': 'Revisao 10k', 'intervalo': 10000},
+                            'servico_4': {'nome': 'Revisao 20k', 'intervalo': 20000}
+                        }
+                    }
+                    
+        with st.sidebar:
+            if os.path.exists("logo.png"):
+                st.image("logo.png", width=200)
+            st.write(f"Bem-vindo, **{st.session_state.username}**!")
+            if st.button("Sair"):
+                st.session_state.authenticated = False
+                st.session_state.username = "" # Limpa o username ao sair
+                st.session_state.role = None
+                st.rerun()
+            st.markdown("---")
+
+        with st.sidebar:
+            st.header("📅 Filtros (válidos apenas na aba Análise Geral)")
+
+            # Persistência de período
+            if 'filtro_data_inicio' not in st.session_state:
+                st.session_state['filtro_data_inicio'] = df['Data'].min().date()
+            if 'filtro_data_fim' not in st.session_state:
+                st.session_state['filtro_data_fim'] = df['Data'].max().date()
+
+            st.subheader("Período de Análise")
+            data_inicio = st.date_input(
+                "Data de Início", 
+                st.session_state['filtro_data_inicio'],
+                key='data_inicio'
+            )
+            data_fim = st.date_input(
+                "Data de Fim", 
+                st.session_state['filtro_data_fim'],
+                key='data_fim'
+            )
+            st.session_state['filtro_data_inicio'] = data_inicio
+            st.session_state['filtro_data_fim'] = data_fim
+
+            st.markdown("---")
+            st.caption("Desenvolvido por André Luis")
+
+            with st.expander("Filtrar por Classe Operacional"):
+                classe_opts = sorted(list(df["Classe_Operacional"].dropna().unique()))
+                sel_classes = st.multiselect(
+                    "Selecione as Classes", 
+                    classe_opts, 
+                    default=classe_opts,
+                    key="sel_classes"
+                )
+
+            with st.expander("Filtrar por Safra"):
+                safra_opts = sorted(list(df["Safra"].dropna().unique()))
+                sel_safras = st.multiselect(
+                    "Selecione as Safras", 
+                    safra_opts, 
+                    default=safra_opts,
+                    key="sel_safras"
+                )
+
+            # Só aplicaremos os filtros na aba "📈 Análise Geral" (guardaremos em sessão)
+            st.session_state['filtro_opts_analise'] = {
+                "data_inicio": data_inicio,
+                "data_fim": data_fim,
+                "classes_op": sel_classes,
+                "safras": sel_safras
+            }
+    
+import streamlit as st
+import pandas as pd
+import numpy as np
+import sqlite3
+from datetime import datetime, date, timedelta
+import os
+import plotly.express as px
+import hashlib
+import json
+import base64
+import io
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
+
+ALERTAS_MANUTENCAO = {
+    'HORAS': { 'default': 20 },
+    'QUILÔMETROS': { 'default': 500 }
+}
+
+def formatar_brasileiro(valor: float, prefixo='') -> str:
+    """Formata um número com casas decimais para o padrão brasileiro."""
+    if pd.isna(valor) or not np.isfinite(valor):
+        return "–"
+    return f"{prefixo}{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+@st.cache_data(ttl=300)
+def para_csv(df: pd.DataFrame):
+    """Converte um DataFrame para CSV para download."""
+    return df.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+
+def formatar_brasileiro_int(valor: float) -> str:
+    """Formata um número inteiro para o padrão brasileiro (ex: 123.456)."""
+    if pd.isna(valor) or not np.isfinite(valor):
+        return "–"
+    return f"{int(valor):,}".replace(",", ".")
+
+def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
+    df = df_completo.copy()
+    df['Tipo_Controle'] = df.get('Unid', pd.Series(index=df.index)).map({'HORAS': 'HORAS', 'QUILÔMETROS': 'QUILÔMETROS'})
+    def inferir_tipo_por_classe(row):
+        if pd.notna(row['Tipo_Controle']): return row['Tipo_Controle']
+        classe = str(row.get('Classe_Operacional', '')).upper()
+        if any(p in classe for p in ['TRATOR', 'COLHEITADEIRA', 'PULVERIZADOR', 'PLANTADEIRA', 'PÁ CARREGADEIRA', 'RETROESCAVADEIRA']): return 'HORAS'
+        if any(p in classe for p in ['CAMINHÃO', 'CAMINHAO', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']): return 'QUILÔMETROS'
+        return 'HORAS'
+    df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
+    return df
+
+def hash_password(password):
+    """Gera um hash seguro da palavra-passe."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_login_db(username, password):
+    """Verifica as credenciais contra a base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT password_hash, role FROM utilizadores WHERE username = ?", (username,))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            password_hash_db, role = result
+            if password_hash_db == hash_password(password):
+                return role
+        return None
+    except Exception as e:
+        st.error(f"Erro ao aceder à base de dados de utilizadores: {e}")
+        return None
+
+def get_all_users():
+    """Busca todos os utilizadores da base de dados."""
+    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+        return pd.read_sql_query("SELECT id, username, role FROM utilizadores", conn)
+
+def add_user(username, password, role):
+    """Adiciona um novo utilizador à base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO utilizadores (username, password_hash, role) VALUES (?, ?, ?)",
+            (username, hash_password(password), role)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Utilizador adicionado com sucesso!"
+    except sqlite3.IntegrityError:
+        return False, f"Erro: O nome de utilizador '{username}' já existe."
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+def update_user(user_id, new_username, new_role):
+    """Atualiza o nome e a função de um utilizador."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE utilizadores SET username = ?, role = ? WHERE id = ?",
+            (new_username, new_role, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Utilizador atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+def delete_user(user_id):
+    """Remove um utilizador da base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM utilizadores WHERE id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return True, "Utilizador removido com sucesso!"
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+    
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
+
+@st.cache_data(show_spinner="Carregando e processando dados...", ttl=300)
+def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, ver_manut: int=None, ver_comp: int=None, ver_chk: int=None):
+    if not os.path.exists(db_path):
+        st.error(f"Arquivo de banco de dados '{db_path}' não encontrado.")
+        st.stop()
+
+    try:
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            df_abast = pd.read_sql_query("SELECT rowid, * FROM abastecimentos", conn)
+            df_frotas = pd.read_sql_query("SELECT * FROM frotas", conn)
+            df_manutencoes = pd.read_sql_query("SELECT rowid, * FROM manutencoes", conn)
+            df_comp_regras = pd.read_sql_query("SELECT * FROM componentes_regras", conn)
+            df_comp_historico = pd.read_sql_query("SELECT rowid, * FROM componentes_historico", conn)
+            df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+            df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
+            df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
+
+        # --- Início do Processamento Integrado ---
+        
+        # Renomeia colunas para um padrão consistente
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
+
+        # Cria o dataframe principal mesclando abastecimentos e frotas
+        df_merged = pd.merge(df_abast, df_frotas, on="Cod_Equip", how="left")
+        
+        # Trata colunas de classe operacional que podem ter vindo da mesclagem
+        if 'Classe_Operacional_x' in df_merged.columns:
+            df_merged['Classe_Operacional'] = np.where(df_merged['Classe_Operacional_x'].notna(), df_merged['Classe_Operacional_x'], df_merged['Classe_Operacional_y'])
+            df_merged.drop(columns=['Classe_Operacional_x', 'Classe_Operacional_y'], inplace=True)
+        
+        # Converte a coluna de data e cria colunas de tempo
+        df_merged["Data"] = pd.to_datetime(df_merged["Data"], errors='coerce')
+        df_merged.dropna(subset=["Data"], inplace=True)
+        df_merged["Ano"] = df_merged["Data"].dt.year
+        df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
+        
+        # Limpa e converte colunas numéricas
+        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+            if col in df_merged.columns:
+                series = df_merged[col].astype(str)
+                series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
+                df_merged[col] = pd.to_numeric(series, errors='coerce')
+        
+        # Cria a coluna "label" no dataframe de frotas para uso em seletores
+        df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
+
+        # Vincula informações de motorista aos abastecimentos (merge durante o load)
+        try:
+            with sqlite3.connect(db_path, check_same_thread=False) as conn:
+                df_motoristas = pd.read_sql_query("SELECT codigo_pessoa, matricula, nome FROM motoristas", conn)
+            if not df_motoristas.empty:
+                df_merged = df_merged.merge(
+                    df_motoristas.rename(columns={"codigo_pessoa": "Cod_Pessoa", "matricula": "Matricula", "nome": "Nome_Motorista"}),
+                    on=["Cod_Pessoa", "Matricula"], how="left"
+                )
+        except Exception:
+            pass
+        
+        # Garante que a classe operacional em df_frotas está atualizada
+        classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
+        df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map).fillna(df_frotas.get('Classe_Operacional'))
+
+        # Adiciona coluna de tipo de combustível se não existir
+        if 'tipo_combustivel' not in df_frotas.columns:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
+        
+        # Garantir que a coluna existe e tem valores válidos
+        if 'tipo_combustivel' in df_frotas.columns:
+            # Preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
+        else:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'
+
+        # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
+        def determinar_tipo_controle(row):
+            texto_para_verificar = (
+                str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
+                str(row.get('Classe_Operacional', ''))
+            ).upper()
+            km_keywords = ['CAMINH', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
+            if any(p in texto_para_verificar for p in km_keywords):
+                return 'QUILÔMETROS'
+            return 'HORAS'
+        df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
+
+        # Retorna todos os dataframes processados
+        return (
+            df_merged, df_frotas, df_manutencoes,
+            df_comp_regras, df_comp_historico,
+            df_checklist_regras, df_checklist_itens, df_checklist_historico
+        )
+
+    except Exception as e:
+        st.error(f"Erro ao ler e processar o banco de dados: {e}")
+        st.stop()
+        # Retorna dataframes vazios em caso de erro
+        return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+                pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+
+                
+    
+def inserir_abastecimento(db_path: str, dados: dict) -> bool:
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO abastecimentos (
+                "Cód. Equip.", Data, "Qtde Litros", Hod_Hor_Atual,
+                Safra, "Mês", "Classe Operacional", Matricula, Cod_Pessoa
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['data'],
+            dados['qtde_litros'],
+            dados['hod_hor_atual'],
+            dados['safra'],
+            dados['mes'],
+            dados['classe_operacional'],
+            dados.get('matricula'),
+            dados.get('cod_pessoa')
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao inserir dados no banco de dados: {e}")
+        return False
+
+def excluir_abastecimento(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de abastecimento do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        # Usar rowid é a forma mais segura de deletar uma linha específica
+        sql = "DELETE FROM abastecimentos WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir dados do banco de dados: {e}")
+        return False
+
+
+def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
+    """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)
+        nome_componente = str(nome_componente)
+        data = str(data)
+        hod_hor = float(hod_hor)
+        
+        # Debug: verificar todos os registros na tabela
+        cursor.execute("SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico")
+        all_records = cursor.fetchall()
+        
+        # Debug: verificar se há registros com valores similares
+        cursor.execute(
+            "SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico WHERE Cod_Equip = ?", 
+            (cod_equip,)
+        )
+        similar_records = cursor.fetchall()
+        
+        # Primeiro, vamos verificar se o registro existe
+        cursor.execute(
+            "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Nome Componente: {nome_componente} (tipo: {type(nome_componente)})
+            - Data: {data} (tipo: {type(data)})
+            - Hod_Hor: {hod_hor} (tipo: {type(hod_hor)})
+            
+            Registros similares encontrados (mesmo Cod_Equip):
+            {similar_records}
+            
+            Todos os registros na tabela:
+            {all_records}
+            """
+            st.error(debug_info)
+            return False
+        
+        # Agora vamos excluir
+        cursor.execute(
+            "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute(
+                "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+                (cod_equip, nome_componente, data, hod_hor)
+            )
+            count_after = cursor.fetchone()[0]
+            
+            if count_after == 0:
+                # Forçar sincronização do banco
+                cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                cursor.execute("PRAGMA synchronous=FULL")
+                conn.commit()
+                
+                # Salvar backup automático para persistência no Streamlit Cloud
+                backup_success, backup_msg = save_backup_to_session_state()
+                if backup_success:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Backup salvo: {backup_msg}")
+                else:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Aviso: {backup_msg}")
+                
+                conn.close()
+                return True
+            else:
+                st.error("Erro: Registro ainda existe após exclusão")
+                conn.close()
+                return False
+        else:
+            st.error("Nenhum registro foi excluído")
+            conn.close()
+            return False
+            
+    except Exception as e:
+        st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
+        return False
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+def excluir_manutencao(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de manutenção do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = "DELETE FROM manutencoes WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir manutenção do banco de dados: {e}")
+        return False
+
+def inserir_manutencao(db_path: str, dados: dict) -> bool:
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = 'INSERT INTO manutencoes (Cod_Equip, Data, Tipo_Servico, Hod_Hor_No_Servico) VALUES (?, ?, ?, ?)'
+        params = (dados['cod_equip'], dados['data'], dados['tipo_servico'], dados['hod_hor_servico'])
+        cursor.execute(sql, params)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro no banco de dados: {e}")
+        return False
+
+def inserir_frota(db_path: str, dados: dict) -> bool:
+    """Insere um novo registro de frota no banco de dados."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO frotas (
+                COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA, 
+                "Classe Operacional", ATIVO, tipo_combustivel
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['descricao'],
+            dados['placa'],
+            dados['classe_op'],
+            dados['ativo'],
+            dados.get('tipo_combustivel', 'Diesel S500')
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro no banco de dados: {e}")
+        return False
+    
+
+def editar_abastecimento(db_path: str, rowid: int, dados: dict) -> bool:
+    """Atualiza um registro de abastecimento existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE abastecimentos SET
+                "Cód. Equip." = ?, Data = ?, "Qtde Litros" = ?, Hod_Hor_Atual = ?, Safra = ?, Matricula = ?, Cod_Pessoa = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'], dados['data'], dados['qtde_litros'], dados['hod_hor_atual'], dados['safra'],
+            dados.get('matricula'), dados.get('cod_pessoa'), rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar abastecimento: {e}")
+        return False
+
+def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
+    """Atualiza um registro de manutenção existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE manutencoes SET
+                Cod_Equip = ?, Data = ?, Tipo_Servico = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (dados['cod_equip'], dados['data'], dados['tipo_servico'], dados['hod_hor_servico'], rowid)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar manutenção: {e}")
+        return False
+
+
+def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
+    """Edita um registro de manutenção de componente existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE componentes_historico 
+            SET Cod_Equip = ?, nome_componente = ?, Observacoes = ?, Data = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['componente'],
+            dados['acao'],
+            dados['data'],
+            dados['hod_hor_servico'],
+            rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao editar manutenção de componente no banco de dados: {e}")
+        return False
+
+def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tuple[int, int, str]:
+    """Lê uma planilha, verifica por duplicados, e insere os novos dados. Aceita opcionalmente as colunas Matricula e Cod_Pessoa."""
+    try:
+        df_novo = pd.read_excel(arquivo_carregado)
+        
+        mapa_colunas = {
+            "Cód. Equip.": "Cód. Equip.",
+            "Data": "Data",
+            "Qtde Litros": "Qtde Litros",
+            "Hod. Hor. Atual": "Hod_Hor_Atual",
+            "Safra": "Safra",
+            "Mês": "Mês",
+            "Classe Operacional": "Classe Operacional",
+            "Matricula": "Matricula",
+            "Cod_Pessoa": "Cod_Pessoa",
+        }
+        df_novo = df_novo.rename(columns={k: v for k, v in mapa_colunas.items() if k in df_novo.columns})
+
+        colunas_necessarias = ["Cód. Equip.", "Data", "Qtde Litros", "Hod_Hor_Atual", "Safra", "Mês", "Classe Operacional"]
+        colunas_opcionais = ["Matricula", "Cod_Pessoa"]
+        colunas_faltando = [col for col in colunas_necessarias if col not in df_novo.columns]
+        if colunas_faltando:
+            return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
+        conn = sqlite3.connect(db_path)
+        df_existente = pd.read_sql_query("SELECT * FROM abastecimentos", conn)
+        
+        df_novo['Data'] = pd.to_datetime(df_novo['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_existente['Data'] = pd.to_datetime(df_existente['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        df_novo['chave_unica'] = df_novo['Cód. Equip.'].astype(str) + '_' + df_novo['Data'] + '_' + df_novo['Qtde Litros'].astype(str)
+        df_existente['chave_unica'] = df_existente['Cód. Equip.'].astype(str) + '_' + df_existente['Data'] + '_' + df_existente['Qtde Litros'].astype(str)
+
+        df_para_inserir = df_novo[~df_novo['chave_unica'].isin(df_existente['chave_unica'])]
+        
+        num_duplicados = len(df_novo) - len(df_para_inserir)
+
+        if df_para_inserir.empty:
+            return 0, num_duplicados, "Nenhum registo novo para importar. Todos os registos da planilha já existem na base de dados."
+
+        colunas_insert = colunas_necessarias + [c for c in colunas_opcionais if c in df_para_inserir.columns]
+        df_para_inserir_final = df_para_inserir[colunas_insert]
+        registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+        
+        cursor = conn.cursor()
+        placeholders = ", ".join(["?"] * len(colunas_insert))
+        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+        cursor.executemany(sql, registros)
+        
+        conn.commit()
+        num_inseridos = cursor.rowcount
+        conn.close()
+        
+        mensagem_sucesso = f"{num_inseridos} registos novos foram importados com sucesso."
+        if num_duplicados > 0:
+            mensagem_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
+            
+        return num_inseridos, num_duplicados, mensagem_sucesso
+
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação: {e}"
+
+def editar_frota(db_path: str, cod_equip: int, dados: dict) -> bool:
+    """Atualiza um registro de frota existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE frotas SET
+                DESCRICAO_EQUIPAMENTO = ?, PLACA = ?, "Classe Operacional" = ?, ATIVO = ?, tipo_combustivel = ?
+            WHERE COD_EQUIPAMENTO = ?
+        """
+        valores = (dados['descricao'], dados['placa'], dados['classe_op'], dados['ativo'], dados.get('tipo_combustivel', 'Diesel S500'), cod_equip)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar frota: {e}")
+        return False
+
+# COLE ESTE BLOCO DE CÓDIGO NO LOCAL INDICADO
+
+def get_component_rules():
+    """Busca todas as regras de componentes da base de dados."""
+    with sqlite3.connect(DB_PATH) as conn:
+        return pd.read_sql_query("SELECT * FROM componentes_regras", conn)
+
+def add_component_rule(classe, componente, intervalo):
+    """Adiciona uma nova regra de componente à base de dados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao) VALUES (?, ?, ?)",
+                (classe, componente, intervalo)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
+def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca", capacidade_litros=0.0):
+    """Adiciona uma nova regra de componente com informações de lubrificante e tipo de manutenção."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao, capacidade_litros) VALUES (?, ?, ?, ?, ?, ?)",
+                (classe, componente, intervalo, lubrificante_id, tipo_manutencao, capacidade_litros)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
+def delete_component_rule(rule_id):
+    """Remove uma regra de componente da base de dados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM componentes_regras WHERE id_regra = ?", (rule_id,))
+            conn.commit()
+        return True, "Componente removido com sucesso."
+    except Exception as e:
+        return False, f"Erro ao remover componente: {e}"
+
+def add_component_service(cod_equip, componente, data, hod_hor, obs):
+    """Adiciona um novo registo de serviço de componente ao histórico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, Observacoes) VALUES (?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def add_component_service_advanced(cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado=None, obs=""):
+    """Adiciona um novo registo de serviço de componente com informações detalhadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def get_component_status(cod_equip, componente):
+    """Obtém o status atual de um componente específico de um equipamento."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            # Buscar a última manutenção do componente
+            query = """
+            SELECT Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            ORDER BY Data DESC, Hod_Hor_No_Servico DESC
+            LIMIT 1
+            """
+            df_ultima = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            
+            # Buscar a regra do componente para obter o intervalo
+            query_regra = """
+            SELECT intervalo_padrao, lubrificante_id, tipo_manutencao
+            FROM componentes_regras cr
+            JOIN frotas f ON cr.classe_operacional = f."Classe Operacional"
+            WHERE f.COD_EQUIPAMENTO = ? AND cr.nome_componente = ?
+            """
+            df_regra = pd.read_sql_query(query_regra, conn, params=(cod_equip, componente))
+            
+            # Buscar o hodômetro/horímetro atual do equipamento
+            query_hod = """
+            SELECT Hod_Hor_Atual FROM abastecimentos 
+            WHERE Cod_Equip = ? 
+            ORDER BY Data DESC, Hod_Hor_Atual DESC 
+            LIMIT 1
+            """
+            df_hod = pd.read_sql_query(query_hod, conn, params=(cod_equip,))
+            
+            return df_ultima, df_regra, df_hod
+            
+    except Exception as e:
+        st.error(f"Erro ao obter status do componente: {e}")
+        return None, None, None
+
+def get_component_maintenance_count(cod_equip, componente):
+    """Obtém o número total de manutenções realizadas em um componente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT COUNT(*) as total_manutencoes,
+                   COUNT(CASE WHEN tipo_servico = 'Troca' THEN 1 END) as total_trocas,
+                   COUNT(CASE WHEN tipo_servico = 'Remonta' THEN 1 END) as total_remontas
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            """
+            df_count = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            return df_count.iloc[0] if not df_count.empty else {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+            
+    except Exception as e:
+        st.error(f"Erro ao obter contagem de manutenções: {e}")
+        return {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+
+def editar_manutencao_componente_advanced(DB_PATH, rowid, dados_editados):
+    """Edita uma manutenção de componente com informações avançadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_historico 
+                SET Cod_Equip = ?, nome_componente = ?, Data = ?, Hod_Hor_No_Servico = ?, 
+                    Observacoes = ?, tipo_servico = ?, lubrificante_utilizado = ?
+                WHERE rowid = ?
+            """, (
+                dados_editados['cod_equip'],
+                dados_editados['componente'],
+                dados_editados['data'],
+                dados_editados['hod_hor_servico'],
+                dados_editados['acao'],
+                dados_editados['tipo_servico'],
+                dados_editados['lubrificante_utilizado'],
+                rowid
+            ))
+            conn.commit()
+        return True, "Manutenção de componente atualizada com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar manutenção de componente: {e}"
+
+def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca"):
+    """Atualiza uma regra de componente existente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_regras 
+                SET nome_componente = ?, intervalo_padrao = ?, lubrificante_id = ?, tipo_manutencao = ?
+                WHERE id_regra = ?
+            """, (nome_componente, intervalo, lubrificante_id, tipo_manutencao, rule_id))
+            conn.commit()
+        return True, f"Componente '{nome_componente}' atualizado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar componente: {e}"
+
+
+def get_frota_combustivel(cod_equip):
+    """Obtém o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tipo_combustivel FROM frotas WHERE COD_EQUIPAMENTO = ?", (cod_equip,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        st.error(f"Erro ao obter tipo de combustível: {e}")
+        return None
+
+
+def update_frota_combustivel(cod_equip, tipo_combustivel):
+    """Atualiza o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE COD_EQUIPAMENTO = ?", (tipo_combustivel, cod_equip))
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível: {e}"
+
+
+def update_classe_combustivel(classe_operacional, tipo_combustivel):
+    """Atualiza o tipo de combustível de todas as frotas de uma classe."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE \"Classe Operacional\" = ?", (tipo_combustivel, classe_operacional))
+            rows_updated = cursor.rowcount
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
+
+
+def add_tipo_combustivel_column():
+    """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            # Verificar se a coluna existe
+            cursor.execute("PRAGMA table_info(frotas)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'tipo_combustivel' not in columns:
+                cursor.execute("ALTER TABLE frotas ADD COLUMN tipo_combustivel TEXT DEFAULT 'Diesel S500'")
+                conn.commit()
+                return True, "Coluna tipo_combustivel adicionada com sucesso"
+            else:
+                return True, "Coluna tipo_combustivel já existe"
+    except Exception as e:
+        return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
+
+
+def ensure_motoristas_schema():
+    """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS motoristas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    codigo_pessoa TEXT,
+                    matricula TEXT UNIQUE,
+                    nome TEXT,
+                    ativo TEXT DEFAULT 'ATIVO'
+                )
+                """
+            )
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_matricula ON motoristas(matricula)")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_codigo_pessoa ON motoristas(codigo_pessoa)")
+
+            cursor.execute("PRAGMA table_info(abastecimentos)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'Matricula' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Matricula TEXT")
+            if 'Cod_Pessoa' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Cod_Pessoa TEXT")
+            conn.commit()
+        return True, "Esquema de motoristas verificado"
+    except Exception as e:
+        return False, f"Erro ao verificar esquema de motoristas: {e}"
+
+
+def get_all_motoristas() -> pd.DataFrame:
+    """Retorna o DataFrame de motoristas."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM motoristas", conn)
+    except Exception:
+        return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
+
+
+def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
+    """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
+    try:
+        df_mot = pd.read_excel(arquivo_carregado)
+        df_mot.columns = [c.strip() for c in df_mot.columns]
+        renomeios = {
+            'Matrícula': 'Matricula', 'matricula': 'Matricula', 'MATRICULA': 'Matricula',
+            'Nome': 'Nome', 'nome': 'Nome', 'NOME': 'Nome',
+            'Cod_Pessoa': 'Cod_Pessoa', 'Código Pessoa': 'Cod_Pessoa', 'codigo_pessoa': 'Cod_Pessoa', 'CODIGO_PESSOA': 'Cod_Pessoa'
+        }
+        df_mot.rename(columns={k: v for k, v in renomeios.items() if k in df_mot.columns}, inplace=True)
+        obrig = ['Matricula', 'Nome']
+        faltando = [c for c in obrig if c not in df_mot.columns]
+        if faltando:
+            return 0, 0, f"Erro: Colunas obrigatórias não encontradas: {', '.join(faltando)}"
+        if 'Cod_Pessoa' not in df_mot.columns:
+            df_mot['Cod_Pessoa'] = None
+        df_mot = df_mot.dropna(subset=['Matricula', 'Nome']).copy()
+        df_mot['Matricula'] = df_mot['Matricula'].astype(str).str.strip()
+        df_mot['Nome'] = df_mot['Nome'].astype(str).str.strip()
+        df_mot['Cod_Pessoa'] = df_mot['Cod_Pessoa'].astype(str).str.strip()
+        df_mot = df_mot.drop_duplicates(subset=['Matricula'])
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            existentes = pd.read_sql_query("SELECT matricula FROM motoristas", conn)
+            set_exist = set(existentes['matricula'].astype(str)) if not existentes.empty else set()
+            df_novos = df_mot[~df_mot['Matricula'].isin(set_exist)].copy()
+            if df_novos.empty:
+                return 0, len(df_mot), "Nenhum motorista novo para importar. Todos já existem."
+            registros = [
+                (row.get('Cod_Pessoa', None), row['Matricula'], row['Nome'], 'ATIVO')
+                for _, row in df_novos.iterrows()
+            ]
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO motoristas (codigo_pessoa, matricula, nome, ativo) VALUES (?, ?, ?, ?)",
+                registros
+            )
+            conn.commit()
+            inseridos = cur.rowcount if cur.rowcount is not None else len(registros)
+            duplicados = len(df_mot) - len(df_novos)
+            return inseridos, duplicados, f"{inseridos} motoristas importados com sucesso. {duplicados} já existiam."
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação de motoristas: {e}"
+    
+def ensure_pneus_schema():
+    """Garante a existência da tabela de histórico de pneus."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pneus_historico (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Cod_Equip INTEGER,
+                    posicao TEXT,
+                    marca TEXT,
+                    modelo TEXT,
+                    data_instalacao TEXT,
+                    hodometro_instalacao REAL,
+                    vida_util_km REAL,
+                    observacoes TEXT,
+                    status TEXT DEFAULT 'Ativo',
+                    vida_atual INTEGER DEFAULT 1,
+                    numero_fogo TEXT,
+                    causa_sucateamento TEXT,
+                    data_sucateamento TEXT
+                )
+            """)
+            # Adiciona colunas se não existirem
+            cursor.execute("PRAGMA table_info(pneus_historico)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'status' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN status TEXT DEFAULT 'Ativo'")
+            if 'vida_atual' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN vida_atual INTEGER DEFAULT 1")
+            if 'numero_fogo' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN numero_fogo TEXT")
+            if 'causa_sucateamento' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN causa_sucateamento TEXT")
+            if 'data_sucateamento' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN data_sucateamento TEXT")
+            conn.commit()
+        return True, "Tabela de pneus verificada"
+    except Exception as e:
+        return False, f"Erro ao criar tabela de pneus: {e}"
+
+def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
+    """Importa histórico de pneus de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_pneus = pd.read_excel(arquivo_carregado)
+        df_pneus.columns = [c.strip() for c in df_pneus.columns]
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        faltando = [c for c in obrig if c not in df_pneus.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        if 'observacoes' not in df_pneus.columns:
+            df_pneus['observacoes'] = ""
+        
+        # Limpar dados e remover linhas com valores nulos obrigatórios
+        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
+        
+        # Normalizar tipos de dados
+        df_pneus['Cod_Equip'] = df_pneus['Cod_Equip'].astype(str)
+        df_pneus['posicao'] = df_pneus['posicao'].astype(str).str.strip()
+        df_pneus['numero_fogo'] = df_pneus['numero_fogo'].astype(str).str.strip()
+        df_pneus['data_instalacao'] = pd.to_datetime(df_pneus['data_instalacao']).dt.strftime('%Y-%m-%d')
+        
+        # Remover duplicatas na própria planilha baseada em chave única
+        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Buscar registros existentes para verificar duplicatas
+            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, numero_fogo, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
+            
+            if not df_existente.empty:
+                # Normalizar dados existentes para comparação
+                df_existente['Cod_Equip'] = df_existente['Cod_Equip'].astype(str)
+                df_existente['posicao'] = df_existente['posicao'].astype(str).str.strip()
+                df_existente['numero_fogo'] = df_existente['numero_fogo'].astype(str).str.strip()
+                df_existente['data_instalacao'] = pd.to_datetime(df_existente['data_instalacao']).dt.strftime('%Y-%m-%d')
+                
+                # Criar chaves únicas para comparação
+                df_pneus['chave_unica'] = (df_pneus['Cod_Equip'] + '_' + 
+                                          df_pneus['posicao'] + '_' + 
+                                          df_pneus['numero_fogo'] + '_' + 
+                                          df_pneus['data_instalacao'] + '_' + 
+                                          df_pneus['hodometro_instalacao'].astype(str))
+                
+                df_existente['chave_unica'] = (df_existente['Cod_Equip'] + '_' + 
+                                              df_existente['posicao'] + '_' + 
+                                              df_existente['numero_fogo'] + '_' + 
+                                              df_existente['data_instalacao'] + '_' + 
+                                              df_existente['hodometro_instalacao'].astype(str))
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_pneus[~df_pneus['chave_unica'].isin(df_existente['chave_unica'])]
+            else:
+                df_para_inserir = df_pneus
+            
+            num_duplicados = len(df_pneus) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = obrig + ['observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO pneus_historico ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} pneus novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar pneus: {e}"
+
+def get_pneus_historico(cod_equip=None):
+    """Retorna o histórico de pneus, opcionalmente filtrando por frota."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            query = "SELECT * FROM pneus_historico"
+            params = ()
+            if cod_equip:
+                query += " WHERE Cod_Equip = ?"
+                params = (cod_equip,)
+            return pd.read_sql_query(query, conn, params=params)
+    except Exception:
+        return pd.DataFrame()
+
+def ensure_precos_combustivel_schema():
+    """Garante a existência da tabela de preços por tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS precos_combustivel (
+                    tipo_combustivel TEXT PRIMARY KEY,
+                    preco REAL
+                )
+                """
+            )
+            tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+            for t in tipos:
+                cur.execute("INSERT OR IGNORE INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?)", (t, NULL))
+            conn.commit()
+        return True, "Tabela de preços verificada"
+    except Exception as e:
+        return False, f"Erro ao verificar tabela de preços: {e}"
+
+
+def get_precos_combustivel_map() -> dict:
+    """Retorna um dicionário {tipo_combustivel: preco}."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            dfp = pd.read_sql_query("SELECT tipo_combustivel, preco FROM precos_combustivel", conn)
+        return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
+    except Exception:
+        return {}
+
+
+def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
+    """Cria/atualiza preço para um tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?) ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco",
+                (tipo, preco)
+            )
+            conn.commit()
+        return True, f"Preço atualizado para {tipo}"
+    except Exception as e:
+        return False, f"Erro ao atualizar preço: {e}"
+    
+def ensure_lubrificantes_schema():
+    """Garante a existência da tabela de lubrificantes, movimentações e almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            
+            # Tabela de lubrificantes
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT,
+                    viscosidade TEXT,
+                    quantidade_estoque REAL,
+                    unidade TEXT,
+                    observacoes TEXT
+                )
+            """)
+            
+            # Verificar e adicionar coluna 'tipo' se não existir
+            cursor.execute("PRAGMA table_info(lubrificantes)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'tipo' not in cols:
+                cursor.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
+            
+            # Tabela de almoxarifados
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifados (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    tipo TEXT DEFAULT 'fixo', -- 'fixo' para oficina, 'movel' para caminhões
+                    localizacao TEXT,
+                    responsavel TEXT,
+                    observacoes TEXT,
+                    ativo BOOLEAN DEFAULT 1
+                )
+            """)
+            
+            # Tabela de estoque por almoxarifado
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifado_estoque (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_almoxarifado INTEGER,
+                    id_lubrificante INTEGER,
+                    quantidade_estoque REAL DEFAULT 0,
+                    unidade TEXT,
+                    data_atualizacao TEXT,
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id),
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    UNIQUE(id_almoxarifado, id_lubrificante)
+                )
+            """)
+            
+            # Tabela de movimentações (atualizada para incluir almoxarifado)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes_movimentacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_lubrificante INTEGER,
+                    id_almoxarifado INTEGER,
+                    tipo TEXT, -- 'entrada' ou 'saida'
+                    quantidade REAL,
+                    data TEXT,
+                    cod_equip INTEGER,
+                    observacoes TEXT,
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id)
+                )
+            """)
+            
+            # Verificar se a coluna id_almoxarifado existe na tabela de movimentações
+            cursor.execute("PRAGMA table_info(lubrificantes_movimentacoes)")
+            cols_mov = [c[1] for c in cursor.fetchall()]
+            if 'id_almoxarifado' not in cols_mov:
+                cursor.execute("ALTER TABLE lubrificantes_movimentacoes ADD COLUMN id_almoxarifado INTEGER")
+            
+            conn.commit()
+        return True, "Tabelas de lubrificantes e almoxarifados verificadas"
+    except Exception as e:
+        return False, f"Erro ao criar tabelas de lubrificantes: {e}"
+    
+def add_almoxarifado(nome, tipo="fixo", localizacao="", responsavel="", observacoes=""):
+    """Adiciona um novo almoxarifado."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO almoxarifados (nome, tipo, localizacao, responsavel, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, tipo, localizacao, responsavel, observacoes)
+            )
+            conn.commit()
+        return True, "Almoxarifado cadastrado com sucesso!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def get_almoxarifados():
+    """Retorna todos os almoxarifados ativos."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            df = pd.read_sql("SELECT * FROM almoxarifados WHERE ativo = 1 ORDER BY nome", conn)
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def get_estoque_por_almoxarifado(id_lubrificante):
+    """Retorna o estoque de um lubrificante distribuído por almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT 
+                a.nome as almoxarifado,
+                a.tipo,
+                COALESCE(ae.quantidade_estoque, 0) as quantidade,
+                COALESCE(ae.unidade, l.unidade) as unidade,
+                a.localizacao,
+                a.responsavel
+            FROM almoxarifados a
+            CROSS JOIN lubrificantes l
+            LEFT JOIN almoxarifado_estoque ae ON a.id = ae.id_almoxarifado AND l.id = ae.id_lubrificante
+            WHERE l.id = ? AND a.ativo = 1
+            ORDER BY a.nome
+            """
+            df = pd.read_sql(query, conn, params=(id_lubrificante,))
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def atualizar_estoque_almoxarifado(id_almoxarifado, id_lubrificante, quantidade, unidade):
+    """Atualiza o estoque de um lubrificante em um almoxarifado específico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO almoxarifado_estoque 
+                (id_almoxarifado, id_lubrificante, quantidade_estoque, unidade, data_atualizacao) 
+                VALUES (?, ?, ?, ?, ?)
+            """, (id_almoxarifado, id_lubrificante, quantidade, unidade, date.today().strftime("%Y-%m-%d")))
+            conn.commit()
+        return True, "Estoque atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao atualizar estoque: {e}"
+
+def add_lubrificante(nome, viscosidade, quantidade, unidade, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes (nome, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, viscosidade, quantidade, unidade, observacoes)
+            )
+            conn.commit()
+        return True, "Lubrificante cadastrado!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def importar_lubrificantes_de_planilha(db_path: str, arquivo_carregado):
+    """Importa lubrificantes de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_lub = pd.read_excel(arquivo_carregado)
+        df_lub.columns = [c.strip() for c in df_lub.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome': 'nome',
+            'tipo': 'tipo',
+            'viscosidade': 'viscosidade',
+            'quantidade_estoque': 'quantidade_estoque',
+            'unidade': 'unidade',
+            'observacoes': 'observacoes'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_lub.columns:
+                df_lub = df_lub.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome']
+        faltando = [c for c in obrig if c not in df_lub.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'tipo' not in df_lub.columns:
+            df_lub['tipo'] = 'óleo'
+        if 'viscosidade' not in df_lub.columns:
+            df_lub['viscosidade'] = ''
+        if 'quantidade_estoque' not in df_lub.columns:
+            df_lub['quantidade_estoque'] = 0
+        if 'unidade' not in df_lub.columns:
+            df_lub['unidade'] = 'L'
+        if 'observacoes' not in df_lub.columns:
+            df_lub['observacoes'] = ''
+        
+        # Limpar e normalizar dados
+        df_lub = df_lub.dropna(subset=['nome'])
+        df_lub['nome'] = df_lub['nome'].astype(str).str.strip()
+        df_lub['tipo'] = df_lub['tipo'].astype(str).str.strip().fillna('óleo')
+        df_lub['viscosidade'] = df_lub['viscosidade'].astype(str).str.strip().fillna('')
+        df_lub['quantidade_estoque'] = pd.to_numeric(df_lub['quantidade_estoque'], errors='coerce').fillna(0)
+        df_lub['unidade'] = df_lub['unidade'].astype(str).str.strip().fillna('L')
+        df_lub['observacoes'] = df_lub['observacoes'].astype(str).str.strip().fillna('')
+        
+        # Remover duplicatas na própria planilha baseada no nome
+        df_lub = df_lub.drop_duplicates(subset=['nome'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que a tabela existe com a coluna tipo
+            ensure_lubrificantes_schema()
+            
+            # Buscar lubrificantes existentes
+            df_existente = pd.read_sql_query("SELECT nome FROM lubrificantes", conn)
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome'] = df_existente['nome'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_lub[~df_lub['nome'].isin(df_existente['nome'])]
+            else:
+                df_para_inserir = df_lub
+            
+            num_duplicados = len(df_lub) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum lubrificante novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = ['nome', 'tipo', 'viscosidade', 'quantidade_estoque', 'unidade', 'observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO lubrificantes ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} lubrificantes novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar lubrificantes: {e}"
+
+def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_operacional: str):
+    """Importa componentes de uma planilha Excel, verificando duplicatas e criando lubrificantes se necessário."""
+    try:
+        df_comp = pd.read_excel(arquivo_carregado)
+        df_comp.columns = [c.strip() for c in df_comp.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome_componente': 'nome_componente',
+            'componente': 'nome_componente',
+            'intervalo_padrao': 'intervalo_padrao',
+            'intervalo': 'intervalo_padrao',
+            'lubrificante_nome': 'lubrificante_nome',
+            'lubrificante': 'lubrificante_nome',
+            'capacidade_litros': 'capacidade_litros',
+            'capacidade': 'capacidade_litros'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_comp.columns:
+                df_comp = df_comp.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome_componente', 'intervalo_padrao']
+        faltando = [c for c in obrig if c not in df_comp.columns]
+        if faltando:
+            return 0, 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'lubrificante_nome' not in df_comp.columns:
+            df_comp['lubrificante_nome'] = None
+        if 'capacidade_litros' not in df_comp.columns:
+            df_comp['capacidade_litros'] = 0.0
+        
+        # Limpar e normalizar dados
+        df_comp = df_comp.dropna(subset=['nome_componente'])
+        df_comp['nome_componente'] = df_comp['nome_componente'].astype(str).str.strip()
+        df_comp['intervalo_padrao'] = pd.to_numeric(df_comp['intervalo_padrao'], errors='coerce')
+        df_comp = df_comp.dropna(subset=['intervalo_padrao'])
+        df_comp['lubrificante_nome'] = df_comp['lubrificante_nome'].astype(str).str.strip().replace('nan', None)
+        df_comp['capacidade_litros'] = pd.to_numeric(df_comp['capacidade_litros'], errors='coerce').fillna(0.0)
+        
+        # Remover duplicatas na própria planilha baseada no nome do componente
+        df_comp = df_comp.drop_duplicates(subset=['nome_componente'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que as tabelas existem
+            ensure_lubrificantes_schema()
+            
+            # Verificar se a tabela componentes_regras tem a coluna capacidade_litros
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'capacidade_litros' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN capacidade_litros REAL DEFAULT 0.0")
+            
+            # Buscar componentes existentes na classe
+            df_existente = pd.read_sql_query(
+                "SELECT nome_componente FROM componentes_regras WHERE classe_operacional = ?", 
+                conn, params=(classe_operacional,)
+            )
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome_componente'] = df_existente['nome_componente'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem na classe
+                df_para_inserir = df_comp[~df_comp['nome_componente'].isin(df_existente['nome_componente'])]
+            else:
+                df_para_inserir = df_comp
+            
+            num_duplicados = len(df_comp) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, 0, "Nenhum componente novo para importar. Todos os registros da planilha já existem na classe selecionada."
+            
+            # Processar lubrificantes
+            lubrificantes_criados = 0
+            for _, row in df_para_inserir.iterrows():
+                if pd.notna(row['lubrificante_nome']) and row['lubrificante_nome']:
+                    # Verificar se o lubrificante existe
+                    df_lub_existente = pd.read_sql_query(
+                        "SELECT id FROM lubrificantes WHERE nome = ?", 
+                        conn, params=(row['lubrificante_nome'],)
+                    )
+                    
+                    if df_lub_existente.empty:
+                        # Criar lubrificante automaticamente
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                            (row['lubrificante_nome'], 'óleo', '', 0, 'L', f'Criado automaticamente durante importação de componentes')
+                        )
+                        lubrificantes_criados += 1
+                        
+                        # Buscar o ID do lubrificante criado
+                        lub_id = cur.lastrowid
+                    else:
+                        lub_id = df_lub_existente.iloc[0]['id']
+                else:
+                    lub_id = None
+                
+                # Inserir componente
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, capacidade_litros) VALUES (?, ?, ?, ?, ?)",
+                    (classe_operacional, row['nome_componente'], row['intervalo_padrao'], lub_id, row['capacidade_litros'])
+                )
+            
+            conn.commit()
+            num_inseridos = len(df_para_inserir)
+            
+            mensagem_sucesso = f"{num_inseridos} componentes foram importados com sucesso para a classe '{classe_operacional}'."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} componentes duplicados foram ignorados."
+            if lubrificantes_criados > 0:
+                mensagem_sucesso += f" {lubrificantes_criados} lubrificantes foram criados automaticamente."
+            
+            return num_inseridos, num_duplicados, lubrificantes_criados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, 0, f"Erro ao importar componentes: {e}"
+
+def movimentar_lubrificante(id_lubrificante, tipo, quantidade, data, cod_equip=None, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes_movimentacoes (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes)
+            )
+            # Atualiza estoque
+            sinal = 1 if tipo == "entrada" else -1
+            cur.execute(
+                "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque + ? WHERE id = ?",
+                (sinal * quantidade, id_lubrificante)
+            )
+            conn.commit()
+        return True, "Movimentação registrada!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+@st.cache_data(ttl=120)
+def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
+    # Garante que a coluna de data é do tipo datetime
+    df['Data'] = pd.to_datetime(df['Data'])
+    
+    # Filtra por período de datas
+    df_filtrado = df[
+        (df['Data'].dt.date >= opts['data_inicio']) & 
+        (df['Data'].dt.date <= opts['data_fim'])
+    ]
+    
+    # Filtra pelas outras seleções, se existirem
+    if opts.get("classes_op"):
+        df_filtrado = df_filtrado[df_filtrado["Classe_Operacional"].isin(opts["classes_op"])]
+    
+    if opts.get("safras"):
+        df_filtrado = df_filtrado[df_filtrado["Safra"].isin(opts["safras"])]
+        
+    return df_filtrado.copy()
+
+@st.cache_data(show_spinner="Calculando plano de manutenção...", ttl=300)
+def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimentos: pd.DataFrame, _df_componentes_regras: pd.DataFrame, _df_componentes_historico: pd.DataFrame) -> pd.DataFrame:
+    latest_readings = _df_abastecimentos.sort_values('Data').groupby('Cod_Equip')['Hod_Hor_Atual'].last()
+    plan_data = []
+
+    for _, frota_row in _df_frotas.iterrows():
+        cod_equip = frota_row['Cod_Equip']
+        classe_op = frota_row.get('Classe_Operacional')
+        hod_hor_atual = latest_readings.get(cod_equip)
+
+        if pd.isna(hod_hor_atual) or not classe_op:
+            continue
+        
+        regras_da_classe = _df_componentes_regras[_df_componentes_regras['classe_operacional'] == classe_op]
+        if regras_da_classe.empty:
+            continue
+
+        unidade = 'km' if frota_row['Tipo_Controle'] == 'QUILÔMETROS' else 'h'
+        alerta_default = ALERTAS_MANUTENCAO.get(frota_row['Tipo_Controle'], {}).get('default', 500)
+        
+        record = {
+            'Cod_Equip': cod_equip, 
+            'Equipamento': frota_row.get('DESCRICAO_EQUIPAMENTO'), 
+            'Leitura_Atual': hod_hor_atual, 
+            'Unidade': unidade, 
+            'Qualquer_Alerta': False, 
+            'Alertas': []
+        }
+
+        for _, regra in regras_da_classe.iterrows():
+            componente = regra['nome_componente']
+            intervalo = regra['intervalo_padrao']
+            
+            historico_componente = _df_componentes_historico[
+                (_df_componentes_historico['Cod_Equip'] == cod_equip) &
+                (_df_componentes_historico['nome_componente'] == componente)
+            ]
+            
+            ultimo_servico_hod_hor = 0
+            if not historico_componente.empty:
+                ultimo_servico_hod_hor = historico_componente['Hod_Hor_No_Servico'].max()
+
+            prox_servico = ((ultimo_servico_hod_hor // intervalo) * intervalo) + intervalo
+            while prox_servico < hod_hor_atual:
+                prox_servico += intervalo
+
+            restante = prox_servico - hod_hor_atual
+            
+            record[f'Restante_{componente}'] = restante
+            
+            if restante <= alerta_default:
+                record['Qualquer_Alerta'] = True
+                record['Alertas'].append(componente)
+
+        plan_data.append(record)
+
+    # 🔹 Garante que sempre retorna um DataFrame com as colunas básicas
+    if not plan_data:
+        return pd.DataFrame(columns=['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Qualquer_Alerta', 'Alertas'])
+
+    return pd.DataFrame(plan_data)
+
+
+def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
+    """Estima as datas das próximas manutenções com base no uso médio."""
+    if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
+        return pd.DataFrame()
+
+    # Calcula o uso diário médio de cada veículo
+    uso_diario = {}
+    for cod_equip in df_abastecimentos['Cod_Equip'].unique():
+        dados_equip = df_abastecimentos[df_abastecimentos['Cod_Equip'] == cod_equip].sort_values('Data')
+        if len(dados_equip) > 1:
+            total_dias = (dados_equip['Data'].max() - dados_equip['Data'].min()).days
+            total_uso = dados_equip['Hod_Hor_Atual'].max() - dados_equip['Hod_Hor_Atual'].min()
+            if total_dias > 0 and total_uso > 0: # Garante que houve uso e passagem de tempo
+                uso_diario[cod_equip] = total_uso / total_dias
+
+    previsoes = []
+    servicos_nomes = [col.replace('Restante_', '') for col in plan_df.columns if 'Restante_' in col]
+
+    for _, row in plan_df.iterrows():
+        cod_equip = row['Cod_Equip']
+        uso = uso_diario.get(cod_equip)
+        if uso:
+            for nome_servico in servicos_nomes:
+                col_restante = f'Restante_{nome_servico}'
+                if col_restante in row and pd.notna(row[col_restante]):
+                    dias_para_manut = row[col_restante] / uso
+                    data_prevista = datetime.now() + pd.Timedelta(days=dias_para_manut)
+                    previsoes.append({
+                        'Equipamento': row['Equipamento'],
+                        'Manutenção': nome_servico,
+                        'Data Prevista': data_prevista.strftime('%d/%m/%Y'),
+                        'Dias Restantes': int(dias_para_manut)
+                    })
+
+    if not previsoes:
+        return pd.DataFrame()
+
+    df_previsoes = pd.DataFrame(previsoes)
+    return df_previsoes.sort_values('Dias Restantes')
+
+
+# ---------------------------
+# Funções para Checklists
+# ---------------------------
+
+@st.cache_data(ttl=120)
+def get_checklist_rules():
+    """Busca todas as regras de checklist do banco de dados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+    except Exception as e:
+        st.error(f"Erro ao buscar regras de checklist: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=120)
+def get_checklist_items(id_regra):
+    """Busca os itens de checklist para uma determinada regra."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM checklist_itens WHERE id_regra = ?",
+                conn,
+                params=(id_regra,)
+            )
+    except Exception as e:
+        st.error(f"Erro ao buscar itens de checklist: {e}")
+        return pd.DataFrame()
+
+
+# ---------------------------
+# CRUD para Checklists
+# ---------------------------
+
+def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
+    """Adiciona uma nova regra de checklist ao banco de dados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_regras (classe_operacional, titulo_checklist, frequencia, turno)
+                VALUES (?, ?, ?, ?)
+                """ ,
+                (classe_operacional, titulo_checklist, frequencia, turno)
+            )
+            conn.commit()
+        return True, "Regra de checklist adicionada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar regra de checklist: {e}"
+
+
+def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
+    """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
+
+    Mantém a função "add_checklist_rule" para compatibilidade, mas quando for
+    necessário o ID imediatamente após a criação, utilize esta função.
+    """
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_regras (classe_operacional, titulo_checklist, frequencia, turno)
+                VALUES (?, ?, ?, ?)
+                """,
+                (classe_operacional, titulo_checklist, frequencia, turno)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    except Exception as e:
+        st.error(f"Erro ao adicionar regra de checklist: {e}")
+        return None
+
+
+def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
+    """Edita uma regra de checklist existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE checklist_regras
+                SET classe_operacional = ?, titulo_checklist = ?, frequencia = ?, turno = ?
+                WHERE id_regra = ?
+                """ ,
+                (classe_operacional, titulo_checklist, frequencia, turno, id_regra)
+            )
+            conn.commit()
+        return True, "Regra de checklist atualizada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao editar regra de checklist: {e}"
+
+
+def delete_checklist_rule(id_regra):
+    """Remove uma regra de checklist e seus itens associados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_itens WHERE id_regra = ?", (id_regra,))
+            cursor.execute("DELETE FROM checklist_regras WHERE id_regra = ?", (id_regra,))
+            conn.commit()
+        return True, "Regra de checklist removida com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao remover regra de checklist: {e}"
+
+
+def add_checklist_item(id_regra, nome_item):
+    """Adiciona um novo item de checklist a uma regra existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_itens (id_regra, nome_item)
+                VALUES (?, ?)
+                """ ,
+                (id_regra, nome_item)
+            )
+            conn.commit()
+        return True, "Item de checklist adicionado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar item de checklist: {e}"
+
+
+def edit_checklist_item(id_item, nome_item):
+    """Edita um item de checklist existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE checklist_itens
+                SET nome_item = ?
+                WHERE id_item = ?
+                """ ,
+                (nome_item, id_item)
+            )
+            conn.commit()
+        return True, "Item de checklist atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao editar item de checklist: {e}"
+
+
+def delete_checklist_item(id_item):
+    """Remove um item de checklist."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_itens WHERE id_item = ?", (id_item,))
+            conn.commit()
+        return True, "Item de checklist removido com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao remover item de checklist: {e}"
+
+
+def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
+    """Salva um checklist preenchido no histórico."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_historico 
+                (Cod_Equip, titulo_checklist, data_preenchimento, turno, status_geral) 
+                VALUES (?, ?, ?, ?, ?)
+                """ ,
+                (cod_equip, titulo_checklist, data_preenchimento, turno, status_geral)
+            )
+            conn.commit()
+    except Exception as e:
+        st.error(f"Erro ao salvar histórico de checklist: {e}")
+
+
+def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
+    """Remove um registro do histórico de checklists usando uma combinação única de campos."""
+    try:
+        # Primeira tentativa: usar conexão direta
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)  # Converter numpy.int64 para int
+        titulo_checklist = str(titulo_checklist)
+        data_preenchimento = str(data_preenchimento)
+        turno = str(turno)
+        
+        # Debug: verificar todos os registros na tabela ANTES da exclusão
+        cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
+        all_records_before = cursor.fetchall()
+        
+        # Tentar encontrar o registro com diferentes abordagens
+        rowid = None
+        
+        # Primeira tentativa: busca exata
+        cursor.execute(
+            "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+            (cod_equip, titulo_checklist, data_preenchimento, turno)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            rowid = result[0]
+        else:
+            # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
+            cursor.execute(
+                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, turno)
+            )
+            result = cursor.fetchone()
+            
+            if result:
+                rowid = result[0]
+            else:
+                # Terceira tentativa: buscar apenas por Cod_Equip e título
+                cursor.execute(
+                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
+                    (cod_equip, titulo_checklist)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    rowid = result[0]
+        
+        if rowid is None:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
+            - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
+            - Turno: {turno} (tipo: {type(turno)})
+            
+            Todos os registros na tabela ANTES da exclusão:
+            {all_records_before}
+            """
+            conn.close()
+            return False, debug_info
+        
+        # Agora vamos excluir usando rowid
+        cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
+            count_after = cursor.fetchone()[0]
+            
+            # Verificar também se o registro ainda existe pelos outros campos
+            cursor.execute(
+                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, data_preenchimento, turno)
+            )
+            count_by_fields = cursor.fetchone()[0]
+            
+            if count_after == 0 and count_by_fields == 0:
+                 # Verificar o total de registros na tabela
+                 cursor.execute("SELECT COUNT(*) FROM checklist_historico")
+                 total_after = cursor.fetchone()[0]
+                 
+                 # Forçar sincronização do banco
+                 cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                 cursor.execute("PRAGMA synchronous=FULL")
+                 conn.commit()
+                 
+                 success_msg = f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s)). Total na tabela: {total_after}"
+                 
+                 # Salvar backup automático para persistência no Streamlit Cloud
+                 backup_success, backup_msg = save_backup_to_session_state()
+                 if backup_success:
+                     success_msg += f" | Backup salvo: {backup_msg}"
+                 else:
+                     success_msg += f" | Aviso: {backup_msg}"
+                 
+                 conn.close()
+                 return True, success_msg
+            else:
+                conn.close()
+                return False, f"Erro: Registro ainda existe após exclusão. Count by rowid: {count_after}, Count by fields: {count_by_fields}"
+        else:
+            conn.close()
+            return False, "Nenhum registro foi excluído"
+                
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return False, f"Erro ao excluir checklist: {e}"
+
+
+def force_cache_clear():
+    """Força a limpeza completa de todos os caches."""
+    try:
+        # Limpar cache de dados
+        st.cache_data.clear()
+        
+        # Limpar cache de recursos
+        st.cache_resource.clear()
+        
+        # Forçar rerun da aplicação
+        st.rerun()
+    except Exception as e:
+        st.error(f"Erro ao limpar cache: {e}")
+
+
+def force_database_sync():
+    """Força a sincronização do banco de dados com o disco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Forçar commit
+        conn.commit()
+        
+        # Executar PRAGMA para forçar sincronização
+        cursor.execute("PRAGMA wal_checkpoint(FULL)")
+        cursor.execute("PRAGMA synchronous=FULL")
+        cursor.execute("PRAGMA journal_mode=DELETE")
+        
+        # Forçar commit novamente
+        conn.commit()
+        
+        # Verificar se o banco está em modo WAL
+        cursor.execute("PRAGMA journal_mode")
+        journal_mode = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return True, f"Banco sincronizado. Modo journal: {journal_mode}"
+    except Exception as e:
+        return False, f"Erro ao sincronizar banco: {e}"
+
+
+def export_database_backup():
+    """Exporta todos os dados do banco para um arquivo de backup."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        
+        # Obter todas as tabelas
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        backup_data = {}
+        
+        for table in tables:
+            table_name = table[0]
+            if table_name != 'sqlite_master':
+                # Exportar dados da tabela
+                df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+                backup_data[table_name] = df.to_dict('records')
+        
+        conn.close()
+        
+        # Converter para JSON
+        backup_json = json.dumps(backup_data, default=str, indent=2)
+        
+        # Criar arquivo de download
+        backup_bytes = backup_json.encode('utf-8')
+        backup_b64 = base64.b64encode(backup_bytes).decode()
+        
+        return backup_b64, backup_data
+        
+    except Exception as e:
+        return None, f"Erro ao exportar backup: {e}"
+
+
+def import_database_backup(backup_data):
+    """Importa dados de backup para o banco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        for table_name, records in backup_data.items():
+            if records:  # Se a tabela tem dados
+                # Limpar tabela existente
+                cursor.execute(f"DELETE FROM {table_name}")
+                
+                # Inserir novos dados
+                for record in records:
+                    columns = list(record.keys())
+                    placeholders = ', '.join(['?' for _ in columns])
+                    values = list(record.values())
+                    
+                    # Converter tipos de dados
+                    converted_values = []
+                    for value in values:
+                        if isinstance(value, str):
+                            # Tentar converter para datetime se for uma data
+                            try:
+                                if 'T' in value or '-' in value:
+                                    dt = pd.to_datetime(value)
+                                    converted_values.append(dt.strftime('%Y-%m-%d %H:%M:%S'))
+                                else:
+                                    converted_values.append(value)
+                            except:
+                                converted_values.append(value)
+                        else:
+                            converted_values.append(value)
+                    
+                    cursor.execute(
+                        f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})",
+                        converted_values
+                    )
+        
+        conn.commit()
+        conn.close()
+        
+        return True, "Backup restaurado com sucesso!"
+        
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def save_backup_to_session_state():
+    """Salva backup dos dados na sessão do Streamlit."""
+    try:
+        backup_b64, backup_data = export_database_backup()
+        if backup_b64:
+            st.session_state['database_backup'] = backup_b64
+            st.session_state['backup_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            return True, "Backup salvo na sessão"
+        else:
+            return False, "Erro ao criar backup"
+    except Exception as e:
+        return False, f"Erro ao salvar backup: {e}"
+
+
+def restore_backup_from_session_state():
+    """Restaura backup dos dados da sessão do Streamlit."""
+    try:
+        if 'database_backup' in st.session_state:
+            backup_b64 = st.session_state['database_backup']
+            backup_bytes = base64.b64decode(backup_b64)
+            backup_json = backup_bytes.decode('utf-8')
+            backup_data = json.loads(backup_json)
+            
+            success, message = import_database_backup(backup_data)
+            if success:
+                # Limpar cache para forçar recarregamento
+                force_cache_clear()
+                return True, message
+            else:
+                return False, message
+        else:
+            return False, "Nenhum backup encontrado na sessão"
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def auto_restore_backup_on_startup():
+    """Tenta restaurar backup automaticamente na inicialização da aplicação."""
+    try:
+        if 'database_backup' in st.session_state:
+            # Verificar se o banco está vazio
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            num_tables = cursor.fetchone()[0]
+            conn.close()
+            
+            if num_tables == 0:
+                # Banco vazio, tentar restaurar
+                success, message = restore_backup_from_session_state()
+                if success:
+                    st.info("🔄 Backup restaurado automaticamente na inicialização!")
+                    return True
+                else:
+                    st.warning(f"⚠️ Falha na restauração automática: {message}")
+                    return False
+        return False
+    except Exception as e:
+        st.warning(f"⚠️ Erro na restauração automática: {e}")
+        return False
+
+
+def main():
+    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    # Garante tema dark coerente mesmo sem config.toml
+    st.markdown(
+        """
+        <style>
+        :root {
+            --primary: #10b981;
+            --bg: #0f172a;
+            --bg2: #111827;
+            --text: #e5e7eb;
+        }
+        body { background: var(--bg); color: var(--text); }
+        section.main > div { background: var(--bg); }
+        .stApp { background: var(--bg); }
+        .st-emotion-cache-1r4qj8v, .st-emotion-cache-13ln4jf { background: var(--bg2) !important; }
+        .stButton>button { background: var(--primary); color: #062e24; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # CSS fino para polir a UI
+    st.markdown(
+        """
+        <style>
+        /* Cartões/containers */
+        .stExpander, .stDataFrame, .stTable { border-radius: 10px !important; }
+        .stButton>button { border-radius: 8px; padding: 0.5rem 1rem; }
+        .stSelectbox, .stTextInput, .stNumberInput, .stDateInput, .stTextArea { border-radius: 8px !important; }
+        /* Métricas com mais destaque */
+        div[data-testid="stMetric"] { background: rgba(255,255,255,0.04); padding: 10px 14px; border-radius: 12px; }
+        /* Títulos com leve gradiente */
+        h1, h2, h3 { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        /* Linhas divisórias mais suaves */
+        hr { border: none; height: 1px; background: rgba(255,255,255,0.08); }
+        /* Subtítulo de marca (opcional) */
+        .brand-subtitle { display: none; }
+        /* Centralizar e limitar logo na sidebar */
+        section[data-testid="stSidebar"] img { display: block; margin: 0.5rem auto 0.75rem; max-width: 140px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+        st.session_state.role = None
+        st.session_state.username = ""
+
+    if not st.session_state.authenticated:
+        _ , col_central, _ = st.columns([1, 1.5, 1])
+    
+        with col_central:
+            
+            if os.path.exists("logo.png"):
+                # Cria 3 sub-colunas dentro da coluna central
+                _, logo_col, _ = st.columns([1, 2, 1])
+                with logo_col:
+                    st.image("logo.png", width=140)
+            
+            st.title("Bem vindo ao Aplicativo de Controle do PCMA")
+
+            username = st.text_input("Usuário", key="login_user")
+            password = st.text_input("Senha", type="password", key="login_pass")
+
+            if st.button("Entrar", use_container_width=True):
+                role = check_login_db(username, password)
+                if role:
+                    st.session_state.authenticated = True
+                    st.session_state.role = role
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("Usuário ou Senha incorretos.")
+    else:
+
+        # Cabeçalho com logo + título
+        if os.path.exists("logo.png"):
+            col_logo, col_title = st.columns([1, 8])
+            with col_logo:
+                st.image("logo.png", width=80)
+            with col_title:
+                st.title("📊 Dashboard de Frotas e Abastecimentos")
+        else:
+            st.title("📊 Dashboard de Frotas e Abastecimentos")
+
+        # Tentar restaurar backup automaticamente na inicialização
+        auto_restore_backup_on_startup()
+        
+        # Adicionar coluna de tipo de combustível se não existir
+        add_tipo_combustivel_column()
+        
+        # Setup de esquemas (motoristas, preços, combustível)
+        ensure_motoristas_schema()
+        ensure_precos_combustivel_schema()
+
+        # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
+        ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
+        df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
+        
+
+
+        if 'intervalos_por_classe' not in st.session_state:
+            st.session_state.intervalos_por_classe = {}
+        classes_operacionais = [c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()]
+        for classe in classes_operacionais:
+            if classe not in st.session_state.intervalos_por_classe:
+                tipo_controle = df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0]
+                if tipo_controle == 'HORAS':
+                    st.session_state.intervalos_por_classe[classe] = {
+                        'meta_consumo': 5.0,
+                        'servicos': {
+                            'servico_1': {'nome': 'Lubrificacao', 'intervalo': 250},
+                            'servico_2': {'nome': 'Revisao A', 'intervalo': 100},
+                            'servico_3': {'nome': 'Revisao B', 'intervalo': 300},
+                            'servico_4': {'nome': 'Revisao C', 'intervalo': 500}
+                        }
+                    }
+                else: # QUILÔMETROS
+                    st.session_state.intervalos_por_classe[classe] = {
+                        'meta_consumo': 2.5,
+                        'servicos': {
+                            'servico_1': {'nome': 'Lubrificacao', 'intervalo': 5000},
+                            'servico_2': {'nome': 'Revisao 5k', 'intervalo': 5000},
+                            'servico_3': {'nome': 'Revisao 10k', 'intervalo': 10000},
+                            'servico_4': {'nome': 'Revisao 20k', 'intervalo': 20000}
+                        }
+                    }
+                    
+        with st.sidebar:
+            if os.path.exists("logo.png"):
+                st.image("logo.png", width=200)
+            st.write(f"Bem-vindo, **{st.session_state.username}**!")
+            if st.button("Sair"):
+                st.session_state.authenticated = False
+                st.session_state.username = "" # Limpa o username ao sair
+                st.session_state.role = None
+                st.rerun()
+            st.markdown("---")
+
+        with st.sidebar:
+            st.header("📅 Filtros (válidos apenas na aba Análise Geral)")
+
+            # Persistência de período
+            if 'filtro_data_inicio' not in st.session_state:
+                st.session_state['filtro_data_inicio'] = df['Data'].min().date()
+            if 'filtro_data_fim' not in st.session_state:
+                st.session_state['filtro_data_fim'] = df['Data'].max().date()
+
+            st.subheader("Período de Análise")
+            data_inicio = st.date_input(
+                "Data de Início", 
+                st.session_state['filtro_data_inicio'],
+                key='data_inicio'
+            )
+            data_fim = st.date_input(
+                "Data de Fim", 
+                st.session_state['filtro_data_fim'],
+                key='data_fim'
+            )
+            st.session_state['filtro_data_inicio'] = data_inicio
+            st.session_state['filtro_data_fim'] = data_fim
+
+            st.markdown("---")
+            st.caption("Desenvolvido por André Luis")
+
+            with st.expander("Filtrar por Classe Operacional"):
+                classe_opts = sorted(list(df["Classe_Operacional"].dropna().unique()))
+                sel_classes = st.multiselect(
+                    "Selecione as Classes", 
+                    classe_opts, 
+                    default=classe_opts,
+                    key="sel_classes"
+                )
+
+            with st.expander("Filtrar por Safra"):
+                safra_opts = sorted(list(df["Safra"].dropna().unique()))
+                sel_safras = st.multiselect(
+                    "Selecione as Safras", 
+                    safra_opts, 
+                    default=safra_opts,
+                    key="sel_safras"
+                )
+
+            # Só aplicaremos os filtros na aba "📈 Análise Geral" (guardaremos em sessão)
+            st.session_state['filtro_opts_analise'] = {
+                "data_inicio": data_inicio,
+                "data_fim": data_fim,
+                "classes_op": sel_classes,
+                "safras": sel_safras
+            }
+    
+        if tab_analise is not None:
+            with tab_analise:
+                st.header("📈 Análise Geral e Painel de Controle")
+                
+                # ===== SEÇÃO: VISÃO GERAL DA FROTA =====
+                st.subheader("🏠 Visão Geral da Frota")
+                
+                # Calcular gasto total com combustível
+                precos_map = get_precos_combustivel_map()
+                gasto_total_combustivel = 0
+                if precos_map:
+                    df_gastos_total = df.copy()
+                    # Verificar se a coluna tipo_combustivel existe em df_frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        df_gastos_total = df_gastos_total.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_gastos_total.columns:
+                            df_gastos_total['tipo_combustivel'] = df_gastos_total['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_gastos_total['tipo_combustivel'] = 'Diesel S500'
+                    else:
+                        # Se não existir, criar a coluna com valor padrão
+                        df_gastos_total['tipo_combustivel'] = 'Diesel S500'
+                    
+                    df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
+                    df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
+                    gasto_total_combustivel = df_gastos_total['custo'].sum()
+                
+                # KPIs principais
+                kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+                
+                # KPI 1: Frotas Ativas
+                total_frotas_ativas = df_frotas[df_frotas['ATIVO'] == 'ATIVO']['Cod_Equip'].nunique()
+                kpi1.metric("🚗 Frotas Ativas", total_frotas_ativas)
+                
+                # KPI 2: Frotas com Alerta
+                frotas_com_alerta = plan_df[plan_df['Qualquer_Alerta'] == True]['Cod_Equip'].nunique() if not plan_df.empty else 0
+                kpi2.metric("⚠️ Frotas com Alerta", frotas_com_alerta)
+                
+                # KPI 3: Gasto Total com Combustível
+                kpi3.metric("💰 Gasto com Combustível", formatar_brasileiro(gasto_total_combustivel, 'R$ '))
+                
+                # KPIs 4 e 5: Frotas Mais e Menos Eficientes
+                df_sem_filtro = df.copy()
+                df_media_geral = df_sem_filtro[(df_sem_filtro['Media'].notna()) & (df_sem_filtro['Media'] > 0)]
+                if not df_media_geral.empty:
+                    # Agrupa por Código e Descrição para ter acesso a ambos
+                    media_por_equip = df_media_geral.groupby(['Cod_Equip', 'DESCRICAO_EQUIPAMENTO'])['Media'].mean().sort_values()
+                    
+                    if not media_por_equip.empty:
+                        # Pega o CÓDIGO do mais eficiente (primeiro da lista ordenada)
+                        cod_mais_eficiente = media_por_equip.index[0][0]
+                        media_mais_eficiente = media_por_equip.iloc[0]
+                        # Exibe o CÓDIGO no KPI
+                        kpi4.metric("🏆 Mais Eficiente", f"{cod_mais_eficiente}", f"{formatar_brasileiro(media_mais_eficiente)}")
+                
+                        # Pega o CÓDIGO do menos eficiente (último da lista ordenada)
+                        cod_menos_eficiente = media_por_equip.index[-1][0]
+                        media_menos_eficiente = media_por_equip.iloc[-1]
+                        # Exibe o CÓDIGO no KPI
+                        kpi5.metric("📉 Menos Eficiente", f"{cod_menos_eficiente}", f"{formatar_brasileiro(media_menos_eficiente)}")
+                else:
+                    # Se não há dados de eficiência, mostrar mensagem
+                    kpi4.metric("🏆 Mais Eficiente", "N/A")
+                    kpi5.metric("📉 Menos Eficiente", "N/A")
+
+                st.markdown("---")
+                st.subheader("📈 Análise Gráfica de Consumo")
+
+                # Aplica filtros apenas nesta aba
+                opts = st.session_state.get('filtro_opts_analise', None)
+                df_f = filtrar_dados(df, opts) if opts else df.copy()
+
+                if not df_f.empty:
+                    if 'Media' in df_f.columns:
+                        k1, k2 = st.columns(2)
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                        k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                    else:
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                    st.markdown("---")
+                    st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        st.subheader("Consumo por Classe Operacional")
+                        classes_a_excluir = ['VEICULOS LEVES', 'MOTOCICLETA', 'MINI CARREGADEIRA', 'USINA']
+                        # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                        if 'Classe_Operacional' in df_f.columns:
+                            df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
+                        else:
+                            df_consumo_classe = df_f
+                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+
+                        if not consumo_por_classe.empty:
+                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
+                            fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
+                            fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
+                            st.plotly_chart(fig_classe, use_container_width=True)
+
+                    with c2:
+                        st.subheader("Top 10 Equipamentos com Maior Consumo")
+                        # Melhorar o gráfico com informações mais claras
+                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
+                        consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
+                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
+
+                        if not consumo_por_equip.empty:
+                            # Adicionar informações da frota para melhor identificação
+                            consumo_por_equip = consumo_por_equip.reset_index()
+                            consumo_por_equip = consumo_por_equip.merge(
+                                df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
+                                on='Cod_Equip', 
+                                how='left'
+                            )
+                            
+                            # Criar label mais informativo: Código - Descrição (Placa)
+                            consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
+                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                                axis=1
+                            )
+                            
+                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            
+                            fig_top10 = px.bar(
+                                consumo_por_equip, 
+                                x='Qtde_Litros', 
+                                y='label_grafico', 
+                                orientation='h', 
+                                text='texto_formatado', 
+                                labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
+                                title="Top 10 Equipamentos com Maior Consumo"
+                            )
+                            fig_top10.update_traces(
+                                texttemplate='%{text} L', 
+                                textposition='outside',
+                                marker_color='#ff7f0e'
+                            )
+                            fig_top10.update_layout(
+                                yaxis={'categoryorder':'total ascending'}, 
+                                xaxis_title="Total Consumido (Litros)", 
+                                yaxis_title="Equipamento",
+                                height=400
+                            )
+                            st.plotly_chart(fig_top10, use_container_width=True)
+
+                    st.markdown("---")
+                    
+                    # NOVA SEÇÃO: Top 10 de Gastos por Frota e por Classe
+                    st.subheader("💰 Top 10 de Gastos por Frota e Classe")
+                    
+                    # Calcular gastos por frota
+                    precos_map = get_precos_combustivel_map()
+                    if precos_map:
+                        df_gastos = df_f.copy()
+                        
+                        # Verificar se a coluna tipo_combustivel existe em df_frotas
+                        if 'tipo_combustivel' in df_frotas.columns:
+                            df_gastos = df_gastos.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                            # Verificar se a coluna foi criada após o merge
+                            if 'tipo_combustivel' in df_gastos.columns:
+                                df_gastos['tipo_combustivel'] = df_gastos['tipo_combustivel'].fillna('Diesel S500')
+                            else:
+                                df_gastos['tipo_combustivel'] = 'Diesel S500'
+                        else:
+                            # Se não existir, criar a coluna com valor padrão
+                            df_gastos['tipo_combustivel'] = 'Diesel S500'
+                        
+                        # Garantir que a coluna tipo_combustivel existe antes de mapear preços
+                        if 'tipo_combustivel' not in df_gastos.columns:
+                            df_gastos['tipo_combustivel'] = 'Diesel S500'
+                        
+                        df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
+                        df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
+                        
+                        # Adicionar informações da frota para filtro
+                        df_gastos_com_info = df_gastos.merge(
+                            df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA', 'Classe_Operacional']], 
+                            on='Cod_Equip', 
+                            how='left'
+                        )
+                        
+                        # Garantir que a coluna Classe_Operacional existe
+                        if 'Classe_Operacional' not in df_gastos_com_info.columns:
+                            df_gastos_com_info['Classe_Operacional'] = 'N/A'
+                        
+                        # Filtro para excluir a frota 550 (usina) por padrão
+                        mostrar_usinas = st.checkbox("🏭 Incluir Frota 550 (Usina) no Top 10 de Gastos por Frota", value=False)
+                        
+                        if not mostrar_usinas:
+                            # Excluir a frota 550 (usina) do DataFrame
+                            df_gastos_filtrado = df_gastos_com_info[df_gastos_com_info['Cod_Equip'] != 550]
+                        else:
+                            df_gastos_filtrado = df_gastos_com_info
+                        
+                        # Top 10 gastos por frota individual (após filtro)
+                        gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
+                            'custo': 'sum',
+                            'Qtde_Litros': 'sum'
+                        }).sort_values('custo', ascending=False).head(10).reset_index()
+                        
+                        # Adicionar informações da frota
+                        gastos_por_frota = gastos_por_frota.merge(
+                            df_frotas[['Cod_Equip', 'DESCRICAO_EQUIPAMENTO', 'PLACA']], 
+                            on='Cod_Equip', 
+                            how='left'
+                        )
+                        gastos_por_frota['label_frota'] = gastos_por_frota.apply(
+                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
+                            axis=1
+                        )
+                        gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                        
+                        # Top 10 gastos por classe operacional
+                        gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
+                            'custo': 'sum',
+                            'Qtde_Litros': 'sum'
+                        }).sort_values('custo', ascending=False).head(10).reset_index()
+                        gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                        
+                        # Criar layout em 2 colunas para os gráficos
+                        col_gastos1, col_gastos2 = st.columns(2)
+                        
+                        with col_gastos1:
+                            st.subheader("🏭 Top 10 Gastos por Frota")
+                            
+                            # Mostrar informação sobre filtro da frota 550
+                            # Comentário removido para manter proporção dos gráficos
+                            
+                            if not gastos_por_frota.empty:
+                                fig_gastos_frota = px.bar(
+                                    gastos_por_frota,
+                                    x='custo',
+                                    y='label_frota',
+                                    orientation='h',
+                                    text='custo_formatado',
+                                    title="Gastos por Frota Individual",
+                                    labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
+                                    color='custo',
+                                    color_continuous_scale='Reds'
+                                )
+                                fig_gastos_frota.update_traces(
+                                    textposition='outside',
+                                    texttemplate='%{text}'
+                                )
+                                fig_gastos_frota.update_layout(
+                                    yaxis={'categoryorder':'total ascending'},
+                                    xaxis_title="Custo Total (R$)",
+                                    yaxis_title="Frota",
+                                    height=400,
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                            else:
+                                st.info("Não há dados de gastos por frota.")
+                        
+                        with col_gastos2:
+                            st.subheader("🏗️ Top 10 Gastos por Classe")
+                            if not gastos_por_classe.empty:
+                                fig_gastos_classe = px.bar(
+                                    gastos_por_classe,
+                                    x='custo',
+                                    y='Classe_Operacional',
+                                    orientation='h',
+                                    text='custo_formatado',
+                                    title="Gastos por Classe Operacional",
+                                    labels={'custo': 'Custo (R$)', 'Classe_Operacional': 'Classe'},
+                                    color='custo',
+                                    color_continuous_scale='Blues'
+                                )
+                                fig_gastos_classe.update_traces(
+                                    textposition='outside',
+                                    texttemplate='%{text}'
+                                )
+                                fig_gastos_classe.update_layout(
+                                    yaxis={'categoryorder':'total ascending'},
+                                    xaxis_title="Custo Total (R$)",
+                                    yaxis_title="Classe Operacional",
+                                    height=400,
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_gastos_classe, use_container_width=True)
+                            else:
+                                st.info("Não há dados de gastos por classe.")
+                        
+                        # Resumo dos totais
+                        st.markdown("---")
+                        col_resumo1, col_resumo2, col_resumo3 = st.columns(3)
+                        with col_resumo1:
+                            st.metric(
+                                "Total Gastos (Período)", 
+                                formatar_brasileiro(df_gastos['custo'].sum(), 'R$ ')
+                            )
+                        with col_resumo2:
+                            if not gastos_por_frota.empty:
+                                frota_maior_gasto = gastos_por_frota.iloc[0]
+                                st.metric(
+                                    "Frota com Maior Gasto", 
+                                    f"{frota_maior_gasto['Cod_Equip']}",
+                                    f"{frota_maior_gasto['custo_formatado']}"
+                                )
+                            else:
+                                st.metric("Frota com Maior Gasto", "N/A")
+                        with col_resumo3:
+                            st.metric(
+                                "Classe com Maior Gasto", 
+                                f"{gastos_por_classe.iloc[0]['Classe_Operacional'] if not gastos_por_classe.empty else 'N/A'}"
+                            )
+                    else:
+                        st.warning("Cadastre os preços de combustível na aba Importar > Preços para visualizar os gastos.")
+
+                    st.markdown("---")
+                    st.subheader("📈 Média de Consumo por Classe Operacional")
+                    df_media = df_f[(df_f['Media'].notna()) & (df_f['Media'] > 0)].copy()
+
+                    classes_para_excluir = ['MOTOCICLETA', 'VEICULOS LEVES', 'USINA', 'MINI CARREGADEIRA']
+
+                    # Verificar se a coluna Classe_Operacional existe antes de filtrar
+                    if 'Classe_Operacional' in df_media.columns:
+                        df_media_filtrado = df_media[~df_media['Classe_Operacional'].str.upper().isin(classes_para_excluir)]
+                    else:
+                        df_media_filtrado = df_media
+
+                    if not df_media_filtrado.empty: # Usa o novo DataFrame filtrado
+                        media_por_classe = df_media_filtrado.groupby('Classe_Operacional')['Media'].mean().sort_values(ascending=True)
+                        
+                        df_media_grafico = media_por_classe.reset_index()
+                        df_media_grafico['texto_formatado'] = df_media_grafico['Media'].apply(
+                            lambda x: formatar_brasileiro(x)
+                        )
+                        
+                        # Cria o gráfico de barras
+                        fig_media_classe = px.bar(
+                            df_media_grafico,
+                            x='Media',
+                            y='Classe_Operacional',
+                            orientation='h',
+                            title="Média de Consumo (L/h ou Km/L) por Classe",
+                            text='texto_formatado'
+                        )
+                        fig_media_classe.update_traces(
+                            textposition='outside',
+                            marker_color='#1f77b4'
+                        )
+                        fig_media_classe.update_layout(
+                            yaxis_title="Classe Operacional",
+                            xaxis_title="Média de Consumo"
+                        )
+                        st.plotly_chart(fig_media_classe, use_container_width=True)
+                    else:
+                        st.info("Não há dados de consumo médio para exibir com os filtros e exclusões aplicadas.")
+
+                    st.markdown("---")
+                    st.subheader("💰 Total de Gasto por Motorista")
+                    precos_map = get_precos_combustivel_map()
+                    if precos_map:
+                        # Vincula combustível por frota e multiplica litros por preço
+                        df_tmp = df_f.copy()
+                        
+                        # Verificar se a coluna tipo_combustivel existe em df_frotas
+                        if 'tipo_combustivel' in df_frotas.columns:
+                            df_tmp = df_tmp.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
+                            # Verificar se a coluna foi criada após o merge
+                            if 'tipo_combustivel' in df_tmp.columns:
+                                df_tmp['tipo_combustivel'] = df_tmp['tipo_combustivel'].fillna('Diesel S500')
+                            else:
+                                df_tmp['tipo_combustivel'] = 'Diesel S500'
+                        else:
+                            # Se não existir, criar a coluna com valor padrão
+                            df_tmp['tipo_combustivel'] = 'Diesel S500'
+                        # Garantir que a coluna tipo_combustivel existe antes de mapear preços
+                        if 'tipo_combustivel' not in df_tmp.columns:
+                            df_tmp['tipo_combustivel'] = 'Diesel S500'
+                        
+                        df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
+                        df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                        # Agrupar por matrícula
+                        if 'Matricula' in df_tmp.columns:
+                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                            gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
+                            if not gasto_motorista.empty:
+                                gasto_motorista = gasto_motorista.reset_index()
+                                gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
+                                gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                                st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
+                                try:
+                                    fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
+                                    st.plotly_chart(fig_gasto, use_container_width=True)
+                                except Exception:
+                                    pass
+                            else:
+                                st.info("Sem dados suficientes de custo (verifique preços cadastrados).")
+                        else:
+                            st.info("Não há coluna de matrícula nos abastecimentos para calcular o gasto por motorista.")
+                    else:
+                        st.info("Cadastre os preços de combustível na aba Importar > Preços.")
+
+                    st.markdown("---")
+                    st.subheader("🔄 Análise de Proporções por Classe e Combustível")
+                
+                with col_grafico2:
+                    st.subheader("⛽ Consumo por Tipo de Combustível")
+                    if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
+                        try:
+                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            
+                            # Criar gráfico de pizza
+                            fig_pizza_combustivel = px.pie(
+                                consumo_por_combustivel, 
+                                values='Qtde_Litros', 
+                                names='tipo_combustivel',
+                                title="Proporção de Consumo por Combustível",
+                                hole=0.3
+                            )
+                            fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                            fig_pizza_combustivel.update_layout(height=400)
+                            st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                            
+                            # Mostrar totais
+                            st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                        except Exception:
+                            df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
+                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                    else:
+                        st.warning("Não há dados suficientes para análise por combustível.")
+                        
+
+                    st.markdown("---")
+                    st.subheader("📊 Demonstrativos Detalhados dos Pneus")
+
+                    df_pneus_all = get_pneus_historico()
+                    if not df_pneus_all.empty:
+                        # Adicione colunas de status e vida se não existirem
+                        if 'status' not in df_pneus_all.columns:
+                            df_pneus_all['status'] = 'Ativo'
+                        if 'vida_atual' not in df_pneus_all.columns:
+                            df_pneus_all['vida_atual'] = 1
+
+                        total_pneus = len(df_pneus_all)
+                        ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
+                        sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
+                        reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
+                        vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
+                        marcas = df_pneus_all['marca'].value_counts()
+                        modelos = df_pneus_all['modelo'].value_counts()
+                        posicoes = df_pneus_all['posicao'].value_counts()
+
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Total de Pneus", total_pneus)
+                        col2.metric("Ativos", ativos)
+                        col3.metric("Sucateados", sucateados)
+                        col4.metric("Reformados", reformados)
+
+                        st.markdown("#### Distribuição por Vida Atual")
+                        vidas_df = vidas.reset_index()
+                        vidas_df.columns = ["Vida", "Quantidade"]
+                        st.dataframe(vidas_df)
+
+                        st.markdown("#### Distribuição por Status")
+                        status_df = df_pneus_all['status'].value_counts().reset_index()
+                        status_df.columns = ["Status", "Quantidade"]
+                        st.dataframe(status_df)
+
+                        st.markdown("#### Distribuição por Marca")
+                        st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
+
+                        st.markdown("#### Distribuição por Modelo")
+                        st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
+
+                        st.markdown("#### Distribuição por Posição")
+                        st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
+
+                        # Gráficos
+                        fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
+                        st.plotly_chart(fig_status, use_container_width=True)
+
+                        fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
+                        st.plotly_chart(fig_vidas, use_container_width=True)
+
+                        fig_marcas = px.bar(marcas.reset_index(), x='index', y='marca', title='Quantidade por Marca')
+                        st.plotly_chart(fig_marcas, use_container_width=True)
+
+                        fig_modelos = px.bar(modelos.reset_index(), x='index', y='modelo', title='Quantidade por Modelo')
+                        st.plotly_chart(fig_modelos, use_container_width=True)
+
+                        fig_posicoes = px.bar(posicoes.reset_index(), x='index', y='posicao', title='Quantidade por Posição')
+                        st.plotly_chart(fig_posicoes, use_container_width=True)
+
+                    else:
+                        st.info("Nenhum pneu cadastrado para demonstrativo.")
+
+                    st.markdown("---")
+                    st.subheader("🛢️ Demonstrativos de Lubrificantes")
+
+                    ensure_lubrificantes_schema()
+                    conn = sqlite3.connect(DB_PATH)
+                    df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                    df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
+
+                    st.write("**Estoque Atual de Lubrificantes:**")
+                    if not df_lub.empty:
+                            # Separar por tipo
+                            df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                            df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
+
+                            col_o, col_g = st.columns(2)
+                            with col_o:
+                                st.markdown("#### Estoque de Óleos")
+                                if not df_oleos.empty:
+                                    fig_oleos = px.bar(
+                                        df_oleos,
+                                        x='nome',
+                                        y='quantidade_estoque',
+                                        color='viscosidade',
+                                        text='quantidade_estoque',
+                                        title="Óleos - Estoque Atual",
+                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
+                                    )
+                                    st.plotly_chart(fig_oleos, use_container_width=True)
+                                else:
+                                    st.info("Nenhum óleo cadastrado.")
+
+                            with col_g:
+                                st.markdown("#### Estoque de Graxas")
+                                if not df_graxas.empty:
+                                    fig_graxas = px.bar(
+                                        df_graxas,
+                                        x='nome',
+                                        y='quantidade_estoque',
+                                        color='viscosidade',
+                                        text='quantidade_estoque',
+                                        title="Graxas - Estoque Atual",
+                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                                    )
+                                    st.plotly_chart(fig_graxas, use_container_width=True)
+                                else:
+                                    st.info("Nenhuma graxa cadastrada.")
+
+                            # Pizza geral
+                            df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                            fig_pizza = px.pie(
+                                df_lub,
+                                names='tipo',
+                                values='quantidade_estoque',
+                                title="Proporção de Estoque: Óleos vs Graxas"
+                            )
+                            st.plotly_chart(fig_pizza, use_container_width=True)
+
+                            st.write("**Movimentações Recentes:**")
+                            df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                            df_mov = df_mov.sort_values('data', ascending=False)
+                            st.dataframe(df_mov.head(20))
+                    else:
+                            st.info("Nenhum lubrificante cadastrado.")
+
+                    conn.close()
+
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import sqlite3
+from datetime import datetime, date, timedelta
+import os
+import plotly.express as px
+import hashlib
+import json
+import base64
+import io
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
+
+ALERTAS_MANUTENCAO = {
+    'HORAS': { 'default': 20 },
+    'QUILÔMETROS': { 'default': 500 }
+}
+
+def formatar_brasileiro(valor: float, prefixo='') -> str:
+    """Formata um número com casas decimais para o padrão brasileiro."""
+    if pd.isna(valor) or not np.isfinite(valor):
+        return "–"
+    return f"{prefixo}{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+@st.cache_data(ttl=300)
+def para_csv(df: pd.DataFrame):
+    """Converte um DataFrame para CSV para download."""
+    return df.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+
+def formatar_brasileiro_int(valor: float) -> str:
+    """Formata um número inteiro para o padrão brasileiro (ex: 123.456)."""
+    if pd.isna(valor) or not np.isfinite(valor):
+        return "–"
+    return f"{int(valor):,}".replace(",", ".")
+
+def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
+    df = df_completo.copy()
+    df['Tipo_Controle'] = df.get('Unid', pd.Series(index=df.index)).map({'HORAS': 'HORAS', 'QUILÔMETROS': 'QUILÔMETROS'})
+    def inferir_tipo_por_classe(row):
+        if pd.notna(row['Tipo_Controle']): return row['Tipo_Controle']
+        classe = str(row.get('Classe_Operacional', '')).upper()
+        if any(p in classe for p in ['TRATOR', 'COLHEITADEIRA', 'PULVERIZADOR', 'PLANTADEIRA', 'PÁ CARREGADEIRA', 'RETROESCAVADEIRA']): return 'HORAS'
+        if any(p in classe for p in ['CAMINHÃO', 'CAMINHAO', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']): return 'QUILÔMETROS'
+        return 'HORAS'
+    df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
+    return df
+
+def hash_password(password):
+    """Gera um hash seguro da palavra-passe."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_login_db(username, password):
+    """Verifica as credenciais contra a base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT password_hash, role FROM utilizadores WHERE username = ?", (username,))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            password_hash_db, role = result
+            if password_hash_db == hash_password(password):
+                return role
+        return None
+    except Exception as e:
+        st.error(f"Erro ao aceder à base de dados de utilizadores: {e}")
+        return None
+
+def get_all_users():
+    """Busca todos os utilizadores da base de dados."""
+    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+        return pd.read_sql_query("SELECT id, username, role FROM utilizadores", conn)
+
+def add_user(username, password, role):
+    """Adiciona um novo utilizador à base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO utilizadores (username, password_hash, role) VALUES (?, ?, ?)",
+            (username, hash_password(password), role)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Utilizador adicionado com sucesso!"
+    except sqlite3.IntegrityError:
+        return False, f"Erro: O nome de utilizador '{username}' já existe."
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+def update_user(user_id, new_username, new_role):
+    """Atualiza o nome e a função de um utilizador."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE utilizadores SET username = ?, role = ? WHERE id = ?",
+            (new_username, new_role, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Utilizador atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+def delete_user(user_id):
+    """Remove um utilizador da base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM utilizadores WHERE id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return True, "Utilizador removido com sucesso!"
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+    
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
+
+@st.cache_data(show_spinner="Carregando e processando dados...", ttl=300)
+def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, ver_manut: int=None, ver_comp: int=None, ver_chk: int=None):
+    if not os.path.exists(db_path):
+        st.error(f"Arquivo de banco de dados '{db_path}' não encontrado.")
+        st.stop()
+
+    try:
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            df_abast = pd.read_sql_query("SELECT rowid, * FROM abastecimentos", conn)
+            df_frotas = pd.read_sql_query("SELECT * FROM frotas", conn)
+            df_manutencoes = pd.read_sql_query("SELECT rowid, * FROM manutencoes", conn)
+            df_comp_regras = pd.read_sql_query("SELECT * FROM componentes_regras", conn)
+            df_comp_historico = pd.read_sql_query("SELECT rowid, * FROM componentes_historico", conn)
+            df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+            df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
+            df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
+
+        # --- Início do Processamento Integrado ---
+        
+        # Renomeia colunas para um padrão consistente
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
+
+        # Cria o dataframe principal mesclando abastecimentos e frotas
+        df_merged = pd.merge(df_abast, df_frotas, on="Cod_Equip", how="left")
+        
+        # Trata colunas de classe operacional que podem ter vindo da mesclagem
+        if 'Classe_Operacional_x' in df_merged.columns:
+            df_merged['Classe_Operacional'] = np.where(df_merged['Classe_Operacional_x'].notna(), df_merged['Classe_Operacional_x'], df_merged['Classe_Operacional_y'])
+            df_merged.drop(columns=['Classe_Operacional_x', 'Classe_Operacional_y'], inplace=True)
+        
+        # Converte a coluna de data e cria colunas de tempo
+        df_merged["Data"] = pd.to_datetime(df_merged["Data"], errors='coerce')
+        df_merged.dropna(subset=["Data"], inplace=True)
+        df_merged["Ano"] = df_merged["Data"].dt.year
+        df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
+        
+        # Limpa e converte colunas numéricas
+        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+            if col in df_merged.columns:
+                series = df_merged[col].astype(str)
+                series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
+                df_merged[col] = pd.to_numeric(series, errors='coerce')
+        
+        # Cria a coluna "label" no dataframe de frotas para uso em seletores
+        df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
+
+        # Vincula informações de motorista aos abastecimentos (merge durante o load)
+        try:
+            with sqlite3.connect(db_path, check_same_thread=False) as conn:
+                df_motoristas = pd.read_sql_query("SELECT codigo_pessoa, matricula, nome FROM motoristas", conn)
+            if not df_motoristas.empty:
+                df_merged = df_merged.merge(
+                    df_motoristas.rename(columns={"codigo_pessoa": "Cod_Pessoa", "matricula": "Matricula", "nome": "Nome_Motorista"}),
+                    on=["Cod_Pessoa", "Matricula"], how="left"
+                )
+        except Exception:
+            pass
+        
+        # Garante que a classe operacional em df_frotas está atualizada
+        classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
+        df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map).fillna(df_frotas.get('Classe_Operacional'))
+
+        # Adiciona coluna de tipo de combustível se não existir
+        if 'tipo_combustivel' not in df_frotas.columns:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
+        
+        # Garantir que a coluna existe e tem valores válidos
+        if 'tipo_combustivel' in df_frotas.columns:
+            # Preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
+        else:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'
+
+        # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
+        def determinar_tipo_controle(row):
+            texto_para_verificar = (
+                str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
+                str(row.get('Classe_Operacional', ''))
+            ).upper()
+            km_keywords = ['CAMINH', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
+            if any(p in texto_para_verificar for p in km_keywords):
+                return 'QUILÔMETROS'
+            return 'HORAS'
+        df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
+
+        # Retorna todos os dataframes processados
+        return (
+            df_merged, df_frotas, df_manutencoes,
+            df_comp_regras, df_comp_historico,
+            df_checklist_regras, df_checklist_itens, df_checklist_historico
+        )
+
+    except Exception as e:
+        st.error(f"Erro ao ler e processar o banco de dados: {e}")
+        st.stop()
+        # Retorna dataframes vazios em caso de erro
+        return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+                pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+
+                
+    
+def inserir_abastecimento(db_path: str, dados: dict) -> bool:
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO abastecimentos (
+                "Cód. Equip.", Data, "Qtde Litros", Hod_Hor_Atual,
+                Safra, "Mês", "Classe Operacional", Matricula, Cod_Pessoa
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['data'],
+            dados['qtde_litros'],
+            dados['hod_hor_atual'],
+            dados['safra'],
+            dados['mes'],
+            dados['classe_operacional'],
+            dados.get('matricula'),
+            dados.get('cod_pessoa')
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao inserir dados no banco de dados: {e}")
+        return False
+
+def excluir_abastecimento(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de abastecimento do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        # Usar rowid é a forma mais segura de deletar uma linha específica
+        sql = "DELETE FROM abastecimentos WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir dados do banco de dados: {e}")
+        return False
+
+
+def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
+    """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)
+        nome_componente = str(nome_componente)
+        data = str(data)
+        hod_hor = float(hod_hor)
+        
+        # Debug: verificar todos os registros na tabela
+        cursor.execute("SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico")
+        all_records = cursor.fetchall()
+        
+        # Debug: verificar se há registros com valores similares
+        cursor.execute(
+            "SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico WHERE Cod_Equip = ?", 
+            (cod_equip,)
+        )
+        similar_records = cursor.fetchall()
+        
+        # Primeiro, vamos verificar se o registro existe
+        cursor.execute(
+            "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Nome Componente: {nome_componente} (tipo: {type(nome_componente)})
+            - Data: {data} (tipo: {type(data)})
+            - Hod_Hor: {hod_hor} (tipo: {type(hod_hor)})
+            
+            Registros similares encontrados (mesmo Cod_Equip):
+            {similar_records}
+            
+            Todos os registros na tabela:
+            {all_records}
+            """
+            st.error(debug_info)
+            return False
+        
+        # Agora vamos excluir
+        cursor.execute(
+            "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute(
+                "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+                (cod_equip, nome_componente, data, hod_hor)
+            )
+            count_after = cursor.fetchone()[0]
+            
+            if count_after == 0:
+                # Forçar sincronização do banco
+                cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                cursor.execute("PRAGMA synchronous=FULL")
+                conn.commit()
+                
+                # Salvar backup automático para persistência no Streamlit Cloud
+                backup_success, backup_msg = save_backup_to_session_state()
+                if backup_success:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Backup salvo: {backup_msg}")
+                else:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Aviso: {backup_msg}")
+                
+                conn.close()
+                return True
+            else:
+                st.error("Erro: Registro ainda existe após exclusão")
+                conn.close()
+                return False
+        else:
+            st.error("Nenhum registro foi excluído")
+            conn.close()
+            return False
+            
+    except Exception as e:
+        st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
+        return False
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+def excluir_manutencao(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de manutenção do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = "DELETE FROM manutencoes WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir manutenção do banco de dados: {e}")
+        return False
+
+def inserir_manutencao(db_path: str, dados: dict) -> bool:
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = 'INSERT INTO manutencoes (Cod_Equip, Data, Tipo_Servico, Hod_Hor_No_Servico) VALUES (?, ?, ?, ?)'
+        params = (dados['cod_equip'], dados['data'], dados['tipo_servico'], dados['hod_hor_servico'])
+        cursor.execute(sql, params)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro no banco de dados: {e}")
+        return False
+
+def inserir_frota(db_path: str, dados: dict) -> bool:
+    """Insere um novo registro de frota no banco de dados."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO frotas (
+                COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA, 
+                "Classe Operacional", ATIVO, tipo_combustivel
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['descricao'],
+            dados['placa'],
+            dados['classe_op'],
+            dados['ativo'],
+            dados.get('tipo_combustivel', 'Diesel S500')
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro no banco de dados: {e}")
+        return False
+    
+
+def editar_abastecimento(db_path: str, rowid: int, dados: dict) -> bool:
+    """Atualiza um registro de abastecimento existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE abastecimentos SET
+                "Cód. Equip." = ?, Data = ?, "Qtde Litros" = ?, Hod_Hor_Atual = ?, Safra = ?, Matricula = ?, Cod_Pessoa = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'], dados['data'], dados['qtde_litros'], dados['hod_hor_atual'], dados['safra'],
+            dados.get('matricula'), dados.get('cod_pessoa'), rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar abastecimento: {e}")
+        return False
+
+def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
+    """Atualiza um registro de manutenção existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE manutencoes SET
+                Cod_Equip = ?, Data = ?, Tipo_Servico = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (dados['cod_equip'], dados['data'], dados['tipo_servico'], dados['hod_hor_servico'], rowid)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar manutenção: {e}")
+        return False
+
+
+def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
+    """Edita um registro de manutenção de componente existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE componentes_historico 
+            SET Cod_Equip = ?, nome_componente = ?, Observacoes = ?, Data = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['componente'],
+            dados['acao'],
+            dados['data'],
+            dados['hod_hor_servico'],
+            rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao editar manutenção de componente no banco de dados: {e}")
+        return False
+
+def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tuple[int, int, str]:
+    """Lê uma planilha, verifica por duplicados, e insere os novos dados. Aceita opcionalmente as colunas Matricula e Cod_Pessoa."""
+    try:
+        df_novo = pd.read_excel(arquivo_carregado)
+        
+        mapa_colunas = {
+            "Cód. Equip.": "Cód. Equip.",
+            "Data": "Data",
+            "Qtde Litros": "Qtde Litros",
+            "Hod. Hor. Atual": "Hod_Hor_Atual",
+            "Safra": "Safra",
+            "Mês": "Mês",
+            "Classe Operacional": "Classe Operacional",
+            "Matricula": "Matricula",
+            "Cod_Pessoa": "Cod_Pessoa",
+        }
+        df_novo = df_novo.rename(columns={k: v for k, v in mapa_colunas.items() if k in df_novo.columns})
+
+        colunas_necessarias = ["Cód. Equip.", "Data", "Qtde Litros", "Hod_Hor_Atual", "Safra", "Mês", "Classe Operacional"]
+        colunas_opcionais = ["Matricula", "Cod_Pessoa"]
+        colunas_faltando = [col for col in colunas_necessarias if col not in df_novo.columns]
+        if colunas_faltando:
+            return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
+        conn = sqlite3.connect(db_path)
+        df_existente = pd.read_sql_query("SELECT * FROM abastecimentos", conn)
+        
+        df_novo['Data'] = pd.to_datetime(df_novo['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_existente['Data'] = pd.to_datetime(df_existente['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        df_novo['chave_unica'] = df_novo['Cód. Equip.'].astype(str) + '_' + df_novo['Data'] + '_' + df_novo['Qtde Litros'].astype(str)
+        df_existente['chave_unica'] = df_existente['Cód. Equip.'].astype(str) + '_' + df_existente['Data'] + '_' + df_existente['Qtde Litros'].astype(str)
+
+        df_para_inserir = df_novo[~df_novo['chave_unica'].isin(df_existente['chave_unica'])]
+        
+        num_duplicados = len(df_novo) - len(df_para_inserir)
+
+        if df_para_inserir.empty:
+            return 0, num_duplicados, "Nenhum registo novo para importar. Todos os registos da planilha já existem na base de dados."
+
+        colunas_insert = colunas_necessarias + [c for c in colunas_opcionais if c in df_para_inserir.columns]
+        df_para_inserir_final = df_para_inserir[colunas_insert]
+        registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+        
+        cursor = conn.cursor()
+        placeholders = ", ".join(["?"] * len(colunas_insert))
+        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+        cursor.executemany(sql, registros)
+        
+        conn.commit()
+        num_inseridos = cursor.rowcount
+        conn.close()
+        
+        mensagem_sucesso = f"{num_inseridos} registos novos foram importados com sucesso."
+        if num_duplicados > 0:
+            mensagem_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
+            
+        return num_inseridos, num_duplicados, mensagem_sucesso
+
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação: {e}"
+
+def editar_frota(db_path: str, cod_equip: int, dados: dict) -> bool:
+    """Atualiza um registro de frota existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE frotas SET
+                DESCRICAO_EQUIPAMENTO = ?, PLACA = ?, "Classe Operacional" = ?, ATIVO = ?, tipo_combustivel = ?
+            WHERE COD_EQUIPAMENTO = ?
+        """
+        valores = (dados['descricao'], dados['placa'], dados['classe_op'], dados['ativo'], dados.get('tipo_combustivel', 'Diesel S500'), cod_equip)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar frota: {e}")
+        return False
+
+# COLE ESTE BLOCO DE CÓDIGO NO LOCAL INDICADO
+
+def get_component_rules():
+    """Busca todas as regras de componentes da base de dados."""
+    with sqlite3.connect(DB_PATH) as conn:
+        return pd.read_sql_query("SELECT * FROM componentes_regras", conn)
+
+def add_component_rule(classe, componente, intervalo):
+    """Adiciona uma nova regra de componente à base de dados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao) VALUES (?, ?, ?)",
+                (classe, componente, intervalo)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
+def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca", capacidade_litros=0.0):
+    """Adiciona uma nova regra de componente com informações de lubrificante e tipo de manutenção."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao, capacidade_litros) VALUES (?, ?, ?, ?, ?, ?)",
+                (classe, componente, intervalo, lubrificante_id, tipo_manutencao, capacidade_litros)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
+def delete_component_rule(rule_id):
+    """Remove uma regra de componente da base de dados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM componentes_regras WHERE id_regra = ?", (rule_id,))
+            conn.commit()
+        return True, "Componente removido com sucesso."
+    except Exception as e:
+        return False, f"Erro ao remover componente: {e}"
+
+def add_component_service(cod_equip, componente, data, hod_hor, obs):
+    """Adiciona um novo registo de serviço de componente ao histórico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, Observacoes) VALUES (?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def add_component_service_advanced(cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado=None, obs=""):
+    """Adiciona um novo registo de serviço de componente com informações detalhadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def get_component_status(cod_equip, componente):
+    """Obtém o status atual de um componente específico de um equipamento."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            # Buscar a última manutenção do componente
+            query = """
+            SELECT Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            ORDER BY Data DESC, Hod_Hor_No_Servico DESC
+            LIMIT 1
+            """
+            df_ultima = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            
+            # Buscar a regra do componente para obter o intervalo
+            query_regra = """
+            SELECT intervalo_padrao, lubrificante_id, tipo_manutencao
+            FROM componentes_regras cr
+            JOIN frotas f ON cr.classe_operacional = f."Classe Operacional"
+            WHERE f.COD_EQUIPAMENTO = ? AND cr.nome_componente = ?
+            """
+            df_regra = pd.read_sql_query(query_regra, conn, params=(cod_equip, componente))
+            
+            # Buscar o hodômetro/horímetro atual do equipamento
+            query_hod = """
+            SELECT Hod_Hor_Atual FROM abastecimentos 
+            WHERE Cod_Equip = ? 
+            ORDER BY Data DESC, Hod_Hor_Atual DESC 
+            LIMIT 1
+            """
+            df_hod = pd.read_sql_query(query_hod, conn, params=(cod_equip,))
+            
+            return df_ultima, df_regra, df_hod
+            
+    except Exception as e:
+        st.error(f"Erro ao obter status do componente: {e}")
+        return None, None, None
+
+def get_component_maintenance_count(cod_equip, componente):
+    """Obtém o número total de manutenções realizadas em um componente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT COUNT(*) as total_manutencoes,
+                   COUNT(CASE WHEN tipo_servico = 'Troca' THEN 1 END) as total_trocas,
+                   COUNT(CASE WHEN tipo_servico = 'Remonta' THEN 1 END) as total_remontas
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            """
+            df_count = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            return df_count.iloc[0] if not df_count.empty else {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+            
+    except Exception as e:
+        st.error(f"Erro ao obter contagem de manutenções: {e}")
+        return {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+
+def editar_manutencao_componente_advanced(DB_PATH, rowid, dados_editados):
+    """Edita uma manutenção de componente com informações avançadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_historico 
+                SET Cod_Equip = ?, nome_componente = ?, Data = ?, Hod_Hor_No_Servico = ?, 
+                    Observacoes = ?, tipo_servico = ?, lubrificante_utilizado = ?
+                WHERE rowid = ?
+            """, (
+                dados_editados['cod_equip'],
+                dados_editados['componente'],
+                dados_editados['data'],
+                dados_editados['hod_hor_servico'],
+                dados_editados['acao'],
+                dados_editados['tipo_servico'],
+                dados_editados['lubrificante_utilizado'],
+                rowid
+            ))
+            conn.commit()
+        return True, "Manutenção de componente atualizada com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar manutenção de componente: {e}"
+
+def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca"):
+    """Atualiza uma regra de componente existente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_regras 
+                SET nome_componente = ?, intervalo_padrao = ?, lubrificante_id = ?, tipo_manutencao = ?
+                WHERE id_regra = ?
+            """, (nome_componente, intervalo, lubrificante_id, tipo_manutencao, rule_id))
+            conn.commit()
+        return True, f"Componente '{nome_componente}' atualizado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar componente: {e}"
+
+
+def get_frota_combustivel(cod_equip):
+    """Obtém o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tipo_combustivel FROM frotas WHERE COD_EQUIPAMENTO = ?", (cod_equip,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        st.error(f"Erro ao obter tipo de combustível: {e}")
+        return None
+
+
+def update_frota_combustivel(cod_equip, tipo_combustivel):
+    """Atualiza o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE COD_EQUIPAMENTO = ?", (tipo_combustivel, cod_equip))
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível: {e}"
+
+
+def update_classe_combustivel(classe_operacional, tipo_combustivel):
+    """Atualiza o tipo de combustível de todas as frotas de uma classe."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE \"Classe Operacional\" = ?", (tipo_combustivel, classe_operacional))
+            rows_updated = cursor.rowcount
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
+
+
+def add_tipo_combustivel_column():
+    """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            # Verificar se a coluna existe
+            cursor.execute("PRAGMA table_info(frotas)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'tipo_combustivel' not in columns:
+                cursor.execute("ALTER TABLE frotas ADD COLUMN tipo_combustivel TEXT DEFAULT 'Diesel S500'")
+                conn.commit()
+                return True, "Coluna tipo_combustivel adicionada com sucesso"
+            else:
+                return True, "Coluna tipo_combustivel já existe"
+    except Exception as e:
+        return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
+
+
+def ensure_motoristas_schema():
+    """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS motoristas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    codigo_pessoa TEXT,
+                    matricula TEXT UNIQUE,
+                    nome TEXT,
+                    ativo TEXT DEFAULT 'ATIVO'
+                )
+                """
+            )
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_matricula ON motoristas(matricula)")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_codigo_pessoa ON motoristas(codigo_pessoa)")
+
+            cursor.execute("PRAGMA table_info(abastecimentos)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'Matricula' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Matricula TEXT")
+            if 'Cod_Pessoa' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Cod_Pessoa TEXT")
+            conn.commit()
+        return True, "Esquema de motoristas verificado"
+    except Exception as e:
+        return False, f"Erro ao verificar esquema de motoristas: {e}"
+
+
+def get_all_motoristas() -> pd.DataFrame:
+    """Retorna o DataFrame de motoristas."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM motoristas", conn)
+    except Exception:
+        return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
+
+
+def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
+    """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
+    try:
+        df_mot = pd.read_excel(arquivo_carregado)
+        df_mot.columns = [c.strip() for c in df_mot.columns]
+        renomeios = {
+            'Matrícula': 'Matricula', 'matricula': 'Matricula', 'MATRICULA': 'Matricula',
+            'Nome': 'Nome', 'nome': 'Nome', 'NOME': 'Nome',
+            'Cod_Pessoa': 'Cod_Pessoa', 'Código Pessoa': 'Cod_Pessoa', 'codigo_pessoa': 'Cod_Pessoa', 'CODIGO_PESSOA': 'Cod_Pessoa'
+        }
+        df_mot.rename(columns={k: v for k, v in renomeios.items() if k in df_mot.columns}, inplace=True)
+        obrig = ['Matricula', 'Nome']
+        faltando = [c for c in obrig if c not in df_mot.columns]
+        if faltando:
+            return 0, 0, f"Erro: Colunas obrigatórias não encontradas: {', '.join(faltando)}"
+        if 'Cod_Pessoa' not in df_mot.columns:
+            df_mot['Cod_Pessoa'] = None
+        df_mot = df_mot.dropna(subset=['Matricula', 'Nome']).copy()
+        df_mot['Matricula'] = df_mot['Matricula'].astype(str).str.strip()
+        df_mot['Nome'] = df_mot['Nome'].astype(str).str.strip()
+        df_mot['Cod_Pessoa'] = df_mot['Cod_Pessoa'].astype(str).str.strip()
+        df_mot = df_mot.drop_duplicates(subset=['Matricula'])
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            existentes = pd.read_sql_query("SELECT matricula FROM motoristas", conn)
+            set_exist = set(existentes['matricula'].astype(str)) if not existentes.empty else set()
+            df_novos = df_mot[~df_mot['Matricula'].isin(set_exist)].copy()
+            if df_novos.empty:
+                return 0, len(df_mot), "Nenhum motorista novo para importar. Todos já existem."
+            registros = [
+                (row.get('Cod_Pessoa', None), row['Matricula'], row['Nome'], 'ATIVO')
+                for _, row in df_novos.iterrows()
+            ]
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO motoristas (codigo_pessoa, matricula, nome, ativo) VALUES (?, ?, ?, ?)",
+                registros
+            )
+            conn.commit()
+            inseridos = cur.rowcount if cur.rowcount is not None else len(registros)
+            duplicados = len(df_mot) - len(df_novos)
+            return inseridos, duplicados, f"{inseridos} motoristas importados com sucesso. {duplicados} já existiam."
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação de motoristas: {e}"
+    
+def ensure_pneus_schema():
+    """Garante a existência da tabela de histórico de pneus."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pneus_historico (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Cod_Equip INTEGER,
+                    posicao TEXT,
+                    marca TEXT,
+                    modelo TEXT,
+                    numero_fogo TEXT,
+                    data_instalacao TEXT,
+                    hodometro_instalacao REAL,
+                    vida_util_km REAL,
+                    observacoes TEXT,
+                    status TEXT DEFAULT 'Ativo',
+                    vida_atual INTEGER DEFAULT 1
+                )
+            """)
+            # Adiciona colunas se não existirem
+            cursor.execute("PRAGMA table_info(pneus_historico)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'status' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN status TEXT DEFAULT 'Ativo'")
+            if 'vida_atual' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN vida_atual INTEGER DEFAULT 1")
+            if 'numero_fogo' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN numero_fogo TEXT")
+            conn.commit()
+        return True, "Tabela de pneus verificada"
+    except Exception as e:
+        return False, f"Erro ao criar tabela de pneus: {e}"
+
+def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
+    """Importa histórico de pneus de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_pneus = pd.read_excel(arquivo_carregado)
+        df_pneus.columns = [c.strip() for c in df_pneus.columns]
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        faltando = [c for c in obrig if c not in df_pneus.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        if 'observacoes' not in df_pneus.columns:
+            df_pneus['observacoes'] = ""
+        
+        # Limpar dados e remover linhas com valores nulos obrigatórios
+        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
+        
+        # Normalizar tipos de dados
+        df_pneus['Cod_Equip'] = df_pneus['Cod_Equip'].astype(str)
+        df_pneus['posicao'] = df_pneus['posicao'].astype(str).str.strip()
+        df_pneus['numero_fogo'] = df_pneus['numero_fogo'].astype(str).str.strip()
+        df_pneus['data_instalacao'] = pd.to_datetime(df_pneus['data_instalacao']).dt.strftime('%Y-%m-%d')
+        
+        # Remover duplicatas na própria planilha baseada em chave única
+        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Buscar registros existentes para verificar duplicatas
+            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, numero_fogo, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
+            
+            if not df_existente.empty:
+                # Normalizar dados existentes para comparação
+                df_existente['Cod_Equip'] = df_existente['Cod_Equip'].astype(str)
+                df_existente['posicao'] = df_existente['posicao'].astype(str).str.strip()
+                df_existente['numero_fogo'] = df_existente['numero_fogo'].astype(str).str.strip()
+                df_existente['data_instalacao'] = pd.to_datetime(df_existente['data_instalacao']).dt.strftime('%Y-%m-%d')
+                
+                # Criar chaves únicas para comparação
+                df_pneus['chave_unica'] = (df_pneus['Cod_Equip'] + '_' + 
+                                          df_pneus['posicao'] + '_' + 
+                                          df_pneus['numero_fogo'] + '_' + 
+                                          df_pneus['data_instalacao'] + '_' + 
+                                          df_pneus['hodometro_instalacao'].astype(str))
+                
+                df_existente['chave_unica'] = (df_existente['Cod_Equip'] + '_' + 
+                                              df_existente['posicao'] + '_' + 
+                                              df_existente['numero_fogo'] + '_' + 
+                                              df_existente['data_instalacao'] + '_' + 
+                                              df_existente['hodometro_instalacao'].astype(str))
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_pneus[~df_pneus['chave_unica'].isin(df_existente['chave_unica'])]
+            else:
+                df_para_inserir = df_pneus
+            
+            num_duplicados = len(df_pneus) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum pneu novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = obrig + ['observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.fillna('').to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO pneus_historico ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} pneus novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar pneus: {e}"
+
+def get_pneus_historico(cod_equip=None):
+    """Retorna o histórico de pneus, opcionalmente filtrando por frota."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            query = "SELECT * FROM pneus_historico"
+            params = ()
+            if cod_equip:
+                query += " WHERE Cod_Equip = ?"
+                params = (cod_equip,)
+            return pd.read_sql_query(query, conn, params=params)
+    except Exception:
+        return pd.DataFrame()
+
+def ensure_precos_combustivel_schema():
+    """Garante a existência da tabela de preços por tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS precos_combustivel (
+                    tipo_combustivel TEXT PRIMARY KEY,
+                    preco REAL
+                )
+                """
+            )
+            tipos = ['Diesel S500', 'Diesel S10', 'Gasolina', 'Etanol', 'Biodiesel']
+            for t in tipos:
+                cur.execute("INSERT OR IGNORE INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?)", (t, NULL))
+            conn.commit()
+        return True, "Tabela de preços verificada"
+    except Exception as e:
+        return False, f"Erro ao verificar tabela de preços: {e}"
+
+
+def get_precos_combustivel_map() -> dict:
+    """Retorna um dicionário {tipo_combustivel: preco}."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            dfp = pd.read_sql_query("SELECT tipo_combustivel, preco FROM precos_combustivel", conn)
+        return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
+    except Exception:
+        return {}
+
+
+def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
+    """Cria/atualiza preço para um tipo de combustível."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO precos_combustivel (tipo_combustivel, preco) VALUES (?, ?) ON CONFLICT(tipo_combustivel) DO UPDATE SET preco=excluded.preco",
+                (tipo, preco)
+            )
+            conn.commit()
+        return True, f"Preço atualizado para {tipo}"
+    except Exception as e:
+        return False, f"Erro ao atualizar preço: {e}"
+    
+def ensure_lubrificantes_schema():
+    """Garante a existência da tabela de lubrificantes, movimentações e almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            
+            # Tabela de lubrificantes
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT,
+                    viscosidade TEXT,
+                    quantidade_estoque REAL,
+                    unidade TEXT,
+                    observacoes TEXT
+                )
+            """)
+            
+            # Verificar e adicionar coluna 'tipo' se não existir
+            cursor.execute("PRAGMA table_info(lubrificantes)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'tipo' not in cols:
+                cursor.execute("ALTER TABLE lubrificantes ADD COLUMN tipo TEXT DEFAULT 'óleo'")
+            
+            # Tabela de almoxarifados
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifados (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    tipo TEXT DEFAULT 'fixo', -- 'fixo' para oficina, 'movel' para caminhões
+                    localizacao TEXT,
+                    responsavel TEXT,
+                    observacoes TEXT,
+                    ativo BOOLEAN DEFAULT 1
+                )
+            """)
+            
+            # Tabela de estoque por almoxarifado
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS almoxarifado_estoque (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_almoxarifado INTEGER,
+                    id_lubrificante INTEGER,
+                    quantidade_estoque REAL DEFAULT 0,
+                    unidade TEXT,
+                    data_atualizacao TEXT,
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id),
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    UNIQUE(id_almoxarifado, id_lubrificante)
+                )
+            """)
+            
+            # Tabela de movimentações (atualizada para incluir almoxarifado)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lubrificantes_movimentacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_lubrificante INTEGER,
+                    id_almoxarifado INTEGER,
+                    tipo TEXT, -- 'entrada' ou 'saida'
+                    quantidade REAL,
+                    data TEXT,
+                    cod_equip INTEGER,
+                    observacoes TEXT,
+                    FOREIGN KEY(id_lubrificante) REFERENCES lubrificantes(id),
+                    FOREIGN KEY(id_almoxarifado) REFERENCES almoxarifados(id)
+                )
+            """)
+            
+            # Verificar se a coluna id_almoxarifado existe na tabela de movimentações
+            cursor.execute("PRAGMA table_info(lubrificantes_movimentacoes)")
+            cols_mov = [c[1] for c in cursor.fetchall()]
+            if 'id_almoxarifado' not in cols_mov:
+                cursor.execute("ALTER TABLE lubrificantes_movimentacoes ADD COLUMN id_almoxarifado INTEGER")
+            
+            conn.commit()
+        return True, "Tabelas de lubrificantes e almoxarifados verificadas"
+    except Exception as e:
+        return False, f"Erro ao criar tabelas de lubrificantes: {e}"
+    
+def add_almoxarifado(nome, tipo="fixo", localizacao="", responsavel="", observacoes=""):
+    """Adiciona um novo almoxarifado."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO almoxarifados (nome, tipo, localizacao, responsavel, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, tipo, localizacao, responsavel, observacoes)
+            )
+            conn.commit()
+        return True, "Almoxarifado cadastrado com sucesso!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def get_almoxarifados():
+    """Retorna todos os almoxarifados ativos."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            df = pd.read_sql("SELECT * FROM almoxarifados WHERE ativo = 1 ORDER BY nome", conn)
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def get_estoque_por_almoxarifado(id_lubrificante):
+    """Retorna o estoque de um lubrificante distribuído por almoxarifados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT 
+                a.nome as almoxarifado,
+                a.tipo,
+                COALESCE(ae.quantidade_estoque, 0) as quantidade,
+                COALESCE(ae.unidade, l.unidade) as unidade,
+                a.localizacao,
+                a.responsavel
+            FROM almoxarifados a
+            CROSS JOIN lubrificantes l
+            LEFT JOIN almoxarifado_estoque ae ON a.id = ae.id_almoxarifado AND l.id = ae.id_lubrificante
+            WHERE l.id = ? AND a.ativo = 1
+            ORDER BY a.nome
+            """
+            df = pd.read_sql(query, conn, params=(id_lubrificante,))
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+def atualizar_estoque_almoxarifado(id_almoxarifado, id_lubrificante, quantidade, unidade):
+    """Atualiza o estoque de um lubrificante em um almoxarifado específico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO almoxarifado_estoque 
+                (id_almoxarifado, id_lubrificante, quantidade_estoque, unidade, data_atualizacao) 
+                VALUES (?, ?, ?, ?, ?)
+            """, (id_almoxarifado, id_lubrificante, quantidade, unidade, date.today().strftime("%Y-%m-%d")))
+            conn.commit()
+        return True, "Estoque atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao atualizar estoque: {e}"
+
+def add_lubrificante(nome, viscosidade, quantidade, unidade, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes (nome, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?)",
+                (nome, viscosidade, quantidade, unidade, observacoes)
+            )
+            conn.commit()
+        return True, "Lubrificante cadastrado!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+def importar_lubrificantes_de_planilha(db_path: str, arquivo_carregado):
+    """Importa lubrificantes de uma planilha Excel, verificando duplicatas."""
+    try:
+        df_lub = pd.read_excel(arquivo_carregado)
+        df_lub.columns = [c.strip() for c in df_lub.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome': 'nome',
+            'tipo': 'tipo',
+            'viscosidade': 'viscosidade',
+            'quantidade_estoque': 'quantidade_estoque',
+            'unidade': 'unidade',
+            'observacoes': 'observacoes'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_lub.columns:
+                df_lub = df_lub.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome']
+        faltando = [c for c in obrig if c not in df_lub.columns]
+        if faltando:
+            return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'tipo' not in df_lub.columns:
+            df_lub['tipo'] = 'óleo'
+        if 'viscosidade' not in df_lub.columns:
+            df_lub['viscosidade'] = ''
+        if 'quantidade_estoque' not in df_lub.columns:
+            df_lub['quantidade_estoque'] = 0
+        if 'unidade' not in df_lub.columns:
+            df_lub['unidade'] = 'L'
+        if 'observacoes' not in df_lub.columns:
+            df_lub['observacoes'] = ''
+        
+        # Limpar e normalizar dados
+        df_lub = df_lub.dropna(subset=['nome'])
+        df_lub['nome'] = df_lub['nome'].astype(str).str.strip()
+        df_lub['tipo'] = df_lub['tipo'].astype(str).str.strip().fillna('óleo')
+        df_lub['viscosidade'] = df_lub['viscosidade'].astype(str).str.strip().fillna('')
+        df_lub['quantidade_estoque'] = pd.to_numeric(df_lub['quantidade_estoque'], errors='coerce').fillna(0)
+        df_lub['unidade'] = df_lub['unidade'].astype(str).str.strip().fillna('L')
+        df_lub['observacoes'] = df_lub['observacoes'].astype(str).str.strip().fillna('')
+        
+        # Remover duplicatas na própria planilha baseada no nome
+        df_lub = df_lub.drop_duplicates(subset=['nome'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que a tabela existe com a coluna tipo
+            ensure_lubrificantes_schema()
+            
+            # Buscar lubrificantes existentes
+            df_existente = pd.read_sql_query("SELECT nome FROM lubrificantes", conn)
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome'] = df_existente['nome'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem
+                df_para_inserir = df_lub[~df_lub['nome'].isin(df_existente['nome'])]
+            else:
+                df_para_inserir = df_lub
+            
+            num_duplicados = len(df_lub) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, "Nenhum lubrificante novo para importar. Todos os registros da planilha já existem na base de dados."
+            
+            # Preparar registros para inserção
+            colunas_insert = ['nome', 'tipo', 'viscosidade', 'quantidade_estoque', 'unidade', 'observacoes']
+            df_para_inserir_final = df_para_inserir[colunas_insert]
+            registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+            
+            cur = conn.cursor()
+            placeholders = ", ".join(["?"] * len(colunas_insert))
+            sql = f"INSERT INTO lubrificantes ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+            cur.executemany(sql, registros)
+            conn.commit()
+            
+            num_inseridos = len(registros)
+            
+            mensagem_sucesso = f"{num_inseridos} lubrificantes novos foram importados com sucesso."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} registros duplicados foram ignorados."
+            
+            return num_inseridos, num_duplicados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, f"Erro ao importar lubrificantes: {e}"
+
+def importar_componentes_de_planilha(db_path: str, arquivo_carregado, classe_operacional: str):
+    """Importa componentes de uma planilha Excel, verificando duplicatas e criando lubrificantes se necessário."""
+    try:
+        df_comp = pd.read_excel(arquivo_carregado)
+        df_comp.columns = [c.strip() for c in df_comp.columns]
+        
+        # Mapeamento de colunas
+        mapa_colunas = {
+            'nome_componente': 'nome_componente',
+            'componente': 'nome_componente',
+            'intervalo_padrao': 'intervalo_padrao',
+            'intervalo': 'intervalo_padrao',
+            'lubrificante_nome': 'lubrificante_nome',
+            'lubrificante': 'lubrificante_nome',
+            'capacidade_litros': 'capacidade_litros',
+            'capacidade': 'capacidade_litros'
+        }
+        
+        # Normalizar nomes de colunas
+        for col_orig, col_norm in mapa_colunas.items():
+            if col_orig in df_comp.columns:
+                df_comp = df_comp.rename(columns={col_orig: col_norm})
+        
+        # Verificar colunas obrigatórias
+        obrig = ['nome_componente', 'intervalo_padrao']
+        faltando = [c for c in obrig if c not in df_comp.columns]
+        if faltando:
+            return 0, 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
+        
+        # Adicionar colunas opcionais se não existirem
+        if 'lubrificante_nome' not in df_comp.columns:
+            df_comp['lubrificante_nome'] = None
+        if 'capacidade_litros' not in df_comp.columns:
+            df_comp['capacidade_litros'] = 0.0
+        
+        # Limpar e normalizar dados
+        df_comp = df_comp.dropna(subset=['nome_componente'])
+        df_comp['nome_componente'] = df_comp['nome_componente'].astype(str).str.strip()
+        df_comp['intervalo_padrao'] = pd.to_numeric(df_comp['intervalo_padrao'], errors='coerce')
+        df_comp = df_comp.dropna(subset=['intervalo_padrao'])
+        df_comp['lubrificante_nome'] = df_comp['lubrificante_nome'].astype(str).str.strip().replace('nan', None)
+        df_comp['capacidade_litros'] = pd.to_numeric(df_comp['capacidade_litros'], errors='coerce').fillna(0.0)
+        
+        # Remover duplicatas na própria planilha baseada no nome do componente
+        df_comp = df_comp.drop_duplicates(subset=['nome_componente'])
+        
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            # Garantir que as tabelas existem
+            ensure_lubrificantes_schema()
+            
+            # Verificar se a tabela componentes_regras tem a coluna capacidade_litros
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'capacidade_litros' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN capacidade_litros REAL DEFAULT 0.0")
+            
+            # Buscar componentes existentes na classe
+            df_existente = pd.read_sql_query(
+                "SELECT nome_componente FROM componentes_regras WHERE classe_operacional = ?", 
+                conn, params=(classe_operacional,)
+            )
+            
+            if not df_existente.empty:
+                # Normalizar nomes existentes para comparação
+                df_existente['nome_componente'] = df_existente['nome_componente'].astype(str).str.strip()
+                
+                # Filtrar apenas registros que não existem na classe
+                df_para_inserir = df_comp[~df_comp['nome_componente'].isin(df_existente['nome_componente'])]
+            else:
+                df_para_inserir = df_comp
+            
+            num_duplicados = len(df_comp) - len(df_para_inserir)
+            
+            if df_para_inserir.empty:
+                return 0, num_duplicados, 0, "Nenhum componente novo para importar. Todos os registros da planilha já existem na classe selecionada."
+            
+            # Processar lubrificantes
+            lubrificantes_criados = 0
+            for _, row in df_para_inserir.iterrows():
+                if pd.notna(row['lubrificante_nome']) and row['lubrificante_nome']:
+                    # Verificar se o lubrificante existe
+                    df_lub_existente = pd.read_sql_query(
+                        "SELECT id FROM lubrificantes WHERE nome = ?", 
+                        conn, params=(row['lubrificante_nome'],)
+                    )
+                    
+                    if df_lub_existente.empty:
+                        # Criar lubrificante automaticamente
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO lubrificantes (nome, tipo, viscosidade, quantidade_estoque, unidade, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                            (row['lubrificante_nome'], 'óleo', '', 0, 'L', f'Criado automaticamente durante importação de componentes')
+                        )
+                        lubrificantes_criados += 1
+                        
+                        # Buscar o ID do lubrificante criado
+                        lub_id = cur.lastrowid
+                    else:
+                        lub_id = df_lub_existente.iloc[0]['id']
+                else:
+                    lub_id = None
+                
+                # Inserir componente
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, capacidade_litros) VALUES (?, ?, ?, ?, ?)",
+                    (classe_operacional, row['nome_componente'], row['intervalo_padrao'], lub_id, row['capacidade_litros'])
+                )
+            
+            conn.commit()
+            num_inseridos = len(df_para_inserir)
+            
+            mensagem_sucesso = f"{num_inseridos} componentes foram importados com sucesso para a classe '{classe_operacional}'."
+            if num_duplicados > 0:
+                mensagem_sucesso += f" {num_duplicados} componentes duplicados foram ignorados."
+            if lubrificantes_criados > 0:
+                mensagem_sucesso += f" {lubrificantes_criados} lubrificantes foram criados automaticamente."
+            
+            return num_inseridos, num_duplicados, lubrificantes_criados, mensagem_sucesso
+            
+    except Exception as e:
+        return 0, 0, 0, f"Erro ao importar componentes: {e}"
+
+def movimentar_lubrificante(id_lubrificante, tipo, quantidade, data, cod_equip=None, observacoes=""):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lubrificantes_movimentacoes (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes) VALUES (?, ?, ?, ?, ?, ?)",
+                (id_lubrificante, tipo, quantidade, data, cod_equip, observacoes)
+            )
+            # Atualiza estoque
+            sinal = 1 if tipo == "entrada" else -1
+            cur.execute(
+                "UPDATE lubrificantes SET quantidade_estoque = quantidade_estoque + ? WHERE id = ?",
+                (sinal * quantidade, id_lubrificante)
+            )
+            conn.commit()
+        return True, "Movimentação registrada!"
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+@st.cache_data(ttl=120)
+def filtrar_dados(df: pd.DataFrame, opts: dict) -> pd.DataFrame:
+    # Garante que a coluna de data é do tipo datetime
+    df['Data'] = pd.to_datetime(df['Data'])
+    
+    # Filtra por período de datas
+    df_filtrado = df[
+        (df['Data'].dt.date >= opts['data_inicio']) & 
+        (df['Data'].dt.date <= opts['data_fim'])
+    ]
+    
+    # Filtra pelas outras seleções, se existirem
+    if opts.get("classes_op"):
+        df_filtrado = df_filtrado[df_filtrado["Classe_Operacional"].isin(opts["classes_op"])]
+    
+    if opts.get("safras"):
+        df_filtrado = df_filtrado[df_filtrado["Safra"].isin(opts["safras"])]
+        
+    return df_filtrado.copy()
+
+@st.cache_data(show_spinner="Calculando plano de manutenção...", ttl=300)
+def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimentos: pd.DataFrame, _df_componentes_regras: pd.DataFrame, _df_componentes_historico: pd.DataFrame) -> pd.DataFrame:
+    latest_readings = _df_abastecimentos.sort_values('Data').groupby('Cod_Equip')['Hod_Hor_Atual'].last()
+    plan_data = []
+
+    for _, frota_row in _df_frotas.iterrows():
+        cod_equip = frota_row['Cod_Equip']
+        classe_op = frota_row.get('Classe_Operacional')
+        hod_hor_atual = latest_readings.get(cod_equip)
+
+        if pd.isna(hod_hor_atual) or not classe_op:
+            continue
+        
+        regras_da_classe = _df_componentes_regras[_df_componentes_regras['classe_operacional'] == classe_op]
+        if regras_da_classe.empty:
+            continue
+
+        unidade = 'km' if frota_row['Tipo_Controle'] == 'QUILÔMETROS' else 'h'
+        alerta_default = ALERTAS_MANUTENCAO.get(frota_row['Tipo_Controle'], {}).get('default', 500)
+        
+        record = {
+            'Cod_Equip': cod_equip, 
+            'Equipamento': frota_row.get('DESCRICAO_EQUIPAMENTO'), 
+            'Leitura_Atual': hod_hor_atual, 
+            'Unidade': unidade, 
+            'Qualquer_Alerta': False, 
+            'Alertas': []
+        }
+
+        for _, regra in regras_da_classe.iterrows():
+            componente = regra['nome_componente']
+            intervalo = regra['intervalo_padrao']
+            
+            historico_componente = _df_componentes_historico[
+                (_df_componentes_historico['Cod_Equip'] == cod_equip) &
+                (_df_componentes_historico['nome_componente'] == componente)
+            ]
+            
+            ultimo_servico_hod_hor = 0
+            if not historico_componente.empty:
+                ultimo_servico_hod_hor = historico_componente['Hod_Hor_No_Servico'].max()
+
+            prox_servico = ((ultimo_servico_hod_hor // intervalo) * intervalo) + intervalo
+            while prox_servico < hod_hor_atual:
+                prox_servico += intervalo
+
+            restante = prox_servico - hod_hor_atual
+            
+            record[f'Restante_{componente}'] = restante
+            
+            if restante <= alerta_default:
+                record['Qualquer_Alerta'] = True
+                record['Alertas'].append(componente)
+
+        plan_data.append(record)
+
+    # 🔹 Garante que sempre retorna um DataFrame com as colunas básicas
+    if not plan_data:
+        return pd.DataFrame(columns=['Cod_Equip', 'Equipamento', 'Leitura_Atual', 'Unidade', 'Qualquer_Alerta', 'Alertas'])
+
+    return pd.DataFrame(plan_data)
+
+
+def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
+    """Estima as datas das próximas manutenções com base no uso médio."""
+    if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
+        return pd.DataFrame()
+
+    # Calcula o uso diário médio de cada veículo
+    uso_diario = {}
+    for cod_equip in df_abastecimentos['Cod_Equip'].unique():
+        dados_equip = df_abastecimentos[df_abastecimentos['Cod_Equip'] == cod_equip].sort_values('Data')
+        if len(dados_equip) > 1:
+            total_dias = (dados_equip['Data'].max() - dados_equip['Data'].min()).days
+            total_uso = dados_equip['Hod_Hor_Atual'].max() - dados_equip['Hod_Hor_Atual'].min()
+            if total_dias > 0 and total_uso > 0: # Garante que houve uso e passagem de tempo
+                uso_diario[cod_equip] = total_uso / total_dias
+
+    previsoes = []
+    servicos_nomes = [col.replace('Restante_', '') for col in plan_df.columns if 'Restante_' in col]
+
+    for _, row in plan_df.iterrows():
+        cod_equip = row['Cod_Equip']
+        uso = uso_diario.get(cod_equip)
+        if uso:
+            for nome_servico in servicos_nomes:
+                col_restante = f'Restante_{nome_servico}'
+                if col_restante in row and pd.notna(row[col_restante]):
+                    dias_para_manut = row[col_restante] / uso
+                    data_prevista = datetime.now() + pd.Timedelta(days=dias_para_manut)
+                    previsoes.append({
+                        'Equipamento': row['Equipamento'],
+                        'Manutenção': nome_servico,
+                        'Data Prevista': data_prevista.strftime('%d/%m/%Y'),
+                        'Dias Restantes': int(dias_para_manut)
+                    })
+
+    if not previsoes:
+        return pd.DataFrame()
+
+    df_previsoes = pd.DataFrame(previsoes)
+    return df_previsoes.sort_values('Dias Restantes')
+
+
+# ---------------------------
+# Funções para Checklists
+# ---------------------------
+
+@st.cache_data(ttl=120)
+def get_checklist_rules():
+    """Busca todas as regras de checklist do banco de dados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+    except Exception as e:
+        st.error(f"Erro ao buscar regras de checklist: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=120)
+def get_checklist_items(id_regra):
+    """Busca os itens de checklist para uma determinada regra."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM checklist_itens WHERE id_regra = ?",
+                conn,
+                params=(id_regra,)
+            )
+    except Exception as e:
+        st.error(f"Erro ao buscar itens de checklist: {e}")
+        return pd.DataFrame()
+
+
+# ---------------------------
+# CRUD para Checklists
+# ---------------------------
+
+def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
+    """Adiciona uma nova regra de checklist ao banco de dados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_regras (classe_operacional, titulo_checklist, frequencia, turno)
+                VALUES (?, ?, ?, ?)
+                """ ,
+                (classe_operacional, titulo_checklist, frequencia, turno)
+            )
+            conn.commit()
+        return True, "Regra de checklist adicionada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar regra de checklist: {e}"
+
+
+def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
+    """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
+
+    Mantém a função "add_checklist_rule" para compatibilidade, mas quando for
+    necessário o ID imediatamente após a criação, utilize esta função.
+    """
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_regras (classe_operacional, titulo_checklist, frequencia, turno)
+                VALUES (?, ?, ?, ?)
+                """,
+                (classe_operacional, titulo_checklist, frequencia, turno)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    except Exception as e:
+        st.error(f"Erro ao adicionar regra de checklist: {e}")
+        return None
+
+
+def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
+    """Edita uma regra de checklist existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE checklist_regras
+                SET classe_operacional = ?, titulo_checklist = ?, frequencia = ?, turno = ?
+                WHERE id_regra = ?
+                """ ,
+                (classe_operacional, titulo_checklist, frequencia, turno, id_regra)
+            )
+            conn.commit()
+        return True, "Regra de checklist atualizada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao editar regra de checklist: {e}"
+
+
+def delete_checklist_rule(id_regra):
+    """Remove uma regra de checklist e seus itens associados."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_itens WHERE id_regra = ?", (id_regra,))
+            cursor.execute("DELETE FROM checklist_regras WHERE id_regra = ?", (id_regra,))
+            conn.commit()
+        return True, "Regra de checklist removida com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao remover regra de checklist: {e}"
+
+
+def add_checklist_item(id_regra, nome_item):
+    """Adiciona um novo item de checklist a uma regra existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_itens (id_regra, nome_item)
+                VALUES (?, ?)
+                """ ,
+                (id_regra, nome_item)
+            )
+            conn.commit()
+        return True, "Item de checklist adicionado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar item de checklist: {e}"
+
+
+def edit_checklist_item(id_item, nome_item):
+    """Edita um item de checklist existente."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE checklist_itens
+                SET nome_item = ?
+                WHERE id_item = ?
+                """ ,
+                (nome_item, id_item)
+            )
+            conn.commit()
+        return True, "Item de checklist atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao editar item de checklist: {e}"
+
+
+def delete_checklist_item(id_item):
+    """Remove um item de checklist."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM checklist_itens WHERE id_item = ?", (id_item,))
+            conn.commit()
+        return True, "Item de checklist removido com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao remover item de checklist: {e}"
+
+
+def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
+    """Salva um checklist preenchido no histórico."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO checklist_historico 
+                (Cod_Equip, titulo_checklist, data_preenchimento, turno, status_geral) 
+                VALUES (?, ?, ?, ?, ?)
+                """ ,
+                (cod_equip, titulo_checklist, data_preenchimento, turno, status_geral)
+            )
+            conn.commit()
+    except Exception as e:
+        st.error(f"Erro ao salvar histórico de checklist: {e}")
+
+
+def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
+    """Remove um registro do histórico de checklists usando uma combinação única de campos."""
+    try:
+        # Primeira tentativa: usar conexão direta
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)  # Converter numpy.int64 para int
+        titulo_checklist = str(titulo_checklist)
+        data_preenchimento = str(data_preenchimento)
+        turno = str(turno)
+        
+        # Debug: verificar todos os registros na tabela ANTES da exclusão
+        cursor.execute("SELECT rowid, Cod_Equip, titulo_checklist, data_preenchimento, turno FROM checklist_historico")
+        all_records_before = cursor.fetchall()
+        
+        # Tentar encontrar o registro com diferentes abordagens
+        rowid = None
+        
+        # Primeira tentativa: busca exata
+        cursor.execute(
+            "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+            (cod_equip, titulo_checklist, data_preenchimento, turno)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            rowid = result[0]
+        else:
+            # Segunda tentativa: buscar apenas por Cod_Equip, título e turno (ignorar data)
+            cursor.execute(
+                "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, turno)
+            )
+            result = cursor.fetchone()
+            
+            if result:
+                rowid = result[0]
+            else:
+                # Terceira tentativa: buscar apenas por Cod_Equip e título
+                cursor.execute(
+                    "SELECT rowid FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ?", 
+                    (cod_equip, titulo_checklist)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    rowid = result[0]
+        
+        if rowid is None:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Título: {titulo_checklist} (tipo: {type(titulo_checklist)})
+            - Data: {data_preenchimento} (tipo: {type(data_preenchimento)})
+            - Turno: {turno} (tipo: {type(turno)})
+            
+            Todos os registros na tabela ANTES da exclusão:
+            {all_records_before}
+            """
+            conn.close()
+            return False, debug_info
+        
+        # Agora vamos excluir usando rowid
+        cursor.execute("DELETE FROM checklist_historico WHERE rowid = ?", (rowid,))
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute("SELECT COUNT(*) FROM checklist_historico WHERE rowid = ?", (rowid,))
+            count_after = cursor.fetchone()[0]
+            
+            # Verificar também se o registro ainda existe pelos outros campos
+            cursor.execute(
+                "SELECT COUNT(*) FROM checklist_historico WHERE Cod_Equip = ? AND titulo_checklist = ? AND data_preenchimento = ? AND turno = ?", 
+                (cod_equip, titulo_checklist, data_preenchimento, turno)
+            )
+            count_by_fields = cursor.fetchone()[0]
+            
+            if count_after == 0 and count_by_fields == 0:
+                 # Verificar o total de registros na tabela
+                 cursor.execute("SELECT COUNT(*) FROM checklist_historico")
+                 total_after = cursor.fetchone()[0]
+                 
+                 # Forçar sincronização do banco
+                 cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                 cursor.execute("PRAGMA synchronous=FULL")
+                 conn.commit()
+                 
+                 success_msg = f"Checklist excluído com sucesso! ({rows_deleted} registro(s) removido(s)). Total na tabela: {total_after}"
+                 
+                 # Salvar backup automático para persistência no Streamlit Cloud
+                 backup_success, backup_msg = save_backup_to_session_state()
+                 if backup_success:
+                     success_msg += f" | Backup salvo: {backup_msg}"
+                 else:
+                     success_msg += f" | Aviso: {backup_msg}"
+                 
+                 conn.close()
+                 return True, success_msg
+            else:
+                conn.close()
+                return False, f"Erro: Registro ainda existe após exclusão. Count by rowid: {count_after}, Count by fields: {count_by_fields}"
+        else:
+            conn.close()
+            return False, "Nenhum registro foi excluído"
+                
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return False, f"Erro ao excluir checklist: {e}"
+
+
+def force_cache_clear():
+    """Força a limpeza completa de todos os caches."""
+    try:
+        # Limpar cache de dados
+        st.cache_data.clear()
+        
+        # Limpar cache de recursos
+        st.cache_resource.clear()
+        
+        # Forçar rerun da aplicação
+        st.rerun()
+    except Exception as e:
+        st.error(f"Erro ao limpar cache: {e}")
+
+
+def force_database_sync():
+    """Força a sincronização do banco de dados com o disco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Forçar commit
+        conn.commit()
+        
+        # Executar PRAGMA para forçar sincronização
+        cursor.execute("PRAGMA wal_checkpoint(FULL)")
+        cursor.execute("PRAGMA synchronous=FULL")
+        cursor.execute("PRAGMA journal_mode=DELETE")
+        
+        # Forçar commit novamente
+        conn.commit()
+        
+        # Verificar se o banco está em modo WAL
+        cursor.execute("PRAGMA journal_mode")
+        journal_mode = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return True, f"Banco sincronizado. Modo journal: {journal_mode}"
+    except Exception as e:
+        return False, f"Erro ao sincronizar banco: {e}"
+
+
+def export_database_backup():
+    """Exporta todos os dados do banco para um arquivo de backup."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        
+        # Obter todas as tabelas
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        backup_data = {}
+        
+        for table in tables:
+            table_name = table[0]
+            if table_name != 'sqlite_master':
+                # Exportar dados da tabela
+                df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+                backup_data[table_name] = df.to_dict('records')
+        
+        conn.close()
+        
+        # Converter para JSON
+        backup_json = json.dumps(backup_data, default=str, indent=2)
+        
+        # Criar arquivo de download
+        backup_bytes = backup_json.encode('utf-8')
+        backup_b64 = base64.b64encode(backup_bytes).decode()
+        
+        return backup_b64, backup_data
+        
+    except Exception as e:
+        return None, f"Erro ao exportar backup: {e}"
+
+
+def import_database_backup(backup_data):
+    """Importa dados de backup para o banco."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        for table_name, records in backup_data.items():
+            if records:  # Se a tabela tem dados
+                # Limpar tabela existente
+                cursor.execute(f"DELETE FROM {table_name}")
+                
+                # Inserir novos dados
+                for record in records:
+                    columns = list(record.keys())
+                    placeholders = ', '.join(['?' for _ in columns])
+                    values = list(record.values())
+                    
+                    # Converter tipos de dados
+                    converted_values = []
+                    for value in values:
+                        if isinstance(value, str):
+                            # Tentar converter para datetime se for uma data
+                            try:
+                                if 'T' in value or '-' in value:
+                                    dt = pd.to_datetime(value)
+                                    converted_values.append(dt.strftime('%Y-%m-%d %H:%M:%S'))
+                                else:
+                                    converted_values.append(value)
+                            except:
+                                converted_values.append(value)
+                        else:
+                            converted_values.append(value)
+                    
+                    cursor.execute(
+                        f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})",
+                        converted_values
+                    )
+        
+        conn.commit()
+        conn.close()
+        
+        return True, "Backup restaurado com sucesso!"
+        
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def save_backup_to_session_state():
+    """Salva backup dos dados na sessão do Streamlit."""
+    try:
+        backup_b64, backup_data = export_database_backup()
+        if backup_b64:
+            st.session_state['database_backup'] = backup_b64
+            st.session_state['backup_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            return True, "Backup salvo na sessão"
+        else:
+            return False, "Erro ao criar backup"
+    except Exception as e:
+        return False, f"Erro ao salvar backup: {e}"
+
+
+def restore_backup_from_session_state():
+    """Restaura backup dos dados da sessão do Streamlit."""
+    try:
+        if 'database_backup' in st.session_state:
+            backup_b64 = st.session_state['database_backup']
+            backup_bytes = base64.b64decode(backup_b64)
+            backup_json = backup_bytes.decode('utf-8')
+            backup_data = json.loads(backup_json)
+            
+            success, message = import_database_backup(backup_data)
+            if success:
+                # Limpar cache para forçar recarregamento
+                force_cache_clear()
+                return True, message
+            else:
+                return False, message
+        else:
+            return False, "Nenhum backup encontrado na sessão"
+    except Exception as e:
+        return False, f"Erro ao restaurar backup: {e}"
+
+
+def auto_restore_backup_on_startup():
+    """Tenta restaurar backup automaticamente na inicialização da aplicação."""
+    try:
+        if 'database_backup' in st.session_state:
+            # Verificar se o banco está vazio
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            num_tables = cursor.fetchone()[0]
+            conn.close()
+            
+            if num_tables == 0:
+                # Banco vazio, tentar restaurar
+                success, message = restore_backup_from_session_state()
+                if success:
+                    st.info("🔄 Backup restaurado automaticamente na inicialização!")
+                    return True
+                else:
+                    st.warning(f"⚠️ Falha na restauração automática: {message}")
+                    return False
+        return False
+    except Exception as e:
+        st.warning(f"⚠️ Erro na restauração automática: {e}")
+        return False
+
+
+def main():
+    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    # Garante tema dark coerente mesmo sem config.toml
+    st.markdown(
+        """
+        <style>
+        :root {
+            --primary: #10b981;
+            --bg: #0f172a;
+            --bg2: #111827;
+            --text: #e5e7eb;
+        }
+        body { background: var(--bg); color: var(--text); }
+        section.main > div { background: var(--bg); }
+        .stApp { background: var(--bg); }
+        .st-emotion-cache-1r4qj8v, .st-emotion-cache-13ln4jf { background: var(--bg2) !important; }
+        .stButton>button { background: var(--primary); color: #062e24; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # CSS fino para polir a UI
+    st.markdown(
+        """
+        <style>
+        /* Cartões/containers */
+        .stExpander, .stDataFrame, .stTable { border-radius: 10px !important; }
+        .stButton>button { border-radius: 8px; padding: 0.5rem 1rem; }
+        .stSelectbox, .stTextInput, .stNumberInput, .stDateInput, .stTextArea { border-radius: 8px !important; }
+        /* Métricas com mais destaque */
+        div[data-testid="stMetric"] { background: rgba(255,255,255,0.04); padding: 10px 14px; border-radius: 12px; }
+        /* Títulos com leve gradiente */
+        h1, h2, h3 { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        /* Linhas divisórias mais suaves */
+        hr { border: none; height: 1px; background: rgba(255,255,255,0.08); }
+        /* Subtítulo de marca (opcional) */
+        .brand-subtitle { display: none; }
+        /* Centralizar e limitar logo na sidebar */
+        section[data-testid="stSidebar"] img { display: block; margin: 0.5rem auto 0.75rem; max-width: 140px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+        st.session_state.role = None
+        st.session_state.username = ""
+
+    if not st.session_state.authenticated:
+        _ , col_central, _ = st.columns([1, 1.5, 1])
+    
+        with col_central:
+            
+            if os.path.exists("logo.png"):
+                # Cria 3 sub-colunas dentro da coluna central
+                _, logo_col, _ = st.columns([1, 2, 1])
+                with logo_col:
+                    st.image("logo.png", width=140)
+            
+            st.title("Bem vindo ao Aplicativo de Controle do PCMA")
+
+            username = st.text_input("Usuário", key="login_user")
+            password = st.text_input("Senha", type="password", key="login_pass")
+
+            if st.button("Entrar", use_container_width=True):
+                role = check_login_db(username, password)
+                if role:
+                    st.session_state.authenticated = True
+                    st.session_state.role = role
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("Usuário ou Senha incorretos.")
+    else:
+
+        # Cabeçalho com logo + título
+        if os.path.exists("logo.png"):
+            col_logo, col_title = st.columns([1, 8])
+            with col_logo:
+                st.image("logo.png", width=80)
+            with col_title:
+                st.title("📊 Dashboard de Frotas e Abastecimentos")
+        else:
+            st.title("📊 Dashboard de Frotas e Abastecimentos")
+
+        # Tentar restaurar backup automaticamente na inicialização
+        auto_restore_backup_on_startup()
+        
+        # Adicionar coluna de tipo de combustível se não existir
+        add_tipo_combustivel_column()
+        
+        # Setup de esquemas (motoristas, preços, combustível)
+        ensure_motoristas_schema()
+        ensure_precos_combustivel_schema()
+
+        # Passo um fingerprint simples das tabelas para invalidar cache quando necessário
+        ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
+        df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
+        
+
+
+        if 'intervalos_por_classe' not in st.session_state:
+            st.session_state.intervalos_por_classe = {}
+        classes_operacionais = [c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()]
+        for classe in classes_operacionais:
+            if classe not in st.session_state.intervalos_por_classe:
+                tipo_controle = df_frotas[df_frotas['Classe_Operacional'] == classe]['Tipo_Controle'].iloc[0]
+                if tipo_controle == 'HORAS':
+                    st.session_state.intervalos_por_classe[classe] = {
+                        'meta_consumo': 5.0,
+                        'servicos': {
+                            'servico_1': {'nome': 'Lubrificacao', 'intervalo': 250},
+                            'servico_2': {'nome': 'Revisao A', 'intervalo': 100},
+                            'servico_3': {'nome': 'Revisao B', 'intervalo': 300},
+                            'servico_4': {'nome': 'Revisao C', 'intervalo': 500}
+                        }
+                    }
+                else: # QUILÔMETROS
+                    st.session_state.intervalos_por_classe[classe] = {
+                        'meta_consumo': 2.5,
+                        'servicos': {
+                            'servico_1': {'nome': 'Lubrificacao', 'intervalo': 5000},
+                            'servico_2': {'nome': 'Revisao 5k', 'intervalo': 5000},
+                            'servico_3': {'nome': 'Revisao 10k', 'intervalo': 10000},
+                            'servico_4': {'nome': 'Revisao 20k', 'intervalo': 20000}
+                        }
+                    }
+                    
+        with st.sidebar:
+            if os.path.exists("logo.png"):
+                st.image("logo.png", width=200)
+            st.write(f"Bem-vindo, **{st.session_state.username}**!")
+            if st.button("Sair"):
+                st.session_state.authenticated = False
+                st.session_state.username = "" # Limpa o username ao sair
+                st.session_state.role = None
+                st.rerun()
+            st.markdown("---")
+
+        with st.sidebar:
+            st.header("📅 Filtros (válidos apenas na aba Análise Geral)")
+
+            # Persistência de período
+            if 'filtro_data_inicio' not in st.session_state:
+                st.session_state['filtro_data_inicio'] = df['Data'].min().date()
+            if 'filtro_data_fim' not in st.session_state:
+                st.session_state['filtro_data_fim'] = df['Data'].max().date()
+
+            st.subheader("Período de Análise")
+            data_inicio = st.date_input(
+                "Data de Início", 
+                st.session_state['filtro_data_inicio'],
+                key='data_inicio'
+            )
+            data_fim = st.date_input(
+                "Data de Fim", 
+                st.session_state['filtro_data_fim'],
+                key='data_fim'
+            )
+            st.session_state['filtro_data_inicio'] = data_inicio
+            st.session_state['filtro_data_fim'] = data_fim
+
+            st.markdown("---")
+            st.caption("Desenvolvido por André Luis")
+
+            with st.expander("Filtrar por Classe Operacional"):
+                classe_opts = sorted(list(df["Classe_Operacional"].dropna().unique()))
+                sel_classes = st.multiselect(
+                    "Selecione as Classes", 
+                    classe_opts, 
+                    default=classe_opts,
+                    key="sel_classes"
+                )
+
+            with st.expander("Filtrar por Safra"):
+                safra_opts = sorted(list(df["Safra"].dropna().unique()))
+                sel_safras = st.multiselect(
+                    "Selecione as Safras", 
+                    safra_opts, 
+                    default=safra_opts,
+                    key="sel_safras"
+                )
+
+            # Só aplicaremos os filtros na aba "📈 Análise Geral" (guardaremos em sessão)
+            st.session_state['filtro_opts_analise'] = {
+                "data_inicio": data_inicio,
+                "data_fim": data_fim,
+                "classes_op": sel_classes,
+                "safras": sel_safras
+            }
+    
+import streamlit as st
+import pandas as pd
+import numpy as np
+import sqlite3
+from datetime import datetime, date, timedelta
+import os
+import plotly.express as px
+import hashlib
+import json
+import base64
+import io
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
+
+ALERTAS_MANUTENCAO = {
+    'HORAS': { 'default': 20 },
+    'QUILÔMETROS': { 'default': 500 }
+}
+
+def formatar_brasileiro(valor: float, prefixo='') -> str:
+    """Formata um número com casas decimais para o padrão brasileiro."""
+    if pd.isna(valor) or not np.isfinite(valor):
+        return "–"
+    return f"{prefixo}{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+@st.cache_data(ttl=300)
+def para_csv(df: pd.DataFrame):
+    """Converte um DataFrame para CSV para download."""
+    return df.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+
+def formatar_brasileiro_int(valor: float) -> str:
+    """Formata um número inteiro para o padrão brasileiro (ex: 123.456)."""
+    if pd.isna(valor) or not np.isfinite(valor):
+        return "–"
+    return f"{int(valor):,}".replace(",", ".")
+
+def detect_equipment_type(df_completo: pd.DataFrame) -> pd.DataFrame:
+    df = df_completo.copy()
+    df['Tipo_Controle'] = df.get('Unid', pd.Series(index=df.index)).map({'HORAS': 'HORAS', 'QUILÔMETROS': 'QUILÔMETROS'})
+    def inferir_tipo_por_classe(row):
+        if pd.notna(row['Tipo_Controle']): return row['Tipo_Controle']
+        classe = str(row.get('Classe_Operacional', '')).upper()
+        if any(p in classe for p in ['TRATOR', 'COLHEITADEIRA', 'PULVERIZADOR', 'PLANTADEIRA', 'PÁ CARREGADEIRA', 'RETROESCAVADEIRA']): return 'HORAS'
+        if any(p in classe for p in ['CAMINHÃO', 'CAMINHAO', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']): return 'QUILÔMETROS'
+        return 'HORAS'
+    df['Tipo_Controle'] = df.apply(inferir_tipo_por_classe, axis=1)
+    return df
+
+def hash_password(password):
+    """Gera um hash seguro da palavra-passe."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_login_db(username, password):
+    """Verifica as credenciais contra a base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT password_hash, role FROM utilizadores WHERE username = ?", (username,))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            password_hash_db, role = result
+            if password_hash_db == hash_password(password):
+                return role
+        return None
+    except Exception as e:
+        st.error(f"Erro ao aceder à base de dados de utilizadores: {e}")
+        return None
+
+def get_all_users():
+    """Busca todos os utilizadores da base de dados."""
+    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+        return pd.read_sql_query("SELECT id, username, role FROM utilizadores", conn)
+
+def add_user(username, password, role):
+    """Adiciona um novo utilizador à base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO utilizadores (username, password_hash, role) VALUES (?, ?, ?)",
+            (username, hash_password(password), role)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Utilizador adicionado com sucesso!"
+    except sqlite3.IntegrityError:
+        return False, f"Erro: O nome de utilizador '{username}' já existe."
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+def update_user(user_id, new_username, new_role):
+    """Atualiza o nome e a função de um utilizador."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE utilizadores SET username = ?, role = ? WHERE id = ?",
+            (new_username, new_role, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Utilizador atualizado com sucesso!"
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+def delete_user(user_id):
+    """Remove um utilizador da base de dados."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM utilizadores WHERE id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return True, "Utilizador removido com sucesso!"
+    except Exception as e:
+        return False, f"Ocorreu um erro: {e}"
+
+    
+# APAGUE A SUA FUNÇÃO "load_data_from_db" INTEIRA E SUBSTITUA-A POR ESTE BLOCO FINAL
+
+@st.cache_data(show_spinner="Carregando e processando dados...", ttl=300)
+def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, ver_manut: int=None, ver_comp: int=None, ver_chk: int=None):
+    if not os.path.exists(db_path):
+        st.error(f"Arquivo de banco de dados '{db_path}' não encontrado.")
+        st.stop()
+
+    try:
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            df_abast = pd.read_sql_query("SELECT rowid, * FROM abastecimentos", conn)
+            df_frotas = pd.read_sql_query("SELECT * FROM frotas", conn)
+            df_manutencoes = pd.read_sql_query("SELECT rowid, * FROM manutencoes", conn)
+            df_comp_regras = pd.read_sql_query("SELECT * FROM componentes_regras", conn)
+            df_comp_historico = pd.read_sql_query("SELECT rowid, * FROM componentes_historico", conn)
+            df_checklist_regras = pd.read_sql_query("SELECT * FROM checklist_regras", conn)
+            df_checklist_itens = pd.read_sql_query("SELECT * FROM checklist_itens", conn)
+            df_checklist_historico = pd.read_sql_query("SELECT rowid, * FROM checklist_historico", conn)
+
+        # --- Início do Processamento Integrado ---
+        
+        # Renomeia colunas para um padrão consistente
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
+
+        # Cria o dataframe principal mesclando abastecimentos e frotas
+        df_merged = pd.merge(df_abast, df_frotas, on="Cod_Equip", how="left")
+        
+        # Trata colunas de classe operacional que podem ter vindo da mesclagem
+        if 'Classe_Operacional_x' in df_merged.columns:
+            df_merged['Classe_Operacional'] = np.where(df_merged['Classe_Operacional_x'].notna(), df_merged['Classe_Operacional_x'], df_merged['Classe_Operacional_y'])
+            df_merged.drop(columns=['Classe_Operacional_x', 'Classe_Operacional_y'], inplace=True)
+        
+        # Converte a coluna de data e cria colunas de tempo
+        df_merged["Data"] = pd.to_datetime(df_merged["Data"], errors='coerce')
+        df_merged.dropna(subset=["Data"], inplace=True)
+        df_merged["Ano"] = df_merged["Data"].dt.year
+        df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
+        
+        # Limpa e converte colunas numéricas
+        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+            if col in df_merged.columns:
+                series = df_merged[col].astype(str)
+                series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
+                df_merged[col] = pd.to_numeric(series, errors='coerce')
+        
+        # Cria a coluna "label" no dataframe de frotas para uso em seletores
+        df_frotas["label"] = df_frotas["Cod_Equip"].astype(str) + " - " + df_frotas.get("DESCRICAO_EQUIPAMENTO", "").fillna("") + " (" + df_frotas.get("PLACA", "").fillna("Sem Placa") + ")"
+
+        # Vincula informações de motorista aos abastecimentos (merge durante o load)
+        try:
+            with sqlite3.connect(db_path, check_same_thread=False) as conn:
+                df_motoristas = pd.read_sql_query("SELECT codigo_pessoa, matricula, nome FROM motoristas", conn)
+            if not df_motoristas.empty:
+                df_merged = df_merged.merge(
+                    df_motoristas.rename(columns={"codigo_pessoa": "Cod_Pessoa", "matricula": "Matricula", "nome": "Nome_Motorista"}),
+                    on=["Cod_Pessoa", "Matricula"], how="left"
+                )
+        except Exception:
+            pass
+        
+        # Garante que a classe operacional em df_frotas está atualizada
+        classe_map = df_merged.dropna(subset=['Classe_Operacional']).groupby('Cod_Equip')['Classe_Operacional'].first()
+        df_frotas['Classe_Operacional'] = df_frotas['Cod_Equip'].map(classe_map).fillna(df_frotas.get('Classe_Operacional'))
+
+        # Adiciona coluna de tipo de combustível se não existir
+        if 'tipo_combustivel' not in df_frotas.columns:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
+        
+        # Garantir que a coluna existe e tem valores válidos
+        if 'tipo_combustivel' in df_frotas.columns:
+            # Preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
+        else:
+            df_frotas['tipo_combustivel'] = 'Diesel S500'
+
+        # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
+        def determinar_tipo_controle(row):
+            texto_para_verificar = (
+                str(row.get('DESCRICAO_EQUIPAMENTO', '')) + ' ' + 
+                str(row.get('Classe_Operacional', ''))
+            ).upper()
+            km_keywords = ['CAMINH', 'VEICULO', 'PICKUP', 'CAVALO MECANICO']
+            if any(p in texto_para_verificar for p in km_keywords):
+                return 'QUILÔMETROS'
+            return 'HORAS'
+        df_frotas['Tipo_Controle'] = df_frotas.apply(determinar_tipo_controle, axis=1)
+
+        # Retorna todos os dataframes processados
+        return (
+            df_merged, df_frotas, df_manutencoes,
+            df_comp_regras, df_comp_historico,
+            df_checklist_regras, df_checklist_itens, df_checklist_historico
+        )
+
+    except Exception as e:
+        st.error(f"Erro ao ler e processar o banco de dados: {e}")
+        st.stop()
+        # Retorna dataframes vazios em caso de erro
+        return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+                pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+
+                
+    
+def inserir_abastecimento(db_path: str, dados: dict) -> bool:
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO abastecimentos (
+                "Cód. Equip.", Data, "Qtde Litros", Hod_Hor_Atual,
+                Safra, "Mês", "Classe Operacional", Matricula, Cod_Pessoa
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['data'],
+            dados['qtde_litros'],
+            dados['hod_hor_atual'],
+            dados['safra'],
+            dados['mes'],
+            dados['classe_operacional'],
+            dados.get('matricula'),
+            dados.get('cod_pessoa')
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao inserir dados no banco de dados: {e}")
+        return False
+
+def excluir_abastecimento(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de abastecimento do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        # Usar rowid é a forma mais segura de deletar uma linha específica
+        sql = "DELETE FROM abastecimentos WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir dados do banco de dados: {e}")
+        return False
+
+
+def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
+    """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Converter tipos de dados para garantir compatibilidade
+        cod_equip = int(cod_equip)
+        nome_componente = str(nome_componente)
+        data = str(data)
+        hod_hor = float(hod_hor)
+        
+        # Debug: verificar todos os registros na tabela
+        cursor.execute("SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico")
+        all_records = cursor.fetchall()
+        
+        # Debug: verificar se há registros com valores similares
+        cursor.execute(
+            "SELECT rowid, Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico FROM componentes_historico WHERE Cod_Equip = ?", 
+            (cod_equip,)
+        )
+        similar_records = cursor.fetchall()
+        
+        # Primeiro, vamos verificar se o registro existe
+        cursor.execute(
+            "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            # Debug: retornar informações sobre o que foi encontrado
+            debug_info = f"""
+            Registro não encontrado para exclusão.
+            
+            Valores procurados (após conversão):
+            - Cod_Equip: {cod_equip} (tipo: {type(cod_equip)})
+            - Nome Componente: {nome_componente} (tipo: {type(nome_componente)})
+            - Data: {data} (tipo: {type(data)})
+            - Hod_Hor: {hod_hor} (tipo: {type(hod_hor)})
+            
+            Registros similares encontrados (mesmo Cod_Equip):
+            {similar_records}
+            
+            Todos os registros na tabela:
+            {all_records}
+            """
+            st.error(debug_info)
+            return False
+        
+        # Agora vamos excluir
+        cursor.execute(
+            "DELETE FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+            (cod_equip, nome_componente, data, hod_hor)
+        )
+        
+        # Forçar commit imediato
+        conn.commit()
+        
+        # Verificar se foi realmente excluído
+        rows_deleted = cursor.rowcount
+        if rows_deleted > 0:
+            # Verificar novamente se o registro foi realmente excluído
+            cursor.execute(
+                "SELECT COUNT(*) FROM componentes_historico WHERE Cod_Equip = ? AND nome_componente = ? AND Data = ? AND Hod_Hor_No_Servico = ?", 
+                (cod_equip, nome_componente, data, hod_hor)
+            )
+            count_after = cursor.fetchone()[0]
+            
+            if count_after == 0:
+                # Forçar sincronização do banco
+                cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                cursor.execute("PRAGMA synchronous=FULL")
+                conn.commit()
+                
+                # Salvar backup automático para persistência no Streamlit Cloud
+                backup_success, backup_msg = save_backup_to_session_state()
+                if backup_success:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Backup salvo: {backup_msg}")
+                else:
+                    st.success(f"Manutenção de componente excluída com sucesso! ({rows_deleted} registro(s) removido(s)) | Aviso: {backup_msg}")
+                
+                conn.close()
+                return True
+            else:
+                st.error("Erro: Registro ainda existe após exclusão")
+                conn.close()
+                return False
+        else:
+            st.error("Nenhum registro foi excluído")
+            conn.close()
+            return False
+            
+    except Exception as e:
+        st.error(f"Erro ao excluir manutenção de componente do banco de dados: {e}")
+        return False
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+def excluir_manutencao(db_path: str, rowid: int) -> bool:
+    """Exclui um registro de manutenção do banco de dados usando seu rowid."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = "DELETE FROM manutencoes WHERE rowid = ?"
+        cursor.execute(sql, (rowid,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao excluir manutenção do banco de dados: {e}")
+        return False
+
+def inserir_manutencao(db_path: str, dados: dict) -> bool:
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = 'INSERT INTO manutencoes (Cod_Equip, Data, Tipo_Servico, Hod_Hor_No_Servico) VALUES (?, ?, ?, ?)'
+        params = (dados['cod_equip'], dados['data'], dados['tipo_servico'], dados['hod_hor_servico'])
+        cursor.execute(sql, params)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro no banco de dados: {e}")
+        return False
+
+def inserir_frota(db_path: str, dados: dict) -> bool:
+    """Insere um novo registro de frota no banco de dados."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO frotas (
+                COD_EQUIPAMENTO, DESCRICAO_EQUIPAMENTO, PLACA, 
+                "Classe Operacional", ATIVO, tipo_combustivel
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['descricao'],
+            dados['placa'],
+            dados['classe_op'],
+            dados['ativo'],
+            dados.get('tipo_combustivel', 'Diesel S500')
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro no banco de dados: {e}")
+        return False
+    
+
+def editar_abastecimento(db_path: str, rowid: int, dados: dict) -> bool:
+    """Atualiza um registro de abastecimento existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE abastecimentos SET
+                "Cód. Equip." = ?, Data = ?, "Qtde Litros" = ?, Hod_Hor_Atual = ?, Safra = ?, Matricula = ?, Cod_Pessoa = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'], dados['data'], dados['qtde_litros'], dados['hod_hor_atual'], dados['safra'],
+            dados.get('matricula'), dados.get('cod_pessoa'), rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar abastecimento: {e}")
+        return False
+
+def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
+    """Atualiza um registro de manutenção existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE manutencoes SET
+                Cod_Equip = ?, Data = ?, Tipo_Servico = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (dados['cod_equip'], dados['data'], dados['tipo_servico'], dados['hod_hor_servico'], rowid)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar manutenção: {e}")
+        return False
+
+
+def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
+    """Edita um registro de manutenção de componente existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE componentes_historico 
+            SET Cod_Equip = ?, nome_componente = ?, Observacoes = ?, Data = ?, Hod_Hor_No_Servico = ?
+            WHERE rowid = ?
+        """
+        valores = (
+            dados['cod_equip'],
+            dados['componente'],
+            dados['acao'],
+            dados['data'],
+            dados['hod_hor_servico'],
+            rowid
+        )
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao editar manutenção de componente no banco de dados: {e}")
+        return False
+
+def importar_abastecimentos_de_planilha(db_path: str, arquivo_carregado) -> tuple[int, int, str]:
+    """Lê uma planilha, verifica por duplicados, e insere os novos dados. Aceita opcionalmente as colunas Matricula e Cod_Pessoa."""
+    try:
+        df_novo = pd.read_excel(arquivo_carregado)
+        
+        mapa_colunas = {
+            "Cód. Equip.": "Cód. Equip.",
+            "Data": "Data",
+            "Qtde Litros": "Qtde Litros",
+            "Hod. Hor. Atual": "Hod_Hor_Atual",
+            "Safra": "Safra",
+            "Mês": "Mês",
+            "Classe Operacional": "Classe Operacional",
+            "Matricula": "Matricula",
+            "Cod_Pessoa": "Cod_Pessoa",
+        }
+        df_novo = df_novo.rename(columns={k: v for k, v in mapa_colunas.items() if k in df_novo.columns})
+
+        colunas_necessarias = ["Cód. Equip.", "Data", "Qtde Litros", "Hod_Hor_Atual", "Safra", "Mês", "Classe Operacional"]
+        colunas_opcionais = ["Matricula", "Cod_Pessoa"]
+        colunas_faltando = [col for col in colunas_necessarias if col not in df_novo.columns]
+        if colunas_faltando:
+            return 0, 0, f"Erro: Colunas não encontradas: {', '.join(colunas_faltando)}"
+        conn = sqlite3.connect(db_path)
+        df_existente = pd.read_sql_query("SELECT * FROM abastecimentos", conn)
+        
+        df_novo['Data'] = pd.to_datetime(df_novo['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_existente['Data'] = pd.to_datetime(df_existente['Data']).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        df_novo['chave_unica'] = df_novo['Cód. Equip.'].astype(str) + '_' + df_novo['Data'] + '_' + df_novo['Qtde Litros'].astype(str)
+        df_existente['chave_unica'] = df_existente['Cód. Equip.'].astype(str) + '_' + df_existente['Data'] + '_' + df_existente['Qtde Litros'].astype(str)
+
+        df_para_inserir = df_novo[~df_novo['chave_unica'].isin(df_existente['chave_unica'])]
+        
+        num_duplicados = len(df_novo) - len(df_para_inserir)
+
+        if df_para_inserir.empty:
+            return 0, num_duplicados, "Nenhum registo novo para importar. Todos os registos da planilha já existem na base de dados."
+
+        colunas_insert = colunas_necessarias + [c for c in colunas_opcionais if c in df_para_inserir.columns]
+        df_para_inserir_final = df_para_inserir[colunas_insert]
+        registros = [tuple(x) for x in df_para_inserir_final.to_numpy()]
+        
+        cursor = conn.cursor()
+        placeholders = ", ".join(["?"] * len(colunas_insert))
+        sql = f"INSERT INTO abastecimentos ({', '.join(f'\"{col}\"' for col in colunas_insert)}) VALUES ({placeholders})"
+        cursor.executemany(sql, registros)
+        
+        conn.commit()
+        num_inseridos = cursor.rowcount
+        conn.close()
+        
+        mensagem_sucesso = f"{num_inseridos} registos novos foram importados com sucesso."
+        if num_duplicados > 0:
+            mensagem_sucesso += f" {num_duplicados} registos duplicados foram ignorados."
+            
+        return num_inseridos, num_duplicados, mensagem_sucesso
+
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação: {e}"
+
+def editar_frota(db_path: str, cod_equip: int, dados: dict) -> bool:
+    """Atualiza um registro de frota existente."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = """
+            UPDATE frotas SET
+                DESCRICAO_EQUIPAMENTO = ?, PLACA = ?, "Classe Operacional" = ?, ATIVO = ?, tipo_combustivel = ?
+            WHERE COD_EQUIPAMENTO = ?
+        """
+        valores = (dados['descricao'], dados['placa'], dados['classe_op'], dados['ativo'], dados.get('tipo_combustivel', 'Diesel S500'), cod_equip)
+        cursor.execute(sql, valores)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Erro ao atualizar frota: {e}")
+        return False
+
+# COLE ESTE BLOCO DE CÓDIGO NO LOCAL INDICADO
+
+def get_component_rules():
+    """Busca todas as regras de componentes da base de dados."""
+    with sqlite3.connect(DB_PATH) as conn:
+        return pd.read_sql_query("SELECT * FROM componentes_regras", conn)
+
+def add_component_rule(classe, componente, intervalo):
+    """Adiciona uma nova regra de componente à base de dados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao) VALUES (?, ?, ?)",
+                (classe, componente, intervalo)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
+def add_component_rule_advanced(classe, componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca", capacidade_litros=0.0):
+    """Adiciona uma nova regra de componente com informações de lubrificante e tipo de manutenção."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            cursor.execute(
+                "INSERT INTO componentes_regras (classe_operacional, nome_componente, intervalo_padrao, lubrificante_id, tipo_manutencao, capacidade_litros) VALUES (?, ?, ?, ?, ?, ?)",
+                (classe, componente, intervalo, lubrificante_id, tipo_manutencao, capacidade_litros)
+            )
+            conn.commit()
+        return True, f"Componente '{componente}' adicionado com sucesso à classe '{classe}'."
+    except Exception as e:
+        return False, f"Erro ao adicionar componente: {e}"
+
+def delete_component_rule(rule_id):
+    """Remove uma regra de componente da base de dados."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM componentes_regras WHERE id_regra = ?", (rule_id,))
+            conn.commit()
+        return True, "Componente removido com sucesso."
+    except Exception as e:
+        return False, f"Erro ao remover componente: {e}"
+
+def add_component_service(cod_equip, componente, data, hod_hor, obs):
+    """Adiciona um novo registo de serviço de componente ao histórico."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, Observacoes) VALUES (?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def add_component_service_advanced(cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado=None, obs=""):
+    """Adiciona um novo registo de serviço de componente com informações detalhadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            cursor.execute(
+                "INSERT INTO componentes_historico (Cod_Equip, nome_componente, Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cod_equip, componente, data, hod_hor, tipo_servico, lubrificante_utilizado, obs)
+            )
+            conn.commit()
+        return True, "Serviço de componente registado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao registar serviço: {e}"
+
+def get_component_status(cod_equip, componente):
+    """Obtém o status atual de um componente específico de um equipamento."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            # Buscar a última manutenção do componente
+            query = """
+            SELECT Data, Hod_Hor_No_Servico, tipo_servico, lubrificante_utilizado, Observacoes
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            ORDER BY Data DESC, Hod_Hor_No_Servico DESC
+            LIMIT 1
+            """
+            df_ultima = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            
+            # Buscar a regra do componente para obter o intervalo
+            query_regra = """
+            SELECT intervalo_padrao, lubrificante_id, tipo_manutencao
+            FROM componentes_regras cr
+            JOIN frotas f ON cr.classe_operacional = f."Classe Operacional"
+            WHERE f.COD_EQUIPAMENTO = ? AND cr.nome_componente = ?
+            """
+            df_regra = pd.read_sql_query(query_regra, conn, params=(cod_equip, componente))
+            
+            # Buscar o hodômetro/horímetro atual do equipamento
+            query_hod = """
+            SELECT Hod_Hor_Atual FROM abastecimentos 
+            WHERE Cod_Equip = ? 
+            ORDER BY Data DESC, Hod_Hor_Atual DESC 
+            LIMIT 1
+            """
+            df_hod = pd.read_sql_query(query_hod, conn, params=(cod_equip,))
+            
+            return df_ultima, df_regra, df_hod
+            
+    except Exception as e:
+        st.error(f"Erro ao obter status do componente: {e}")
+        return None, None, None
+
+def get_component_maintenance_count(cod_equip, componente):
+    """Obtém o número total de manutenções realizadas em um componente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            query = """
+            SELECT COUNT(*) as total_manutencoes,
+                   COUNT(CASE WHEN tipo_servico = 'Troca' THEN 1 END) as total_trocas,
+                   COUNT(CASE WHEN tipo_servico = 'Remonta' THEN 1 END) as total_remontas
+            FROM componentes_historico 
+            WHERE Cod_Equip = ? AND nome_componente = ?
+            """
+            df_count = pd.read_sql_query(query, conn, params=(cod_equip, componente))
+            return df_count.iloc[0] if not df_count.empty else {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+            
+    except Exception as e:
+        st.error(f"Erro ao obter contagem de manutenções: {e}")
+        return {'total_manutencoes': 0, 'total_trocas': 0, 'total_remontas': 0}
+
+def editar_manutencao_componente_advanced(DB_PATH, rowid, dados_editados):
+    """Edita uma manutenção de componente com informações avançadas."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_historico)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'tipo_servico' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN tipo_servico TEXT DEFAULT 'Troca'")
+            if 'lubrificante_utilizado' not in columns:
+                cursor.execute("ALTER TABLE componentes_historico ADD COLUMN lubrificante_utilizado TEXT")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_historico 
+                SET Cod_Equip = ?, nome_componente = ?, Data = ?, Hod_Hor_No_Servico = ?, 
+                    Observacoes = ?, tipo_servico = ?, lubrificante_utilizado = ?
+                WHERE rowid = ?
+            """, (
+                dados_editados['cod_equip'],
+                dados_editados['componente'],
+                dados_editados['data'],
+                dados_editados['hod_hor_servico'],
+                dados_editados['acao'],
+                dados_editados['tipo_servico'],
+                dados_editados['lubrificante_utilizado'],
+                rowid
+            ))
+            conn.commit()
+        return True, "Manutenção de componente atualizada com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar manutenção de componente: {e}"
+
+def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=None, tipo_manutencao="Troca"):
+    """Atualiza uma regra de componente existente."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Verificar se a tabela tem as colunas necessárias
+            cursor.execute("PRAGMA table_info(componentes_regras)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Adicionar colunas se não existirem
+            if 'lubrificante_id' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN lubrificante_id INTEGER")
+            if 'tipo_manutencao' not in columns:
+                cursor.execute("ALTER TABLE componentes_regras ADD COLUMN tipo_manutencao TEXT DEFAULT 'Troca'")
+            
+            # Atualizar os dados
+            cursor.execute("""
+                UPDATE componentes_regras 
+                SET nome_componente = ?, intervalo_padrao = ?, lubrificante_id = ?, tipo_manutencao = ?
+                WHERE id_regra = ?
+            """, (nome_componente, intervalo, lubrificante_id, tipo_manutencao, rule_id))
+            conn.commit()
+        return True, f"Componente '{nome_componente}' atualizado com sucesso."
+    except Exception as e:
+        return False, f"Erro ao atualizar componente: {e}"
+
+
+def get_frota_combustivel(cod_equip):
+    """Obtém o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tipo_combustivel FROM frotas WHERE COD_EQUIPAMENTO = ?", (cod_equip,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        st.error(f"Erro ao obter tipo de combustível: {e}")
+        return None
+
+
+def update_frota_combustivel(cod_equip, tipo_combustivel):
+    """Atualiza o tipo de combustível de uma frota específica."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE COD_EQUIPAMENTO = ?", (tipo_combustivel, cod_equip))
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível: {e}"
+
+
+def update_classe_combustivel(classe_operacional, tipo_combustivel):
+    """Atualiza o tipo de combustível de todas as frotas de uma classe."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE frotas SET tipo_combustivel = ? WHERE \"Classe Operacional\" = ?", (tipo_combustivel, classe_operacional))
+            rows_updated = cursor.rowcount
+            conn.commit()
+        return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
+    except Exception as e:
+        return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
+
+
+def add_tipo_combustivel_column():
+    """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            # Verificar se a coluna existe
+            cursor.execute("PRAGMA table_info(frotas)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'tipo_combustivel' not in columns:
+                cursor.execute("ALTER TABLE frotas ADD COLUMN tipo_combustivel TEXT DEFAULT 'Diesel S500'")
+                conn.commit()
+                return True, "Coluna tipo_combustivel adicionada com sucesso"
+            else:
+                return True, "Coluna tipo_combustivel já existe"
+    except Exception as e:
+        return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
+
+
+def ensure_motoristas_schema():
+    """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS motoristas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    codigo_pessoa TEXT,
+                    matricula TEXT UNIQUE,
+                    nome TEXT,
+                    ativo TEXT DEFAULT 'ATIVO'
+                )
+                """
+            )
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_matricula ON motoristas(matricula)")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_motoristas_codigo_pessoa ON motoristas(codigo_pessoa)")
+
+            cursor.execute("PRAGMA table_info(abastecimentos)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'Matricula' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Matricula TEXT")
+            if 'Cod_Pessoa' not in cols:
+                cursor.execute("ALTER TABLE abastecimentos ADD COLUMN Cod_Pessoa TEXT")
+            conn.commit()
+        return True, "Esquema de motoristas verificado"
+    except Exception as e:
+        return False, f"Erro ao verificar esquema de motoristas: {e}"
+
+
+def get_all_motoristas() -> pd.DataFrame:
+    """Retorna o DataFrame de motoristas."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            return pd.read_sql_query("SELECT * FROM motoristas", conn)
+    except Exception:
+        return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
+
+
+def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
+    """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
+    try:
+        df_mot = pd.read_excel(arquivo_carregado)
+        df_mot.columns = [c.strip() for c in df_mot.columns]
+        renomeios = {
+            'Matrícula': 'Matricula', 'matricula': 'Matricula', 'MATRICULA': 'Matricula',
+            'Nome': 'Nome', 'nome': 'Nome', 'NOME': 'Nome',
+            'Cod_Pessoa': 'Cod_Pessoa', 'Código Pessoa': 'Cod_Pessoa', 'codigo_pessoa': 'Cod_Pessoa', 'CODIGO_PESSOA': 'Cod_Pessoa'
+        }
+        df_mot.rename(columns={k: v for k, v in renomeios.items() if k in df_mot.columns}, inplace=True)
+        obrig = ['Matricula', 'Nome']
+        faltando = [c for c in obrig if c not in df_mot.columns]
+        if faltando:
+            return 0, 0, f"Erro: Colunas obrigatórias não encontradas: {', '.join(faltando)}"
+        if 'Cod_Pessoa' not in df_mot.columns:
+            df_mot['Cod_Pessoa'] = None
+        df_mot = df_mot.dropna(subset=['Matricula', 'Nome']).copy()
+        df_mot['Matricula'] = df_mot['Matricula'].astype(str).str.strip()
+        df_mot['Nome'] = df_mot['Nome'].astype(str).str.strip()
+        df_mot['Cod_Pessoa'] = df_mot['Cod_Pessoa'].astype(str).str.strip()
+        df_mot = df_mot.drop_duplicates(subset=['Matricula'])
+        with sqlite3.connect(db_path, check_same_thread=False) as conn:
+            existentes = pd.read_sql_query("SELECT matricula FROM motoristas", conn)
+            set_exist = set(existentes['matricula'].astype(str)) if not existentes.empty else set()
+            df_novos = df_mot[~df_mot['Matricula'].isin(set_exist)].copy()
+            if df_novos.empty:
+                return 0, len(df_mot), "Nenhum motorista novo para importar. Todos já existem."
+            registros = [
+                (row.get('Cod_Pessoa', None), row['Matricula'], row['Nome'], 'ATIVO')
+                for _, row in df_novos.iterrows()
+            ]
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO motoristas (codigo_pessoa, matricula, nome, ativo) VALUES (?, ?, ?, ?)",
+                registros
+            )
+            conn.commit()
+            inseridos = cur.rowcount if cur.rowcount is not None else len(registros)
+            duplicados = len(df_mot) - len(df_novos)
+            return inseridos, duplicados, f"{inseridos} motoristas importados com sucesso. {duplicados} já existiam."
+    except Exception as e:
+        return 0, 0, f"Ocorreu um erro inesperado durante a importação de motoristas: {e}"
+    
+def ensure_pneus_schema():
+    """Garante a existência da tabela de histórico de pneus."""
+    try:
+        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pneus_historico (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Cod_Equip INTEGER,
+                    posicao TEXT,
+                    marca TEXT,
+                    modelo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
                     vida_util_km REAL,
@@ -967,7 +8416,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
@@ -976,34 +8425,38 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
             df_pneus['observacoes'] = ""
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
-        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao'])
+        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
         
         # Normalizar tipos de dados
         df_pneus['Cod_Equip'] = df_pneus['Cod_Equip'].astype(str)
         df_pneus['posicao'] = df_pneus['posicao'].astype(str).str.strip()
+        df_pneus['numero_fogo'] = df_pneus['numero_fogo'].astype(str).str.strip()
         df_pneus['data_instalacao'] = pd.to_datetime(df_pneus['data_instalacao']).dt.strftime('%Y-%m-%d')
         
         # Remover duplicatas na própria planilha baseada em chave única
-        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'data_instalacao', 'hodometro_instalacao'])
+        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao'])
         
         with sqlite3.connect(db_path, check_same_thread=False) as conn:
             # Buscar registros existentes para verificar duplicatas
-            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
+            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, numero_fogo, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
             
             if not df_existente.empty:
                 # Normalizar dados existentes para comparação
                 df_existente['Cod_Equip'] = df_existente['Cod_Equip'].astype(str)
                 df_existente['posicao'] = df_existente['posicao'].astype(str).str.strip()
+                df_existente['numero_fogo'] = df_existente['numero_fogo'].astype(str).str.strip()
                 df_existente['data_instalacao'] = pd.to_datetime(df_existente['data_instalacao']).dt.strftime('%Y-%m-%d')
                 
                 # Criar chaves únicas para comparação
                 df_pneus['chave_unica'] = (df_pneus['Cod_Equip'] + '_' + 
                                           df_pneus['posicao'] + '_' + 
+                                          df_pneus['numero_fogo'] + '_' + 
                                           df_pneus['data_instalacao'] + '_' + 
                                           df_pneus['hodometro_instalacao'].astype(str))
                 
                 df_existente['chave_unica'] = (df_existente['Cod_Equip'] + '_' + 
                                               df_existente['posicao'] + '_' + 
+                                              df_existente['numero_fogo'] + '_' + 
                                               df_existente['data_instalacao'] + '_' + 
                                               df_existente['hodometro_instalacao'].astype(str))
                 
@@ -4064,6 +11517,7 @@ def ensure_pneus_schema():
                     posicao TEXT,
                     marca TEXT,
                     modelo TEXT,
+                    numero_fogo TEXT,
                     data_instalacao TEXT,
                     hodometro_instalacao REAL,
                     vida_util_km REAL,
@@ -4079,6 +11533,8 @@ def ensure_pneus_schema():
                 cursor.execute("ALTER TABLE pneus_historico ADD COLUMN status TEXT DEFAULT 'Ativo'")
             if 'vida_atual' not in cols:
                 cursor.execute("ALTER TABLE pneus_historico ADD COLUMN vida_atual INTEGER DEFAULT 1")
+            if 'numero_fogo' not in cols:
+                cursor.execute("ALTER TABLE pneus_historico ADD COLUMN numero_fogo TEXT")
             conn.commit()
         return True, "Tabela de pneus verificada"
     except Exception as e:
@@ -4089,7 +11545,7 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
     try:
         df_pneus = pd.read_excel(arquivo_carregado)
         df_pneus.columns = [c.strip() for c in df_pneus.columns]
-        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
+        obrig = ['Cod_Equip', 'posicao', 'marca', 'modelo', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao', 'vida_util_km']
         faltando = [c for c in obrig if c not in df_pneus.columns]
         if faltando:
             return 0, 0, f"Colunas obrigatórias faltando: {', '.join(faltando)}"
@@ -4098,34 +11554,38 @@ def importar_pneus_de_planilha(db_path: str, arquivo_carregado):
             df_pneus['observacoes'] = ""
         
         # Limpar dados e remover linhas com valores nulos obrigatórios
-        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao'])
+        df_pneus = df_pneus.dropna(subset=['Cod_Equip', 'posicao', 'numero_fogo'])
         
         # Normalizar tipos de dados
         df_pneus['Cod_Equip'] = df_pneus['Cod_Equip'].astype(str)
         df_pneus['posicao'] = df_pneus['posicao'].astype(str).str.strip()
+        df_pneus['numero_fogo'] = df_pneus['numero_fogo'].astype(str).str.strip()
         df_pneus['data_instalacao'] = pd.to_datetime(df_pneus['data_instalacao']).dt.strftime('%Y-%m-%d')
         
         # Remover duplicatas na própria planilha baseada em chave única
-        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'data_instalacao', 'hodometro_instalacao'])
+        df_pneus = df_pneus.drop_duplicates(subset=['Cod_Equip', 'posicao', 'numero_fogo', 'data_instalacao', 'hodometro_instalacao'])
         
         with sqlite3.connect(db_path, check_same_thread=False) as conn:
             # Buscar registros existentes para verificar duplicatas
-            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
+            df_existente = pd.read_sql_query("SELECT Cod_Equip, posicao, numero_fogo, data_instalacao, hodometro_instalacao FROM pneus_historico", conn)
             
             if not df_existente.empty:
                 # Normalizar dados existentes para comparação
                 df_existente['Cod_Equip'] = df_existente['Cod_Equip'].astype(str)
                 df_existente['posicao'] = df_existente['posicao'].astype(str).str.strip()
+                df_existente['numero_fogo'] = df_existente['numero_fogo'].astype(str).str.strip()
                 df_existente['data_instalacao'] = pd.to_datetime(df_existente['data_instalacao']).dt.strftime('%Y-%m-%d')
                 
                 # Criar chaves únicas para comparação
                 df_pneus['chave_unica'] = (df_pneus['Cod_Equip'] + '_' + 
                                           df_pneus['posicao'] + '_' + 
+                                          df_pneus['numero_fogo'] + '_' + 
                                           df_pneus['data_instalacao'] + '_' + 
                                           df_pneus['hodometro_instalacao'].astype(str))
                 
                 df_existente['chave_unica'] = (df_existente['Cod_Equip'] + '_' + 
                                               df_existente['posicao'] + '_' + 
+                                              df_existente['numero_fogo'] + '_' + 
                                               df_existente['data_instalacao'] + '_' + 
                                               df_existente['hodometro_instalacao'].astype(str))
                 
@@ -9763,8 +17223,8 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
         if tab_importar is not None:
             with tab_importar:
                 st.header("📤 Importar Dados")
-                sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes, sub_tab_componentes = st.tabs(
-                    ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes", "⚙️ Componentes"]
+                sub_tab_abastec, sub_tab_motoristas, sub_tab_precos, sub_tab_pneus, sub_tab_lubrificantes, sub_tab_componentes, sub_tab_sucateamento = st.tabs(
+                    ["⛽ Abastecimentos", "👤 Motoristas", "💲 Preços de Combustível", "🚚 Pneus", "🛢️ Lubrificantes", "⚙️ Componentes", "📊 Análise Sucateamento"]
                 )
 
                 with sub_tab_abastec:
@@ -9841,7 +17301,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                 with sub_tab_pneus:
                     st.subheader("Importar Histórico de Pneus")
                     st.info(
-                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `data_instalacao`, `hodometro_instalacao`, `vida_util_km`. Opcional: `observacoes`.\n"
+                            "Colunas obrigatórias na planilha: `Cod_Equip`, `posicao`, `marca`, `modelo`, `numero_fogo`, `data_instalacao`, `hodometro_instalacao`, `vida_util_km`. Opcional: `observacoes`.\n"
                             "Cada pneu será vinculado à frota pelo campo `Cod_Equip`."
                         )
                     arquivo_pneus = st.file_uploader("Selecione a planilha de pneus", type=['xlsx'], key="upl_pneus")
@@ -9867,6 +17327,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                             posicao = st.text_input("Posição do Pneu (ex: Dianteiro Esquerdo)")
                             marca = st.text_input("Marca")
                             modelo = st.text_input("Modelo")
+                            numero_fogo = st.text_input("Nº de Fogo do Pneu")
                             data_instalacao = st.date_input("Data de Instalação")
                             hodometro_instalacao = st.number_input("Leitura na Instalação", min_value=0.0, format="%.2f")
                             vida_util_km = st.number_input("Vida Útil Estimada (km)", min_value=0.0, format="%.2f")
@@ -9879,8 +17340,8 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                     with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
                                         cur = conn.cursor()
                                         cur.execute(
-                                            "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, data_instalacao, hodometro_instalacao, vida_util_km, observacoes, status, vida_atual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                            (cod_equip, posicao, marca, modelo, data_instalacao.strftime("%Y-%m-%d"), hodometro_instalacao, vida_util_km, observacoes, status, vida_atual)
+                                            "INSERT INTO pneus_historico (Cod_Equip, posicao, marca, modelo, numero_fogo, data_instalacao, hodometro_instalacao, vida_util_km, observacoes, status, vida_atual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                            (cod_equip, posicao, marca, modelo, numero_fogo, data_instalacao.strftime("%Y-%m-%d"), hodometro_instalacao, vida_util_km, observacoes, status, vida_atual)
                                         )
                                         conn.commit()
                                     st.success("Pneu cadastrado com sucesso!")
@@ -9907,7 +17368,8 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                     df_hist_pneus['id'].astype(str) + " | " +
                                     df_hist_pneus['posicao'] + " | " +
                                     df_hist_pneus['marca'] + " | " +
-                                    df_hist_pneus['modelo']
+                                    df_hist_pneus['modelo'] + " | " +
+                                    df_hist_pneus.get('numero_fogo', '').fillna('')
                                 )
                                 pneu_sel = st.selectbox("Selecione o pneu para editar/excluir", options=df_hist_pneus['label'])
                                 if pneu_sel:
@@ -9917,6 +17379,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                             nova_posicao = st.text_input("Posição", value=pneu_row['posicao'])
                                             nova_marca = st.text_input("Marca", value=pneu_row['marca'])
                                             novo_modelo = st.text_input("Modelo", value=pneu_row['modelo'])
+                                            novo_numero_fogo = st.text_input("Nº de Fogo do Pneu", value=pneu_row.get('numero_fogo', ''))
                                             nova_data = st.date_input("Data de Instalação", value=pd.to_datetime(pneu_row['data_instalacao']))
                                             novo_hod = st.number_input("Leitura na Instalação", value=float(pneu_row['hodometro_instalacao']), format="%.2f")
                                             nova_vida = st.number_input("Vida Útil Estimada (km)", value=float(pneu_row['vida_util_km']), format="%.2f")
@@ -9926,14 +17389,74 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                                     with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
                                                         cur = conn.cursor()
                                                         cur.execute(
-                                                            "UPDATE pneus_historico SET posicao=?, marca=?, modelo=?, data_instalacao=?, hodometro_instalacao=?, vida_util_km=?, observacoes=? WHERE id=?",
-                                                            (nova_posicao, nova_marca, novo_modelo, nova_data.strftime("%Y-%m-%d"), novo_hod, nova_vida, novas_obs, pneu_row['id'])
+                                                            "UPDATE pneus_historico SET posicao=?, marca=?, modelo=?, numero_fogo=?, data_instalacao=?, hodometro_instalacao=?, vida_util_km=?, observacoes=? WHERE id=?",
+                                                            (nova_posicao, nova_marca, novo_modelo, novo_numero_fogo, nova_data.strftime("%Y-%m-%d"), novo_hod, nova_vida, novas_obs, pneu_row['id'])
                                                         )
                                                         conn.commit()
                                                     st.success("Pneu atualizado com sucesso!")
                                                     st.rerun()
                                                 except Exception as e:
                                                     st.error(f"Erro ao editar pneu: {e}")
+                                    
+                                    # Funcionalidade de Sucateamento
+                                    if pneu_row['status'] != 'Sucateado':
+                                        with st.expander("🚫 Sucatear Pneu"):
+                                            st.warning("⚠️ **ATENÇÃO:** Ao sucatear um pneu, ele será desvinculado da frota e não aparecerá mais nas consultas de pneus ativos.")
+                                            
+                                            with st.form("form_sucatear_pneu", clear_on_submit=True):
+                                                causa_sucateamento = st.selectbox(
+                                                    "Causa do Sucateamento",
+                                                    options=[
+                                                        "Desgaste excessivo",
+                                                        "Furo irreparável",
+                                                        "Rachadura na lateral",
+                                                        "Deformação da carcaça",
+                                                        "Vida útil esgotada",
+                                                        "Acidente/Dano mecânico",
+                                                        "Problema de fabricação",
+                                                        "Outros"
+                                                    ],
+                                                    help="Selecione a principal causa do sucateamento"
+                                                )
+                                                
+                                                if causa_sucateamento == "Outros":
+                                                    causa_sucateamento = st.text_input("Especifique a causa:", placeholder="Descreva a causa específica")
+                                                
+                                                data_sucateamento = st.date_input("Data do Sucateamento", value=datetime.now().date())
+                                                observacoes_sucateamento = st.text_area("Observações Adicionais", height=80, placeholder="Detalhes adicionais sobre o sucateamento...")
+                                                
+                                                if st.form_submit_button("🚫 Confirmar Sucateamento"):
+                                                    try:
+                                                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                                                            cur = conn.cursor()
+                                                            
+                                                            # Verificar se a coluna causa_sucateamento existe
+                                                            cur.execute("PRAGMA table_info(pneus_historico)")
+                                                            cols = [c[1] for c in cur.fetchall()]
+                                                            if 'causa_sucateamento' not in cols:
+                                                                cur.execute("ALTER TABLE pneus_historico ADD COLUMN causa_sucateamento TEXT")
+                                                            if 'data_sucateamento' not in cols:
+                                                                cur.execute("ALTER TABLE pneus_historico ADD COLUMN data_sucateamento TEXT")
+                                                            
+                                                            # Atualizar o pneu para sucateado
+                                                            cur.execute("""
+                                                                UPDATE pneus_historico 
+                                                                SET status = 'Sucateado', 
+                                                                    causa_sucateamento = ?,
+                                                                    data_sucateamento = ?,
+                                                                    observacoes = ?
+                                                                WHERE id = ?
+                                                            """, (causa_sucateamento, data_sucateamento.strftime("%Y-%m-%d"), observacoes_sucateamento, pneu_row['id']))
+                                                            
+                                                            conn.commit()
+                                                            
+                                                        st.success(f"✅ Pneu sucateado com sucesso! Causa: {causa_sucateamento}")
+                                                        st.info("ℹ️ O pneu foi desvinculado da frota e não aparecerá mais nas consultas de pneus ativos.")
+                                                        st.rerun()
+                                                        
+                                                    except Exception as e:
+                                                        st.error(f"❌ Erro ao sucatear pneu: {e}")
+                                    
                                     if st.button("Excluir Pneu Selecionado", type="primary"):
                                         try:
                                             with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
@@ -10074,6 +17597,239 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                             file_name="exemplo_componentes.csv",
                             mime="text/csv"
                         )
+
+                # ============================================================================
+                # NOVA ABA: ANÁLISE DE SUCATEAMENTO DE PNEUS
+                # ============================================================================
+                
+                with sub_tab_sucateamento:
+                    st.header("📊 Análise de Sucateamento de Pneus")
+                    st.info("📈 Esta aba fornece análises detalhadas sobre as causas de sucateamento e perda de pneus para otimizar a gestão da frota.")
+                    
+                    # Estatísticas gerais
+                    col1_stats, col2_stats, col3_stats, col4_stats = st.columns(4)
+                    
+                    try:
+                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                            # Total de pneus
+                            total_pneus = pd.read_sql_query("SELECT COUNT(*) as total FROM pneus_historico", conn).iloc[0]['total']
+                            
+                            # Pneus ativos
+                            pneus_ativos = pd.read_sql_query("SELECT COUNT(*) as ativos FROM pneus_historico WHERE status != 'Sucateado'", conn).iloc[0]['ativos']
+                            
+                            # Pneus sucateados
+                            pneus_sucateados = pd.read_sql_query("SELECT COUNT(*) as sucateados FROM pneus_historico WHERE status = 'Sucateado'", conn).iloc[0]['sucateados']
+                            
+                            # Taxa de sucateamento
+                            taxa_sucateamento = (pneus_sucateados / total_pneus * 100) if total_pneus > 0 else 0
+                            
+                    except Exception as e:
+                        total_pneus = pneus_ativos = pneus_sucateados = taxa_sucateamento = 0
+                        st.error(f"Erro ao buscar estatísticas: {e}")
+                    
+                    with col1_stats:
+                        st.metric("Total de Pneus", total_pneus)
+                    
+                    with col2_stats:
+                        st.metric("Pneus Ativos", pneus_ativos)
+                    
+                    with col3_stats:
+                        st.metric("Pneus Sucateados", pneus_sucateados)
+                    
+                    with col4_stats:
+                        st.metric("Taxa de Sucateamento", f"{taxa_sucateamento:.1f}%")
+                    
+                    st.markdown("---")
+                    
+                    # Análise por causa de sucateamento
+                    st.subheader("🔍 Análise por Causa de Sucateamento")
+                    
+                    try:
+                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                            # Verificar se a coluna existe
+                            cur = conn.cursor()
+                            cur.execute("PRAGMA table_info(pneus_historico)")
+                            cols = [c[1] for c in cur.fetchall()]
+                            
+                            if 'causa_sucateamento' in cols:
+                                # Buscar causas de sucateamento
+                                df_causas = pd.read_sql_query("""
+                                    SELECT 
+                                        causa_sucateamento,
+                                        COUNT(*) as quantidade,
+                                        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pneus_historico WHERE status = 'Sucateado'), 2) as percentual
+                                    FROM pneus_historico 
+                                    WHERE status = 'Sucateado' 
+                                    AND causa_sucateamento IS NOT NULL 
+                                    AND causa_sucateamento != ''
+                                    GROUP BY causa_sucateamento 
+                                    ORDER BY quantidade DESC
+                                """, conn)
+                                
+                                if not df_causas.empty:
+                                    # Gráfico de pizza das causas
+                                    fig_causas = px.pie(
+                                        df_causas, 
+                                        values='quantidade', 
+                                        names='causa_sucateamento',
+                                        title='Distribuição das Causas de Sucateamento',
+                                        color_discrete_sequence=px.colors.qualitative.Set3
+                                    )
+                                    fig_causas.update_traces(textposition='inside', textinfo='percent+label')
+                                    st.plotly_chart(fig_causas, use_container_width=True)
+                                    
+                                    # Tabela detalhada
+                                    st.subheader("📋 Detalhamento por Causa")
+                                    st.dataframe(
+                                        df_causas,
+                                        column_config={
+                                            "causa_sucateamento": "Causa",
+                                            "quantidade": "Quantidade",
+                                            "percentual": st.column_config.NumberColumn("Percentual (%)", format="%.1f%%")
+                                        },
+                                        use_container_width=True
+                                    )
+                                    
+                                    # Download dos dados
+                                    csv_causas = df_causas.to_csv(index=False, sep=';', decimal=',')
+                                    st.download_button(
+                                        label="📥 Baixar Relatório de Causas",
+                                        data=csv_causas,
+                                        file_name=f"causas_sucateamento_{datetime.now().strftime('%Y%m%d')}.csv",
+                                        mime="text/csv"
+                                    )
+                                else:
+                                    st.info("ℹ️ Nenhum pneu sucateado com causa registrada encontrado.")
+                            else:
+                                st.warning("⚠️ A coluna 'causa_sucateamento' ainda não foi criada. Sucateie alguns pneus primeiro para gerar as análises.")
+                    
+                    except Exception as e:
+                        st.error(f"Erro ao analisar causas de sucateamento: {e}")
+                    
+                    st.markdown("---")
+                    
+                    # Lista detalhada de pneus sucateados
+                    st.subheader("📋 Lista Detalhada de Pneus Sucateados")
+                    
+                    try:
+                        with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+                            # Verificar se as colunas existem
+                            cur = conn.cursor()
+                            cur.execute("PRAGMA table_info(pneus_historico)")
+                            cols = [c[1] for c in cur.fetchall()]
+                            
+                            if 'causa_sucateamento' in cols and 'data_sucateamento' in cols:
+                                df_sucateados = pd.read_sql_query("""
+                                    SELECT 
+                                        id,
+                                        Cod_Equip,
+                                        posicao,
+                                        marca,
+                                        modelo,
+                                        numero_fogo,
+                                        data_instalacao,
+                                        data_sucateamento,
+                                        causa_sucateamento,
+                                        observacoes
+                                    FROM pneus_historico
+                                    WHERE status = 'Sucateado'
+                                    ORDER BY data_sucateamento DESC, Cod_Equip, posicao
+                                """, conn)
+                                
+                                if not df_sucateados.empty:
+                                    # Filtros
+                                    col_filtro1, col_filtro2 = st.columns(2)
+                                    
+                                    with col_filtro1:
+                                        causas_filtro = ['Todas'] + sorted(df_sucateados['causa_sucateamento'].dropna().unique().tolist())
+                                        causa_selecionada = st.selectbox("Filtrar por Causa", options=causas_filtro)
+                                    
+                                    with col_filtro2:
+                                        frotas_filtro = ['Todas'] + sorted(df_sucateados['Cod_Equip'].dropna().unique().tolist())
+                                        frota_selecionada = st.selectbox("Filtrar por Frota", options=frotas_filtro)
+                                    
+                                    # Aplicar filtros
+                                    df_filtrado = df_sucateados.copy()
+                                    
+                                    if causa_selecionada != 'Todas':
+                                        df_filtrado = df_filtrado[df_filtrado['causa_sucateamento'] == causa_selecionada]
+                                    
+                                    if frota_selecionada != 'Todas':
+                                        df_filtrado = df_filtrado[df_filtrado['Cod_Equip'] == frota_selecionada]
+                                    
+                                    # Exibir dados filtrados
+                                    st.dataframe(
+                                        df_filtrado,
+                                        column_config={
+                                            "id": "ID",
+                                            "Cod_Equip": "Cód. Frota",
+                                            "posicao": "Posição",
+                                            "marca": "Marca",
+                                            "modelo": "Modelo",
+                                            "numero_fogo": "Nº Fogo",
+                                            "data_instalacao": "Data Instalação",
+                                            "data_sucateamento": "Data Sucateamento",
+                                            "causa_sucateamento": "Causa",
+                                            "observacoes": "Observações"
+                                        },
+                                        use_container_width=True
+                                    )
+                                    
+                                    # Download dos dados filtrados
+                                    csv_sucateados = df_filtrado.to_csv(index=False, sep=';', decimal=',')
+                                    st.download_button(
+                                        label="📥 Baixar Lista de Pneus Sucateados",
+                                        data=csv_sucateados,
+                                        file_name=f"pneus_sucateados_{datetime.now().strftime('%Y%m%d')}.csv",
+                                        mime="text/csv"
+                                    )
+                                else:
+                                    st.info("ℹ️ Nenhum pneu sucateado encontrado.")
+                            else:
+                                st.warning("⚠️ As colunas de sucateamento ainda não foram criadas. Sucateie alguns pneus primeiro.")
+                    
+                    except Exception as e:
+                        st.error(f"Erro ao buscar pneus sucateados: {e}")
+                    
+                    st.markdown("---")
+                    
+                    # Recomendações baseadas na análise
+                    st.subheader("💡 Recomendações e Insights")
+                    
+                    try:
+                        if 'causa_sucateamento' in cols:
+                            # Buscar a causa mais frequente
+                            causa_mais_frequente = df_causas.iloc[0]['causa_sucateamento'] if not df_causas.empty else None
+                            
+                            if causa_mais_frequente:
+                                st.info(f"🎯 **Causa mais frequente:** {causa_mais_frequente}")
+                                
+                                # Recomendações específicas
+                                if "Desgaste excessivo" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Revisar pressão dos pneus e alinhamento da frota regularmente.")
+                                elif "Furo irreparável" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Implementar inspeção visual diária e treinamento da equipe.")
+                                elif "Rachadura na lateral" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Verificar condições das estradas e velocidade de operação.")
+                                elif "Deformação da carcaça" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Revisar sobrecarga e condições de operação.")
+                                elif "Vida útil esgotada" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Otimizar rotação de pneus e monitorar desgaste.")
+                                elif "Acidente/Dano mecânico" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Reforçar treinamento de operadores e manutenção preventiva.")
+                                elif "Problema de fabricação" in causa_mais_frequente:
+                                    st.success("✅ **Recomendação:** Revisar fornecedores e qualidade dos pneus.")
+                                else:
+                                    st.success("✅ **Recomendação:** Analisar padrões específicos para esta causa.")
+                        
+                        # Estatísticas de tendência
+                        if taxa_sucateamento > 20:
+                            st.warning("⚠️ **Alerta:** Taxa de sucateamento alta. Considere revisar políticas de manutenção.")
+                        elif taxa_sucateamento < 10:
+                            st.success("✅ **Excelente:** Taxa de sucateamento baixa. Mantenha as boas práticas!")
+                        
+                    except Exception as e:
+                        st.error(f"Erro ao gerar recomendações: {e}")
         if tab_gerir_checklists is not None:
             with tab_gerir_checklists:
                     st.header("✅ Gerir Checklists")
