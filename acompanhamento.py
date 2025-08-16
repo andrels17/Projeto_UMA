@@ -6090,15 +6090,6 @@ def main():
                             )
                             st.plotly_chart(fig_ranking, use_container_width=True)
                             
-                            # Tabela detalhada
-                            st.markdown("**📋 Tabela Detalhada:**")
-                            colunas_exibir = ['Equipamento_Completo', 'Classe_Operacional', 'Eficiência_Formatada', 'Status']
-                            st.dataframe(
-                                ranking_filtrado[colunas_exibir].head(50),
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                            
                             # Botão de exportação
                             csv_ranking = para_csv(ranking_filtrado)
                             st.download_button(
