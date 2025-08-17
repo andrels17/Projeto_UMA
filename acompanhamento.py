@@ -9,7 +9,7 @@ import hashlib
 import json
 import base64
 import io
-# Configuração da página (deve ser o primeiro comando Streamlit)
+
 st.set_page_config(
     page_title="Dashboard de Frotas - Açúcar Alegre",
     page_icon="🚜",
@@ -22,9 +22,12 @@ st.set_page_config(
     }
 )
 
-# Configuração de tema
+# Configuração de tema (após set_page_config)
 if 'theme' not in st.session_state:
     st.session_state.theme = 'dark'
+
+# Configuração de tema
+
 
 # CSS personalizado para tema claro/escuro
 def get_theme_css():
@@ -2368,7 +2371,15 @@ def main():
             )
             st.session_state['filtro_data_inicio'] = data_inicio
             st.session_state['filtro_data_fim'] = data_fim
-
+            # Toggle de tema
+            st.subheader("🎨 Configurações")
+            if st.checkbox("🌓 Alternar Tema", key="theme_toggle"):
+                if st.session_state.theme == "dark":
+                    st.session_state.theme = "light"
+                else:
+                    st.session_state.theme = "dark"
+                st.rerun()
+            
             st.markdown("---")
             st.caption("Desenvolvido por André Luis")
 
@@ -2409,22 +2420,13 @@ import hashlib
 import json
 import base64
 import io
-# Configuração da página (deve ser o primeiro comando Streamlit)
-st.set_page_config(
-    page_title="Dashboard de Frotas - Açúcar Alegre",
-    page_icon="🚜",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
-        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
-        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
-    }
-)
 
-# Configuração de tema
+# Configuração de tema (após set_page_config)
 if 'theme' not in st.session_state:
     st.session_state.theme = 'dark'
+
+# Configuração de tema
+
 
 # CSS personalizado para tema claro/escuro
 def get_theme_css():
@@ -5656,22 +5658,13 @@ import hashlib
 import json
 import base64
 import io
-# Configuração da página (deve ser o primeiro comando Streamlit)
-st.set_page_config(
-    page_title="Dashboard de Frotas - Açúcar Alegre",
-    page_icon="🚜",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
-        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
-        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
-    }
-)
 
-# Configuração de tema
+# Configuração de tema (após set_page_config)
 if 'theme' not in st.session_state:
     st.session_state.theme = 'dark'
+
+# Configuração de tema
+
 
 # CSS personalizado para tema claro/escuro
 def get_theme_css():
@@ -8056,22 +8049,13 @@ import hashlib
 import json
 import base64
 import io
-# Configuração da página (deve ser o primeiro comando Streamlit)
-st.set_page_config(
-    page_title="Dashboard de Frotas - Açúcar Alegre",
-    page_icon="🚜",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
-        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
-        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
-    }
-)
 
-# Configuração de tema
+# Configuração de tema (após set_page_config)
 if 'theme' not in st.session_state:
     st.session_state.theme = 'dark'
+
+# Configuração de tema
+
 
 # CSS personalizado para tema claro/escuro
 def get_theme_css():
@@ -11576,22 +11560,13 @@ import hashlib
 import json
 import base64
 import io
-# Configuração da página (deve ser o primeiro comando Streamlit)
-st.set_page_config(
-    page_title="Dashboard de Frotas - Açúcar Alegre",
-    page_icon="🚜",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
-        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
-        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
-    }
-)
 
-# Configuração de tema
+# Configuração de tema (após set_page_config)
 if 'theme' not in st.session_state:
     st.session_state.theme = 'dark'
+
+# Configuração de tema
+
 
 # CSS personalizado para tema claro/escuro
 def get_theme_css():
