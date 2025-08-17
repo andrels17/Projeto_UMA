@@ -9,6 +9,144 @@ import hashlib
 import json
 import base64
 import io
+# Configuração da página (deve ser o primeiro comando Streamlit)
+st.set_page_config(
+    page_title="Dashboard de Frotas - Açúcar Alegre",
+    page_icon="🚜",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
+        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
+        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
+    }
+)
+
+# Configuração de tema
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
+
+# CSS personalizado para tema claro/escuro
+def get_theme_css():
+    if st.session_state.theme == 'dark':
+        return """
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+    else:
+        return """
+        <style>
+        .stApp {
+            background-color: #ffffff;
+            color: #262730;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+
+# Aplicar CSS do tema
+st.markdown(get_theme_css(), unsafe_allow_html=True)
+
+# Função para alternar tema
+def toggle_theme():
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+
+# Função para exportar dados
+def export_dataframe(df, filename, file_type='csv'):
+    """Exporta DataFrame em diferentes formatos"""
+    if file_type == 'csv':
+        csv = df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig')
+        st.download_button(
+            label=f"📥 Download {filename}.csv",
+            data=csv,
+            file_name=f"{filename}.csv",
+            mime="text/csv",
+            help=f"Baixar {filename} em formato CSV"
+        )
+    elif file_type == 'excel':
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Dados')
+        buffer.seek(0)
+        st.download_button(
+            label=f"📥 Download {filename}.xlsx",
+            data=buffer,
+            file_name=f"{filename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help=f"Baixar {filename} em formato Excel"
+        )
+
+# Função para mostrar loading
+def show_loading(message="Carregando dados..."):
+    """Mostra indicador de carregamento"""
+    with st.spinner(message):
+        st.info(f"⏳ {message}")
+        return True
+
+# Função para tooltip informativo
+def info_tooltip(text, help_text):
+    """Cria um elemento com tooltip informativo"""
+    col1, col2 = st.columns([20, 1])
+    with col1:
+        st.write(text)
+    with col2:
+        st.info("ℹ️", help=help_text)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
@@ -140,7 +278,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # --- Início do Processamento Integrado ---
         
         # Renomeia colunas para um padrão consistente
-        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
         df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
 
         # Cria o dataframe principal mesclando abastecimentos e frotas
@@ -158,7 +296,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
         
         # Limpa e converte colunas numéricas
-        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+        for col in ["Qtde Litros", "Media", "Hod_Hor_Atual"]:
             if col in df_merged.columns:
                 series = df_merged[col].astype(str)
                 series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
@@ -186,13 +324,9 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-        
-        # Garantir que a coluna existe e tem valores válidos
-        if 'tipo_combustivel' in df_frotas.columns:
-            # Preencher valores nulos com padrão
-            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
         else:
-            df_frotas['tipo_combustivel'] = 'Diesel S500'
+            # Se a coluna existe, apenas preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -265,7 +399,6 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao excluir dados do banco de dados: {e}")
         return False
-
 
 def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
     """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
@@ -367,7 +500,6 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
         if 'conn' in locals():
             conn.close()
 
-
 def excluir_manutencao(db_path: str, rowid: int) -> bool:
     """Exclui um registro de manutenção do banco de dados usando seu rowid."""
     try:
@@ -464,7 +596,6 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
         return False
-
 
 def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
     """Edita um registro de manutenção de componente existente."""
@@ -788,7 +919,6 @@ def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=N
     except Exception as e:
         return False, f"Erro ao atualizar componente: {e}"
 
-
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
     try:
@@ -801,7 +931,6 @@ def get_frota_combustivel(cod_equip):
         st.error(f"Erro ao obter tipo de combustível: {e}")
         return None
 
-
 def update_frota_combustivel(cod_equip, tipo_combustivel):
     """Atualiza o tipo de combustível de uma frota específica."""
     try:
@@ -812,7 +941,6 @@ def update_frota_combustivel(cod_equip, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível: {e}"
-
 
 def update_classe_combustivel(classe_operacional, tipo_combustivel):
     """Atualiza o tipo de combustível de todas as frotas de uma classe."""
@@ -825,7 +953,6 @@ def update_classe_combustivel(classe_operacional, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
-
 
 def add_tipo_combustivel_column():
     """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
@@ -844,7 +971,6 @@ def add_tipo_combustivel_column():
                 return True, "Coluna tipo_combustivel já existe"
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
-
 
 def ensure_motoristas_schema():
     """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
@@ -876,7 +1002,6 @@ def ensure_motoristas_schema():
     except Exception as e:
         return False, f"Erro ao verificar esquema de motoristas: {e}"
 
-
 def get_all_motoristas() -> pd.DataFrame:
     """Retorna o DataFrame de motoristas."""
     try:
@@ -884,7 +1009,6 @@ def get_all_motoristas() -> pd.DataFrame:
             return pd.read_sql_query("SELECT * FROM motoristas", conn)
     except Exception:
         return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
-
 
 def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
     """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
@@ -1084,7 +1208,6 @@ def ensure_precos_combustivel_schema():
     except Exception as e:
         return False, f"Erro ao verificar tabela de preços: {e}"
 
-
 def get_precos_combustivel_map() -> dict:
     """Retorna um dicionário {tipo_combustivel: preco}."""
     try:
@@ -1093,7 +1216,6 @@ def get_precos_combustivel_map() -> dict:
         return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
     except Exception:
         return {}
-
 
 def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
     """Cria/atualiza preço para um tipo de combustível."""
@@ -1582,7 +1704,6 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
 
     return pd.DataFrame(plan_data)
 
-
 def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
     """Estima as datas das próximas manutenções com base no uso médio."""
     if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
@@ -1623,7 +1744,6 @@ def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFram
     df_previsoes = pd.DataFrame(previsoes)
     return df_previsoes.sort_values('Dias Restantes')
 
-
 # ---------------------------
 # Funções para Checklists
 # ---------------------------
@@ -1652,7 +1772,6 @@ def get_checklist_items(id_regra):
         st.error(f"Erro ao buscar itens de checklist: {e}")
         return pd.DataFrame()
 
-
 # ---------------------------
 # CRUD para Checklists
 # ---------------------------
@@ -1673,7 +1792,6 @@ def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
         return True, "Regra de checklist adicionada com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar regra de checklist: {e}"
-
 
 def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
     """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
@@ -1697,7 +1815,6 @@ def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, f
         st.error(f"Erro ao adicionar regra de checklist: {e}")
         return None
 
-
 def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
     """Edita uma regra de checklist existente."""
     try:
@@ -1716,7 +1833,6 @@ def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, f
     except Exception as e:
         return False, f"Erro ao editar regra de checklist: {e}"
 
-
 def delete_checklist_rule(id_regra):
     """Remove uma regra de checklist e seus itens associados."""
     try:
@@ -1728,7 +1844,6 @@ def delete_checklist_rule(id_regra):
         return True, "Regra de checklist removida com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover regra de checklist: {e}"
-
 
 def add_checklist_item(id_regra, nome_item):
     """Adiciona um novo item de checklist a uma regra existente."""
@@ -1746,7 +1861,6 @@ def add_checklist_item(id_regra, nome_item):
         return True, "Item de checklist adicionado com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar item de checklist: {e}"
-
 
 def edit_checklist_item(id_item, nome_item):
     """Edita um item de checklist existente."""
@@ -1766,7 +1880,6 @@ def edit_checklist_item(id_item, nome_item):
     except Exception as e:
         return False, f"Erro ao editar item de checklist: {e}"
 
-
 def delete_checklist_item(id_item):
     """Remove um item de checklist."""
     try:
@@ -1777,7 +1890,6 @@ def delete_checklist_item(id_item):
         return True, "Item de checklist removido com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover item de checklist: {e}"
-
 
 def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
     """Salva um checklist preenchido no histórico."""
@@ -1795,7 +1907,6 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
             conn.commit()
     except Exception as e:
         st.error(f"Erro ao salvar histórico de checklist: {e}")
-
 
 def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
     """Remove um registro do histórico de checklists usando uma combinação única de campos."""
@@ -1917,7 +2028,6 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             conn.close()
         return False, f"Erro ao excluir checklist: {e}"
 
-
 def force_cache_clear():
     """Força a limpeza completa de todos os caches."""
     try:
@@ -1931,7 +2041,6 @@ def force_cache_clear():
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao limpar cache: {e}")
-
 
 def force_database_sync():
     """Força a sincronização do banco de dados com o disco."""
@@ -1959,7 +2068,6 @@ def force_database_sync():
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
-
 
 def export_database_backup():
     """Exporta todos os dados do banco para um arquivo de backup."""
@@ -1993,7 +2101,6 @@ def export_database_backup():
         
     except Exception as e:
         return None, f"Erro ao exportar backup: {e}"
-
 
 def import_database_backup(backup_data):
     """Importa dados de backup para o banco."""
@@ -2041,7 +2148,6 @@ def import_database_backup(backup_data):
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
 
-
 def save_backup_to_session_state():
     """Salva backup dos dados na sessão do Streamlit."""
     try:
@@ -2054,7 +2160,6 @@ def save_backup_to_session_state():
             return False, "Erro ao criar backup"
     except Exception as e:
         return False, f"Erro ao salvar backup: {e}"
-
 
 def restore_backup_from_session_state():
     """Restaura backup dos dados da sessão do Streamlit."""
@@ -2076,7 +2181,6 @@ def restore_backup_from_session_state():
             return False, "Nenhum backup encontrado na sessão"
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
-
 
 def auto_restore_backup_on_startup():
     """Tenta restaurar backup automaticamente na inicialização da aplicação."""
@@ -2103,9 +2207,8 @@ def auto_restore_backup_on_startup():
         st.warning(f"⚠️ Erro na restauração automática: {e}")
         return False
 
-
 def main():
-    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    
     # Garante tema dark coerente mesmo sem config.toml
     st.markdown(
         """
@@ -2204,7 +2307,6 @@ def main():
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
         
-
 
         if 'intervalos_por_classe' not in st.session_state:
             st.session_state.intervalos_por_classe = {}
@@ -2307,6 +2409,144 @@ import hashlib
 import json
 import base64
 import io
+# Configuração da página (deve ser o primeiro comando Streamlit)
+st.set_page_config(
+    page_title="Dashboard de Frotas - Açúcar Alegre",
+    page_icon="🚜",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
+        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
+        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
+    }
+)
+
+# Configuração de tema
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
+
+# CSS personalizado para tema claro/escuro
+def get_theme_css():
+    if st.session_state.theme == 'dark':
+        return """
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+    else:
+        return """
+        <style>
+        .stApp {
+            background-color: #ffffff;
+            color: #262730;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+
+# Aplicar CSS do tema
+st.markdown(get_theme_css(), unsafe_allow_html=True)
+
+# Função para alternar tema
+def toggle_theme():
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+
+# Função para exportar dados
+def export_dataframe(df, filename, file_type='csv'):
+    """Exporta DataFrame em diferentes formatos"""
+    if file_type == 'csv':
+        csv = df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig')
+        st.download_button(
+            label=f"📥 Download {filename}.csv",
+            data=csv,
+            file_name=f"{filename}.csv",
+            mime="text/csv",
+            help=f"Baixar {filename} em formato CSV"
+        )
+    elif file_type == 'excel':
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Dados')
+        buffer.seek(0)
+        st.download_button(
+            label=f"📥 Download {filename}.xlsx",
+            data=buffer,
+            file_name=f"{filename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help=f"Baixar {filename} em formato Excel"
+        )
+
+# Função para mostrar loading
+def show_loading(message="Carregando dados..."):
+    """Mostra indicador de carregamento"""
+    with st.spinner(message):
+        st.info(f"⏳ {message}")
+        return True
+
+# Função para tooltip informativo
+def info_tooltip(text, help_text):
+    """Cria um elemento com tooltip informativo"""
+    col1, col2 = st.columns([20, 1])
+    with col1:
+        st.write(text)
+    with col2:
+        st.info("ℹ️", help=help_text)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
@@ -2438,7 +2678,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # --- Início do Processamento Integrado ---
         
         # Renomeia colunas para um padrão consistente
-        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
         df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
 
         # Cria o dataframe principal mesclando abastecimentos e frotas
@@ -2456,7 +2696,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
         
         # Limpa e converte colunas numéricas
-        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+        for col in ["Qtde Litros", "Media", "Hod_Hor_Atual"]:
             if col in df_merged.columns:
                 series = df_merged[col].astype(str)
                 series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
@@ -2484,13 +2724,9 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-        
-        # Garantir que a coluna existe e tem valores válidos
-        if 'tipo_combustivel' in df_frotas.columns:
-            # Preencher valores nulos com padrão
-            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
         else:
-            df_frotas['tipo_combustivel'] = 'Diesel S500'
+            # Se a coluna existe, apenas preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -2563,7 +2799,6 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao excluir dados do banco de dados: {e}")
         return False
-
 
 def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
     """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
@@ -2665,7 +2900,6 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
         if 'conn' in locals():
             conn.close()
 
-
 def excluir_manutencao(db_path: str, rowid: int) -> bool:
     """Exclui um registro de manutenção do banco de dados usando seu rowid."""
     try:
@@ -2762,7 +2996,6 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
         return False
-
 
 def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
     """Edita um registro de manutenção de componente existente."""
@@ -3086,7 +3319,6 @@ def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=N
     except Exception as e:
         return False, f"Erro ao atualizar componente: {e}"
 
-
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
     try:
@@ -3099,7 +3331,6 @@ def get_frota_combustivel(cod_equip):
         st.error(f"Erro ao obter tipo de combustível: {e}")
         return None
 
-
 def update_frota_combustivel(cod_equip, tipo_combustivel):
     """Atualiza o tipo de combustível de uma frota específica."""
     try:
@@ -3110,7 +3341,6 @@ def update_frota_combustivel(cod_equip, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível: {e}"
-
 
 def update_classe_combustivel(classe_operacional, tipo_combustivel):
     """Atualiza o tipo de combustível de todas as frotas de uma classe."""
@@ -3123,7 +3353,6 @@ def update_classe_combustivel(classe_operacional, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
-
 
 def add_tipo_combustivel_column():
     """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
@@ -3142,7 +3371,6 @@ def add_tipo_combustivel_column():
                 return True, "Coluna tipo_combustivel já existe"
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
-
 
 def ensure_motoristas_schema():
     """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
@@ -3174,7 +3402,6 @@ def ensure_motoristas_schema():
     except Exception as e:
         return False, f"Erro ao verificar esquema de motoristas: {e}"
 
-
 def get_all_motoristas() -> pd.DataFrame:
     """Retorna o DataFrame de motoristas."""
     try:
@@ -3182,7 +3409,6 @@ def get_all_motoristas() -> pd.DataFrame:
             return pd.read_sql_query("SELECT * FROM motoristas", conn)
     except Exception:
         return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
-
 
 def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
     """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
@@ -3388,7 +3614,6 @@ def ensure_precos_combustivel_schema():
     except Exception as e:
         return False, f"Erro ao verificar tabela de preços: {e}"
 
-
 def get_precos_combustivel_map() -> dict:
     """Retorna um dicionário {tipo_combustivel: preco}."""
     try:
@@ -3397,7 +3622,6 @@ def get_precos_combustivel_map() -> dict:
         return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
     except Exception:
         return {}
-
 
 def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
     """Cria/atualiza preço para um tipo de combustível."""
@@ -3886,7 +4110,6 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
 
     return pd.DataFrame(plan_data)
 
-
 def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
     """Estima as datas das próximas manutenções com base no uso médio."""
     if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
@@ -3927,7 +4150,6 @@ def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFram
     df_previsoes = pd.DataFrame(previsoes)
     return df_previsoes.sort_values('Dias Restantes')
 
-
 # ---------------------------
 # Funções para Checklists
 # ---------------------------
@@ -3956,7 +4178,6 @@ def get_checklist_items(id_regra):
         st.error(f"Erro ao buscar itens de checklist: {e}")
         return pd.DataFrame()
 
-
 # ---------------------------
 # CRUD para Checklists
 # ---------------------------
@@ -3977,7 +4198,6 @@ def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
         return True, "Regra de checklist adicionada com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar regra de checklist: {e}"
-
 
 def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
     """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
@@ -4001,7 +4221,6 @@ def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, f
         st.error(f"Erro ao adicionar regra de checklist: {e}")
         return None
 
-
 def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
     """Edita uma regra de checklist existente."""
     try:
@@ -4020,7 +4239,6 @@ def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, f
     except Exception as e:
         return False, f"Erro ao editar regra de checklist: {e}"
 
-
 def delete_checklist_rule(id_regra):
     """Remove uma regra de checklist e seus itens associados."""
     try:
@@ -4032,7 +4250,6 @@ def delete_checklist_rule(id_regra):
         return True, "Regra de checklist removida com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover regra de checklist: {e}"
-
 
 def add_checklist_item(id_regra, nome_item):
     """Adiciona um novo item de checklist a uma regra existente."""
@@ -4050,7 +4267,6 @@ def add_checklist_item(id_regra, nome_item):
         return True, "Item de checklist adicionado com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar item de checklist: {e}"
-
 
 def edit_checklist_item(id_item, nome_item):
     """Edita um item de checklist existente."""
@@ -4070,7 +4286,6 @@ def edit_checklist_item(id_item, nome_item):
     except Exception as e:
         return False, f"Erro ao editar item de checklist: {e}"
 
-
 def delete_checklist_item(id_item):
     """Remove um item de checklist."""
     try:
@@ -4081,7 +4296,6 @@ def delete_checklist_item(id_item):
         return True, "Item de checklist removido com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover item de checklist: {e}"
-
 
 def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
     """Salva um checklist preenchido no histórico."""
@@ -4099,7 +4313,6 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
             conn.commit()
     except Exception as e:
         st.error(f"Erro ao salvar histórico de checklist: {e}")
-
 
 def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
     """Remove um registro do histórico de checklists usando uma combinação única de campos."""
@@ -4221,7 +4434,6 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             conn.close()
         return False, f"Erro ao excluir checklist: {e}"
 
-
 def force_cache_clear():
     """Força a limpeza completa de todos os caches."""
     try:
@@ -4235,7 +4447,6 @@ def force_cache_clear():
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao limpar cache: {e}")
-
 
 def force_database_sync():
     """Força a sincronização do banco de dados com o disco."""
@@ -4263,7 +4474,6 @@ def force_database_sync():
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
-
 
 def export_database_backup():
     """Exporta todos os dados do banco para um arquivo de backup."""
@@ -4297,7 +4507,6 @@ def export_database_backup():
         
     except Exception as e:
         return None, f"Erro ao exportar backup: {e}"
-
 
 def import_database_backup(backup_data):
     """Importa dados de backup para o banco."""
@@ -4345,7 +4554,6 @@ def import_database_backup(backup_data):
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
 
-
 def save_backup_to_session_state():
     """Salva backup dos dados na sessão do Streamlit."""
     try:
@@ -4358,7 +4566,6 @@ def save_backup_to_session_state():
             return False, "Erro ao criar backup"
     except Exception as e:
         return False, f"Erro ao salvar backup: {e}"
-
 
 def restore_backup_from_session_state():
     """Restaura backup dos dados da sessão do Streamlit."""
@@ -4380,7 +4587,6 @@ def restore_backup_from_session_state():
             return False, "Nenhum backup encontrado na sessão"
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
-
 
 def auto_restore_backup_on_startup():
     """Tenta restaurar backup automaticamente na inicialização da aplicação."""
@@ -4407,9 +4613,8 @@ def auto_restore_backup_on_startup():
         st.warning(f"⚠️ Erro na restauração automática: {e}")
         return False
 
-
 def main():
-    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    
     # Garante tema dark coerente mesmo sem config.toml
     st.markdown(
         """
@@ -4508,7 +4713,6 @@ def main():
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
         
-
 
         if 'intervalos_por_classe' not in st.session_state:
             st.session_state.intervalos_por_classe = {}
@@ -4625,7 +4829,7 @@ def main():
                         df_gastos_total['tipo_combustivel'] = 'Diesel S500'
                     
                     df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
+                    df_gastos_total['custo'] = df_gastos_total['Qtde Litros'].fillna(0.0) * df_gastos_total['preco_unit']
                     gasto_total_combustivel = df_gastos_total['custo'].sum()
                 
                 # KPIs principais
@@ -4674,12 +4878,148 @@ def main():
                 df_f = filtrar_dados(df, opts) if opts else df.copy()
 
                 if not df_f.empty:
-                    if 'Media' in df_f.columns:
-                        k1, k2 = st.columns(2)
-                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
-                        k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                    # KPIs melhorados com análise por tipo de combustível
+                    st.subheader("📊 Indicadores de Consumo por Combustível")
+                    
+                    # Obter tipos de combustível das frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        # Filtrar apenas registros que realmente têm consumo (Qtde Litros > 0)
+                        df_f_com_consumo = df_f[df_f['Qtde Litros'] > 0].copy()
+                        
+                        if not df_f_com_consumo.empty:
+                            # Pegar apenas os equipamentos que têm histórico de abastecimento
+                            equipamentos_com_consumo = df_f_com_consumo['Cod_Equip'].unique()
+                            
+                            # Filtrar df_frotas para incluir apenas equipamentos com consumo
+                            frotas_com_consumo = df_frotas[df_frotas['Cod_Equip'].isin(equipamentos_com_consumo)].copy()
+                            
+                            # Verificar se há valores duplicados em Cod_Equip e tratar adequadamente
+                            if frotas_com_consumo['Cod_Equip'].duplicated().any():
+                                # Se há duplicatas, pegar o primeiro valor de cada equipamento
+                                frotas_com_consumo = frotas_com_consumo.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                            
+                            # Criar mapeamento de tipo de combustível apenas para equipamentos com consumo
+                            combustivel_map = frotas_com_consumo.set_index('Cod_Equip')['tipo_combustivel'].fillna('Diesel S500')
+                            
+                            # Aplicar o mapeamento apenas aos registros com consumo
+                            df_f_com_consumo['tipo_combustivel'] = df_f_com_consumo['Cod_Equip'].map(combustivel_map).fillna('Diesel S500')
+                            
+                            # Calcular consumo por tipo de combustível
+                            consumo_por_combustivel = df_f_com_consumo.groupby('tipo_combustivel')['Qtde Litros'].sum().sort_values(ascending=False)
+                        else:
+                            # Se não há registros com consumo, criar um DataFrame vazio
+                            consumo_por_combustivel = pd.Series(dtype='float64')
+                        
+                        # Criar colunas dinâmicas baseadas no número de tipos de combustível
+                        num_tipos = len(consumo_por_combustivel)
+                        if num_tipos <= 2:
+                            cols = st.columns(2)
+                        elif num_tipos <= 3:
+                            cols = st.columns(3)
+                        elif num_tipos <= 4:
+                            cols = st.columns(4)
+                        else:
+                            cols = st.columns(5)
+                        
+                        # Exibir KPIs por tipo de combustível
+                        for i, (tipo, litros) in enumerate(consumo_por_combustivel.items()):
+                            if i < len(cols):
+                                with cols[i]:
+                                    # Calcular percentual do total
+                                    percentual = (litros / df_f["Qtde Litros"].sum()) * 100
+                                    
+                                    # Definir cor baseada no tipo de combustível
+                                    if 'Diesel S500' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🚛"
+                                    elif 'Diesel S10' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🚛"
+                                    elif 'Gasolina' in tipo:
+                                        delta_color = "normal"
+                                        icon = "⛽"
+                                    elif 'Etanol' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🌱"
+                                    elif 'Biodiesel' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🌿"
+                                    else:
+                                        delta_color = "normal"
+                                        icon = "⛽"
+                                    
+                                    cols[i].metric(
+                                        f"{icon} {tipo}",
+                                        f"{formatar_brasileiro_int(litros)} L",
+                                        f"{percentual:.1f}% do total",
+                                        delta_color=delta_color
+                                    )
+                        
+                        # Adicionar linha separadora
+                        st.markdown("---")
+                        
+                        # KPI adicional: Total geral e média por equipamento
+                        k1, k2, k3 = st.columns(3)
+                        
+                        with k1:
+                            total_litros = df_f["Qtde Litros"].sum()
+                            k1.metric(
+                                "🛢️ Total Geral",
+                                f"{formatar_brasileiro_int(total_litros)} L",
+                                f"{len(consumo_por_combustivel)} tipos de combustível"
+                            )
+                        
+                        with k2:
+                            if 'Media' in df_f.columns:
+                                media_geral = df_f['Media'].mean()
+                                k2.metric(
+                                    "📈 Média Geral",
+                                    f"{formatar_brasileiro(media_geral)}",
+                                    "Média de consumo por equipamento"
+                                )
+                            else:
+                                # Calcular média manual se não existir coluna Media
+                                equipamentos_unicos = df_f['Cod_Equip'].nunique()
+                                if equipamentos_unicos > 0:
+                                    media_manual = total_litros / equipamentos_unicos
+                                    k2.metric(
+                                        "📈 Média por Equipamento",
+                                        f"{formatar_brasileiro(media_manual)} L",
+                                        f"{equipamentos_unicos} equipamentos"
+                                    )
+                                else:
+                                    k2.metric("📈 Média por Equipamento", "N/A")
+                        
+                        with k3:
+                            # Calcular eficiência (litros por dia se houver dados de data)
+                            if 'Data' in df_f.columns:
+                                try:
+                                    df_f['Data'] = pd.to_datetime(df_f['Data'])
+                                    dias_periodo = (df_f['Data'].max() - df_f['Data'].min()).days + 1
+                                    if dias_periodo > 0:
+                                        litros_por_dia = total_litros / dias_periodo
+                                        k3.metric(
+                                            "📅 Consumo Diário",
+                                            f"{formatar_brasileiro(litros_por_dia)} L/dia",
+                                            f"{dias_periodo} dias analisados"
+                                        )
+                                    else:
+                                        k3.metric("📅 Consumo Diário", "N/A")
+                                except:
+                                    k3.metric("📅 Consumo Diário", "N/A")
+                            else:
+                                k3.metric("📅 Consumo Diário", "N/A")
                     else:
-                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                        # Fallback se não houver coluna tipo_combustivel
+                        k1, k2 = st.columns(2)
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde Litros"].sum()))
+                        if 'Media' in df_f.columns:
+                            k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                        else:
+                            equipamentos_unicos = df_f['Cod_Equip'].nunique()
+                            if equipamentos_unicos > 0:
+                                media_manual = df_f["Qtde Litros"].sum() / equipamentos_unicos
+                                k2.metric("Média por Equipamento", f"{formatar_brasileiro(media_manual)} L")
                     st.markdown("---")
                     st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
                     c1, c2 = st.columns(2)
@@ -4692,21 +5032,33 @@ def main():
                             df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
                         else:
                             df_consumo_classe = df_f
-                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
 
                         if not consumo_por_classe.empty:
-                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
-                            fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
-                            fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
-                            fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
+                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde Litros'].apply(formatar_brasileiro_int)
+                            fig_classe = px.bar(consumo_por_classe, x='Qtde Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
+                            fig_classe.update_traces(
+                                texttemplate='%{text} L', 
+                                textposition='outside',
+                                textfont=dict(size=11, color='black'),
+                                cliponaxis=False
+                            )
+                            fig_classe.update_layout(
+                                yaxis={'categoryorder':'total ascending'}, 
+                                xaxis_title="Total Consumido (Litros)", 
+                                yaxis_title="Classe Operacional",
+                                height=500,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(size=12)
+                            )
                             st.plotly_chart(fig_classe, use_container_width=True)
 
                     with c2:
                         st.subheader("Top 10 Equipamentos com Maior Consumo")
                         # Melhorar o gráfico com informações mais claras
-                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
+                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde Litros': 'sum'}).dropna()
                         consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
-                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
+                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde Litros", ascending=False).head(10)
 
                         if not consumo_por_equip.empty:
                             # Adicionar informações da frota para melhor identificação
@@ -4719,31 +5071,35 @@ def main():
                             
                             # Criar label mais informativo: Código - Descrição (Placa)
                             consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
-                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:30]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 30 else ''} ({row['PLACA']})", 
                                 axis=1
                             )
                             
-                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde Litros'].apply(formatar_brasileiro_int)
                             
                             fig_top10 = px.bar(
                                 consumo_por_equip, 
-                                x='Qtde_Litros', 
+                                x='Qtde Litros', 
                                 y='label_grafico', 
                                 orientation='h', 
                                 text='texto_formatado', 
-                                labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
+                                labels={"Qtde Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
                                 title="Top 10 Equipamentos com Maior Consumo"
                             )
                             fig_top10.update_traces(
                                 texttemplate='%{text} L', 
                                 textposition='outside',
-                                marker_color='#ff7f0e'
+                                marker_color='#ff7f0e',
+                                textfont=dict(size=11, color='black'),
+                                cliponaxis=False
                             )
                             fig_top10.update_layout(
                                 yaxis={'categoryorder':'total ascending'}, 
                                 xaxis_title="Total Consumido (Litros)", 
                                 yaxis_title="Equipamento",
-                                height=400
+                                height=600,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(size=11)
                             )
                             st.plotly_chart(fig_top10, use_container_width=True)
 
@@ -4774,7 +5130,7 @@ def main():
                             df_gastos['tipo_combustivel'] = 'Diesel S500'
                         
                         df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
+                        df_gastos['custo'] = df_gastos['Qtde Litros'].fillna(0.0) * df_gastos['preco_unit']
                         
                         # Adicionar informações da frota para filtro
                         df_gastos_com_info = df_gastos.merge(
@@ -4799,7 +5155,7 @@ def main():
                         # Top 10 gastos por frota individual (após filtro)
                         gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
                             'custo': 'sum',
-                            'Qtde_Litros': 'sum'
+                            'Qtde Litros': 'sum'
                         }).sort_values('custo', ascending=False).head(10).reset_index()
                         
                         # Adicionar informações da frota
@@ -4808,16 +5164,13 @@ def main():
                             on='Cod_Equip', 
                             how='left'
                         )
-                        gastos_por_frota['label_frota'] = gastos_por_frota.apply(
-                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
-                            axis=1
-                        )
+                        gastos_por_frota['label_frota'] = gastos_por_frota['Cod_Equip'].astype(str)
                         gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
                         # Top 10 gastos por classe operacional
                         gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
                             'custo': 'sum',
-                            'Qtde_Litros': 'sum'
+                            'Qtde Litros': 'sum'
                         }).sort_values('custo', ascending=False).head(10).reset_index()
                         gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
@@ -4831,29 +5184,56 @@ def main():
                             # Comentário removido para manter proporção dos gráficos
                             
                             if not gastos_por_frota.empty:
-                                fig_gastos_frota = px.bar(
-                                    gastos_por_frota,
-                                    x='custo',
-                                    y='label_frota',
-                                    orientation='h',
-                                    text='custo_formatado',
-                                    title="Gastos por Frota Individual",
-                                    labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
-                                    color='custo',
-                                    color_continuous_scale='Reds'
-                                )
-                                fig_gastos_frota.update_traces(
-                                    textposition='outside',
-                                    texttemplate='%{text}'
-                                )
-                                fig_gastos_frota.update_layout(
-                                    yaxis={'categoryorder':'total ascending'},
-                                    xaxis_title="Custo Total (R$)",
-                                    yaxis_title="Frota",
-                                    height=400,
-                                    showlegend=False
-                                )
-                                st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                                # Garantir que os dados estão corretos
+                                gastos_por_frota['custo'] = gastos_por_frota['custo'].fillna(0)
+                                gastos_por_frota = gastos_por_frota[gastos_por_frota['custo'] > 0]
+                                
+                                if not gastos_por_frota.empty:
+                                    # Dados já validados e prontos para o gráfico
+                                    
+                                    # Garantir que label_frota é string e único
+                                    gastos_por_frota['label_frota'] = gastos_por_frota['label_frota'].astype(str)
+                                    
+                                    # Criar gráfico de barras horizontais com dados limpos
+                                    fig_gastos_frota = px.bar(
+                                        gastos_por_frota,
+                                        x='custo',
+                                        y='label_frota',
+                                        orientation='h',
+                                        text='custo_formatado',
+                                        title="Gastos por Frota Individual",
+                                        labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
+                                        color='custo',
+                                        color_continuous_scale='Reds'
+                                    )
+                                    fig_gastos_frota.update_traces(
+                                        textposition='outside',
+                                        texttemplate='%{text}',
+                                        textfont=dict(size=11, color='white'),
+                                        cliponaxis=False,
+                                        marker=dict(line=dict(width=1, color='black'))
+                                    )
+                                    fig_gastos_frota.update_layout(
+                                        yaxis={'categoryorder':'total ascending'},
+                                        xaxis_title="Custo Total (R$)",
+                                        yaxis_title="Frota",
+                                        height=600,
+                                        showlegend=False,
+                                        margin=dict(l=20, r=20, t=40, b=20),
+                                        font=dict(size=12),
+                                        bargap=0.3,
+                                        bargroupgap=0.1
+                                    )
+                                    # Configurar eixo Y para mostrar todas as categorias
+                                    fig_gastos_frota.update_yaxes(
+                                        type='category',
+                                        categoryorder='total ascending'
+                                    )
+                                    st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                                    
+                                    # Gráfico criado com sucesso
+                                else:
+                                    st.warning("Não há frotas com gastos maiores que zero.")
                             else:
                                 st.info("Não há dados de gastos por frota.")
                         
@@ -4873,14 +5253,26 @@ def main():
                                 )
                                 fig_gastos_classe.update_traces(
                                     textposition='outside',
-                                    texttemplate='%{text}'
+                                    texttemplate='%{text}',
+                                    textfont=dict(size=11, color='white'),
+                                    cliponaxis=False,
+                                    marker=dict(line=dict(width=1, color='black'))
                                 )
                                 fig_gastos_classe.update_layout(
                                     yaxis={'categoryorder':'total ascending'},
                                     xaxis_title="Custo Total (R$)",
                                     yaxis_title="Classe Operacional",
-                                    height=400,
-                                    showlegend=False
+                                    height=600,
+                                    showlegend=False,
+                                    margin=dict(l=20, r=20, t=40, b=20),
+                                    font=dict(size=12),
+                                    bargap=0.3,
+                                    bargroupgap=0.1
+                                )
+                                # Configurar eixo Y para mostrar todas as categorias
+                                fig_gastos_classe.update_yaxes(
+                                    type='category',
+                                    categoryorder='total ascending'
                                 )
                                 st.plotly_chart(fig_gastos_classe, use_container_width=True)
                             else:
@@ -4976,15 +5368,15 @@ def main():
                             df_tmp['tipo_combustivel'] = 'Diesel S500'
                         
                         df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                        df_tmp['custo'] = df_tmp['Qtde Litros'].fillna(0.0) * df_tmp['preco_unit']
                         # Agrupar por matrícula
                         if 'Matricula' in df_tmp.columns:
-                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde Litros':'sum'}).sort_values('custo', ascending=False)
                             gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
                             if not gasto_motorista.empty:
                                 gasto_motorista = gasto_motorista.reset_index()
                                 gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                                gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                                gasto_motorista['Litros'] = gasto_motorista['Qtde Litros'].apply(formatar_brasileiro_int)
                                 st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
                                 try:
                                     fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
@@ -5003,163 +5395,255 @@ def main():
                 
                 with col_grafico2:
                     st.subheader("⛽ Consumo por Tipo de Combustível")
-                    if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
+                    if not df_consumo_combustivel.empty:
                         try:
-                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            # Filtrar apenas registros que realmente têm consumo (Qtde Litros > 0)
+                            df_consumo_real = df_consumo_combustivel[df_consumo_combustivel['Qtde Litros'] > 0].copy()
                             
-                            # Criar gráfico de pizza
-                            fig_pizza_combustivel = px.pie(
-                                consumo_por_combustivel, 
-                                values='Qtde_Litros', 
-                                names='tipo_combustivel',
-                                title="Proporção de Consumo por Combustível",
-                                hole=0.3
-                            )
-                            fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
-                            fig_pizza_combustivel.update_layout(height=400)
-                            st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
-                            
-                            # Mostrar totais
-                            st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
-                        except Exception:
-                            df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                            if not df_consumo_real.empty:
+                                # Obter tipos de combustível apenas das frotas que realmente abasteceram
+                                if 'tipo_combustivel' in df_frotas.columns:
+                                    # Pegar apenas os equipamentos que têm histórico de abastecimento
+                                    equipamentos_com_consumo = df_consumo_real['Cod_Equip'].unique()
+                                    
+                                    # Filtrar df_frotas para incluir apenas equipamentos com consumo
+                                    frotas_com_consumo = df_frotas[df_frotas['Cod_Equip'].isin(equipamentos_com_consumo)].copy()
+                                    
+                                    # Verificar se há valores duplicados em Cod_Equip e tratar adequadamente
+                                    if frotas_com_consumo['Cod_Equip'].duplicated().any():
+                                        # Se há duplicatas, pegar o primeiro valor de cada equipamento
+                                        frotas_com_consumo = frotas_com_consumo.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                                    
+                                    # Criar mapeamento de tipo de combustível apenas para equipamentos com consumo
+                                    combustivel_map = frotas_com_consumo.set_index('Cod_Equip')['tipo_combustivel'].fillna('Diesel S500')
+                                    
+                                    # Aplicar o mapeamento apenas aos registros com consumo
+                                    df_consumo_real['tipo_combustivel'] = df_consumo_real['Cod_Equip'].map(combustivel_map).fillna('Diesel S500')
+                                else:
+                                    df_consumo_real['tipo_combustivel'] = 'Diesel S500'
+                                
+                                # Agrupar por tipo de combustível
+                                consumo_por_combustivel = df_consumo_real.groupby("tipo_combustivel")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
+                                
+                                if not consumo_por_combustivel.empty:
+                                    # Criar gráfico de pizza
+                                    fig_pizza_combustivel = px.pie(
+                                        consumo_por_combustivel, 
+                                        values='Qtde Litros', 
+                                        names='tipo_combustivel',
+                                        title="Proporção de Consumo por Combustível (Apenas Frotas com Histórico)",
+                                        hole=0.3
+                                    )
+                                    fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                                    fig_pizza_combustivel.update_layout(height=400)
+                                    st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                                    
+                                    # Mostrar totais
+                                    st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde Litros'].sum())} L")
+                                    st.info(f"**Frotas com histórico de abastecimento:** {len(equipamentos_com_consumo)}")
+                                else:
+                                    st.warning("Não há dados de consumo para análise por combustível.")
+                            else:
+                                st.warning("Não há registros com consumo de combustível.")
+                        except Exception as e:
+                            st.error(f"Erro ao criar gráfico de combustível: {e}")
+                            st.info("Verificando dados disponíveis...")
+                            if 'tipo_combustivel' in df_consumo_combustivel.columns:
+                                consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde Litros"].sum().reset_index()
+                                st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde Litros'].sum())} L")
+                            else:
+                                st.error("Coluna tipo_combustivel não encontrada")
                     else:
                         st.warning("Não há dados suficientes para análise por combustível.")
-                        
+                
+                # Fechar as colunas anteriores e criar nova seção com largura total
+                st.markdown("---")
+                st.subheader("📊 Demonstrativos Detalhados dos Pneus")
 
+                df_pneus_all = get_pneus_historico()
+                if not df_pneus_all.empty:
+                    # Adicione colunas de status e vida se não existirem
+                    if 'status' not in df_pneus_all.columns:
+                        df_pneus_all['status'] = 'Ativo'
+                    if 'vida_atual' not in df_pneus_all.columns:
+                        df_pneus_all['vida_atual'] = 1
+
+                    total_pneus = len(df_pneus_all)
+                    ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
+                    sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
+                    reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
+                    vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
+                    marcas = df_pneus_all['marca'].value_counts()
+                    modelos = df_pneus_all['modelo'].value_counts()
+                    posicoes = df_pneus_all['posicao'].value_counts()
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total de Pneus", total_pneus)
+                    col2.metric("Ativos", ativos)
+                    col3.metric("Sucateados", sucateados)
+                    col4.metric("Reformados", reformados)
+
+                    # Gráficos melhorados com rótulos de dados
+                    st.markdown("#### 📊 Gráficos de Distribuição")
+                    
+                    # Criar DataFrame de status para o gráfico
+                    status_df = df_pneus_all['status'].value_counts().reset_index()
+                    status_df.columns = ["Status", "Quantidade"]
+                    
+                    # Gráfico de Status (Pizza)
+                    fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
+                    fig_status.update_traces(
+                        textposition='inside',
+                        textinfo='percent+label',
+                        textfont=dict(size=12, color='white')
+                    )
+                    fig_status.update_layout(
+                        height=400,
+                        showlegend=True,
+                        font=dict(size=12)
+                    )
+                    st.plotly_chart(fig_status, use_container_width=True)
+
+                    # Gráfico de Marcas (Barras)
+                    fig_marcas = px.bar(
+                        marcas.reset_index(), 
+                        x='marca', 
+                        y='count', 
+                        title='Quantidade por Marca',
+                        text='count'
+                    )
+                    fig_marcas.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(size=11, color='white'),
+                        marker=dict(line=dict(width=1, color='black'))
+                    )
+                    fig_marcas.update_layout(
+                        xaxis_title="Marca",
+                        yaxis_title="Quantidade",
+                        height=400,
+                        bargap=0.3,
+                        bargroupgap=0.1
+                    )
+                    st.plotly_chart(fig_marcas, use_container_width=True)
+
+                    # Gráfico de Modelos (Barras)
+                    fig_modelos = px.bar(
+                        modelos.reset_index(), 
+                        x='modelo', 
+                        y='count', 
+                        title='Quantidade por Medida',
+                        text='count'
+                    )
+                    fig_modelos.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(size=11, color='white'),
+                        marker=dict(line=dict(width=1, color='black'))
+                    )
+                    fig_modelos.update_layout(
+                        xaxis_title="Modelo",
+                        yaxis_title="Quantidade",
+                        height=400,
+                        bargap=0.3,
+                        bargroupgap=0.1
+                    )
+                    st.plotly_chart(fig_modelos, use_container_width=True)
+
+
+
+                    # Botões de exportação
+                    st.markdown("#### 📊 Exportar Dados")
+                    col_export1, col_export2, col_export3 = st.columns(3)
+                    
+                    with col_export1:
+                        export_dataframe(status_df, "status_pneus", "csv")
+                    
+                    with col_export2:
+                        export_dataframe(marcas.reset_index(), "marcas_pneus", "csv")
+                    
+                    with col_export3:
+                        export_dataframe(modelos.reset_index(), "modelos_pneus", "csv")
+                    
+                    # Informações adicionais
                     st.markdown("---")
-                    st.subheader("📊 Demonstrativos Detalhados dos Pneus")
+                    st.markdown("""
+                    <div class="info-box">
+                        <strong>💡 Dicas:</strong><br>
+                        • Use os filtros para analisar períodos específicos<br>
+                        • Exporte os dados para análises externas<br>
+                        • Os gráficos são interativos - clique para mais detalhes
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("Nenhum pneu cadastrado para demonstrativo.")
 
-                    df_pneus_all = get_pneus_historico()
-                    if not df_pneus_all.empty:
-                        # Adicione colunas de status e vida se não existirem
-                        if 'status' not in df_pneus_all.columns:
-                            df_pneus_all['status'] = 'Ativo'
-                        if 'vida_atual' not in df_pneus_all.columns:
-                            df_pneus_all['vida_atual'] = 1
+                st.markdown("---")
+                st.subheader("🛢️ Demonstrativos de Lubrificantes")
 
-                        total_pneus = len(df_pneus_all)
-                        ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
-                        sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
-                        reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
-                        vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
-                        marcas = df_pneus_all['marca'].value_counts()
-                        modelos = df_pneus_all['modelo'].value_counts()
-                        posicoes = df_pneus_all['posicao'].value_counts()
+                ensure_lubrificantes_schema()
+                conn = sqlite3.connect(DB_PATH)
+                df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
 
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Total de Pneus", total_pneus)
-                        col2.metric("Ativos", ativos)
-                        col3.metric("Sucateados", sucateados)
-                        col4.metric("Reformados", reformados)
+                st.write("**Estoque Atual de Lubrificantes:**")
+                if not df_lub.empty:
+                    # Separar por tipo
+                    df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                    df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
 
-                        st.markdown("#### Distribuição por Vida Atual")
-                        vidas_df = vidas.reset_index()
-                        vidas_df.columns = ["Vida", "Quantidade"]
-                        st.dataframe(vidas_df)
-
-                        st.markdown("#### Distribuição por Status")
-                        status_df = df_pneus_all['status'].value_counts().reset_index()
-                        status_df.columns = ["Status", "Quantidade"]
-                        st.dataframe(status_df)
-
-                        st.markdown("#### Distribuição por Marca")
-                        st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
-
-                        st.markdown("#### Distribuição por Modelo")
-                        st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
-
-                        st.markdown("#### Distribuição por Posição")
-                        st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
-
-                        # Gráficos
-                        fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
-                        st.plotly_chart(fig_status, use_container_width=True)
-
-                        fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
-                        st.plotly_chart(fig_vidas, use_container_width=True)
-
-                        fig_marcas = px.bar(marcas.reset_index(), x='marca', y='count', title='Quantidade por Marca')
-                        st.plotly_chart(fig_marcas, use_container_width=True)
-
-                        fig_modelos = px.bar(modelos.reset_index(), x='modelo', y='count', title='Quantidade por Modelo')
-                        st.plotly_chart(fig_modelos, use_container_width=True)
-
-                        fig_posicoes = px.bar(posicoes.reset_index(), x='posicao', y='count', title='Quantidade por Posição')
-                        st.plotly_chart(fig_posicoes, use_container_width=True)
-
-                    else:
-                        st.info("Nenhum pneu cadastrado para demonstrativo.")
-
-                    st.markdown("---")
-                    st.subheader("🛢️ Demonstrativos de Lubrificantes")
-
-                    ensure_lubrificantes_schema()
-                    conn = sqlite3.connect(DB_PATH)
-                    df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
-                    df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
-
-                    st.write("**Estoque Atual de Lubrificantes:**")
-                    if not df_lub.empty:
-                            # Separar por tipo
-                            df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
-                            df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
-
-                            col_o, col_g = st.columns(2)
-                            with col_o:
-                                st.markdown("#### Estoque de Óleos")
-                                if not df_oleos.empty:
-                                    fig_oleos = px.bar(
-                                        df_oleos,
-                                        x='nome',
-                                        y='quantidade_estoque',
-                                        color='viscosidade',
-                                        text='quantidade_estoque',
-                                        title="Óleos - Estoque Atual",
-                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
-                                    )
-                                    st.plotly_chart(fig_oleos, use_container_width=True)
-                                else:
-                                    st.info("Nenhum óleo cadastrado.")
-
-                            with col_g:
-                                st.markdown("#### Estoque de Graxas")
-                                if not df_graxas.empty:
-                                    fig_graxas = px.bar(
-                                        df_graxas,
-                                        x='nome',
-                                        y='quantidade_estoque',
-                                        color='viscosidade',
-                                        text='quantidade_estoque',
-                                        title="Graxas - Estoque Atual",
-                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
-                                    )
-                                    st.plotly_chart(fig_graxas, use_container_width=True)
-                                else:
-                                    st.info("Nenhuma graxa cadastrada.")
-
-                            # Pizza geral
-                            df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
-                            fig_pizza = px.pie(
-                                df_lub,
-                                names='tipo',
-                                values='quantidade_estoque',
-                                title="Proporção de Estoque: Óleos vs Graxas"
+                    col_o, col_g = st.columns(2)
+                    with col_o:
+                        st.markdown("#### Estoque de Óleos")
+                        if not df_oleos.empty:
+                            fig_oleos = px.bar(
+                                df_oleos,
+                                x='nome',
+                                y='quantidade_estoque',
+                                color='viscosidade',
+                                text='quantidade_estoque',
+                                title="Óleos - Estoque Atual",
+                                labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
                             )
-                            st.plotly_chart(fig_pizza, use_container_width=True)
+                            st.plotly_chart(fig_oleos, use_container_width=True)
+                        else:
+                            st.info("Nenhum óleo cadastrado.")
 
-                            st.write("**Movimentações Recentes:**")
-                            df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
-                            df_mov = df_mov.sort_values('data', ascending=False)
-                            st.dataframe(df_mov.head(20))
-                    else:
-                            st.info("Nenhum lubrificante cadastrado.")
+                    with col_g:
+                        st.markdown("#### Estoque de Graxas")
+                        if not df_graxas.empty:
+                            fig_graxas = px.bar(
+                                df_graxas,
+                                x='nome',
+                                y='quantidade_estoque',
+                                color='viscosidade',
+                                text='quantidade_estoque',
+                                title="Graxas - Estoque Atual",
+                                labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                            )
+                            st.plotly_chart(fig_graxas, use_container_width=True)
+                        else:
+                            st.info("Nenhuma graxa cadastrada.")
 
-                    conn.close()
+                    # Pizza geral
+                    df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                    fig_pizza = px.pie(
+                        df_lub,
+                        names='tipo',
+                        values='quantidade_estoque',
+                        title="Proporção de Estoque: Óleos vs Graxas"
+                    )
+                    st.plotly_chart(fig_pizza, use_container_width=True)
 
+                    st.write("**Movimentações Recentes:**")
+                    df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                    df_mov = df_mov.sort_values('data', ascending=False)
+                    st.dataframe(df_mov.head(20))
+                else:
+                    st.info("Nenhum lubrificante cadastrado.")
+
+                conn.close()
 
 import streamlit as st
 import pandas as pd
@@ -5172,6 +5656,144 @@ import hashlib
 import json
 import base64
 import io
+# Configuração da página (deve ser o primeiro comando Streamlit)
+st.set_page_config(
+    page_title="Dashboard de Frotas - Açúcar Alegre",
+    page_icon="🚜",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
+        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
+        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
+    }
+)
+
+# Configuração de tema
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
+
+# CSS personalizado para tema claro/escuro
+def get_theme_css():
+    if st.session_state.theme == 'dark':
+        return """
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+    else:
+        return """
+        <style>
+        .stApp {
+            background-color: #ffffff;
+            color: #262730;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+
+# Aplicar CSS do tema
+st.markdown(get_theme_css(), unsafe_allow_html=True)
+
+# Função para alternar tema
+def toggle_theme():
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+
+# Função para exportar dados
+def export_dataframe(df, filename, file_type='csv'):
+    """Exporta DataFrame em diferentes formatos"""
+    if file_type == 'csv':
+        csv = df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig')
+        st.download_button(
+            label=f"📥 Download {filename}.csv",
+            data=csv,
+            file_name=f"{filename}.csv",
+            mime="text/csv",
+            help=f"Baixar {filename} em formato CSV"
+        )
+    elif file_type == 'excel':
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Dados')
+        buffer.seek(0)
+        st.download_button(
+            label=f"📥 Download {filename}.xlsx",
+            data=buffer,
+            file_name=f"{filename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help=f"Baixar {filename} em formato Excel"
+        )
+
+# Função para mostrar loading
+def show_loading(message="Carregando dados..."):
+    """Mostra indicador de carregamento"""
+    with st.spinner(message):
+        st.info(f"⏳ {message}")
+        return True
+
+# Função para tooltip informativo
+def info_tooltip(text, help_text):
+    """Cria um elemento com tooltip informativo"""
+    col1, col2 = st.columns([20, 1])
+    with col1:
+        st.write(text)
+    with col2:
+        st.info("ℹ️", help=help_text)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
@@ -5303,7 +5925,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # --- Início do Processamento Integrado ---
         
         # Renomeia colunas para um padrão consistente
-        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
         df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
 
         # Cria o dataframe principal mesclando abastecimentos e frotas
@@ -5321,7 +5943,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
         
         # Limpa e converte colunas numéricas
-        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+        for col in ["Qtde Litros", "Media", "Hod_Hor_Atual"]:
             if col in df_merged.columns:
                 series = df_merged[col].astype(str)
                 series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
@@ -5349,13 +5971,9 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-        
-        # Garantir que a coluna existe e tem valores válidos
-        if 'tipo_combustivel' in df_frotas.columns:
-            # Preencher valores nulos com padrão
-            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
         else:
-            df_frotas['tipo_combustivel'] = 'Diesel S500'
+            # Se a coluna existe, apenas preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -5428,7 +6046,6 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao excluir dados do banco de dados: {e}")
         return False
-
 
 def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
     """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
@@ -5530,7 +6147,6 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
         if 'conn' in locals():
             conn.close()
 
-
 def excluir_manutencao(db_path: str, rowid: int) -> bool:
     """Exclui um registro de manutenção do banco de dados usando seu rowid."""
     try:
@@ -5627,7 +6243,6 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
         return False
-
 
 def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
     """Edita um registro de manutenção de componente existente."""
@@ -5951,7 +6566,6 @@ def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=N
     except Exception as e:
         return False, f"Erro ao atualizar componente: {e}"
 
-
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
     try:
@@ -5964,7 +6578,6 @@ def get_frota_combustivel(cod_equip):
         st.error(f"Erro ao obter tipo de combustível: {e}")
         return None
 
-
 def update_frota_combustivel(cod_equip, tipo_combustivel):
     """Atualiza o tipo de combustível de uma frota específica."""
     try:
@@ -5975,7 +6588,6 @@ def update_frota_combustivel(cod_equip, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível: {e}"
-
 
 def update_classe_combustivel(classe_operacional, tipo_combustivel):
     """Atualiza o tipo de combustível de todas as frotas de uma classe."""
@@ -5988,7 +6600,6 @@ def update_classe_combustivel(classe_operacional, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
-
 
 def add_tipo_combustivel_column():
     """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
@@ -6007,7 +6618,6 @@ def add_tipo_combustivel_column():
                 return True, "Coluna tipo_combustivel já existe"
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
-
 
 def ensure_motoristas_schema():
     """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
@@ -6039,7 +6649,6 @@ def ensure_motoristas_schema():
     except Exception as e:
         return False, f"Erro ao verificar esquema de motoristas: {e}"
 
-
 def get_all_motoristas() -> pd.DataFrame:
     """Retorna o DataFrame de motoristas."""
     try:
@@ -6047,7 +6656,6 @@ def get_all_motoristas() -> pd.DataFrame:
             return pd.read_sql_query("SELECT * FROM motoristas", conn)
     except Exception:
         return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
-
 
 def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
     """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
@@ -6247,7 +6855,6 @@ def ensure_precos_combustivel_schema():
     except Exception as e:
         return False, f"Erro ao verificar tabela de preços: {e}"
 
-
 def get_precos_combustivel_map() -> dict:
     """Retorna um dicionário {tipo_combustivel: preco}."""
     try:
@@ -6256,7 +6863,6 @@ def get_precos_combustivel_map() -> dict:
         return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
     except Exception:
         return {}
-
 
 def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
     """Cria/atualiza preço para um tipo de combustível."""
@@ -6745,7 +7351,6 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
 
     return pd.DataFrame(plan_data)
 
-
 def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
     """Estima as datas das próximas manutenções com base no uso médio."""
     if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
@@ -6786,7 +7391,6 @@ def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFram
     df_previsoes = pd.DataFrame(previsoes)
     return df_previsoes.sort_values('Dias Restantes')
 
-
 # ---------------------------
 # Funções para Checklists
 # ---------------------------
@@ -6815,7 +7419,6 @@ def get_checklist_items(id_regra):
         st.error(f"Erro ao buscar itens de checklist: {e}")
         return pd.DataFrame()
 
-
 # ---------------------------
 # CRUD para Checklists
 # ---------------------------
@@ -6836,7 +7439,6 @@ def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
         return True, "Regra de checklist adicionada com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar regra de checklist: {e}"
-
 
 def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
     """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
@@ -6860,7 +7462,6 @@ def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, f
         st.error(f"Erro ao adicionar regra de checklist: {e}")
         return None
 
-
 def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
     """Edita uma regra de checklist existente."""
     try:
@@ -6879,7 +7480,6 @@ def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, f
     except Exception as e:
         return False, f"Erro ao editar regra de checklist: {e}"
 
-
 def delete_checklist_rule(id_regra):
     """Remove uma regra de checklist e seus itens associados."""
     try:
@@ -6891,7 +7491,6 @@ def delete_checklist_rule(id_regra):
         return True, "Regra de checklist removida com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover regra de checklist: {e}"
-
 
 def add_checklist_item(id_regra, nome_item):
     """Adiciona um novo item de checklist a uma regra existente."""
@@ -6909,7 +7508,6 @@ def add_checklist_item(id_regra, nome_item):
         return True, "Item de checklist adicionado com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar item de checklist: {e}"
-
 
 def edit_checklist_item(id_item, nome_item):
     """Edita um item de checklist existente."""
@@ -6929,7 +7527,6 @@ def edit_checklist_item(id_item, nome_item):
     except Exception as e:
         return False, f"Erro ao editar item de checklist: {e}"
 
-
 def delete_checklist_item(id_item):
     """Remove um item de checklist."""
     try:
@@ -6940,7 +7537,6 @@ def delete_checklist_item(id_item):
         return True, "Item de checklist removido com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover item de checklist: {e}"
-
 
 def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
     """Salva um checklist preenchido no histórico."""
@@ -6958,7 +7554,6 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
             conn.commit()
     except Exception as e:
         st.error(f"Erro ao salvar histórico de checklist: {e}")
-
 
 def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
     """Remove um registro do histórico de checklists usando uma combinação única de campos."""
@@ -7080,7 +7675,6 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             conn.close()
         return False, f"Erro ao excluir checklist: {e}"
 
-
 def force_cache_clear():
     """Força a limpeza completa de todos os caches."""
     try:
@@ -7094,7 +7688,6 @@ def force_cache_clear():
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao limpar cache: {e}")
-
 
 def force_database_sync():
     """Força a sincronização do banco de dados com o disco."""
@@ -7122,7 +7715,6 @@ def force_database_sync():
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
-
 
 def export_database_backup():
     """Exporta todos os dados do banco para um arquivo de backup."""
@@ -7156,7 +7748,6 @@ def export_database_backup():
         
     except Exception as e:
         return None, f"Erro ao exportar backup: {e}"
-
 
 def import_database_backup(backup_data):
     """Importa dados de backup para o banco."""
@@ -7204,7 +7795,6 @@ def import_database_backup(backup_data):
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
 
-
 def save_backup_to_session_state():
     """Salva backup dos dados na sessão do Streamlit."""
     try:
@@ -7217,7 +7807,6 @@ def save_backup_to_session_state():
             return False, "Erro ao criar backup"
     except Exception as e:
         return False, f"Erro ao salvar backup: {e}"
-
 
 def restore_backup_from_session_state():
     """Restaura backup dos dados da sessão do Streamlit."""
@@ -7239,7 +7828,6 @@ def restore_backup_from_session_state():
             return False, "Nenhum backup encontrado na sessão"
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
-
 
 def auto_restore_backup_on_startup():
     """Tenta restaurar backup automaticamente na inicialização da aplicação."""
@@ -7266,9 +7854,8 @@ def auto_restore_backup_on_startup():
         st.warning(f"⚠️ Erro na restauração automática: {e}")
         return False
 
-
 def main():
-    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    
     # Garante tema dark coerente mesmo sem config.toml
     st.markdown(
         """
@@ -7367,7 +7954,6 @@ def main():
         ver_frotas = int(os.path.getmtime(DB_PATH)) if os.path.exists(DB_PATH) else 0
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
         
-
 
         if 'intervalos_por_classe' not in st.session_state:
             st.session_state.intervalos_por_classe = {}
@@ -7470,6 +8056,144 @@ import hashlib
 import json
 import base64
 import io
+# Configuração da página (deve ser o primeiro comando Streamlit)
+st.set_page_config(
+    page_title="Dashboard de Frotas - Açúcar Alegre",
+    page_icon="🚜",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
+        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
+        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
+    }
+)
+
+# Configuração de tema
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
+
+# CSS personalizado para tema claro/escuro
+def get_theme_css():
+    if st.session_state.theme == 'dark':
+        return """
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+    else:
+        return """
+        <style>
+        .stApp {
+            background-color: #ffffff;
+            color: #262730;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+
+# Aplicar CSS do tema
+st.markdown(get_theme_css(), unsafe_allow_html=True)
+
+# Função para alternar tema
+def toggle_theme():
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+
+# Função para exportar dados
+def export_dataframe(df, filename, file_type='csv'):
+    """Exporta DataFrame em diferentes formatos"""
+    if file_type == 'csv':
+        csv = df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig')
+        st.download_button(
+            label=f"📥 Download {filename}.csv",
+            data=csv,
+            file_name=f"{filename}.csv",
+            mime="text/csv",
+            help=f"Baixar {filename} em formato CSV"
+        )
+    elif file_type == 'excel':
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Dados')
+        buffer.seek(0)
+        st.download_button(
+            label=f"📥 Download {filename}.xlsx",
+            data=buffer,
+            file_name=f"{filename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help=f"Baixar {filename} em formato Excel"
+        )
+
+# Função para mostrar loading
+def show_loading(message="Carregando dados..."):
+    """Mostra indicador de carregamento"""
+    with st.spinner(message):
+        st.info(f"⏳ {message}")
+        return True
+
+# Função para tooltip informativo
+def info_tooltip(text, help_text):
+    """Cria um elemento com tooltip informativo"""
+    col1, col2 = st.columns([20, 1])
+    with col1:
+        st.write(text)
+    with col2:
+        st.info("ℹ️", help=help_text)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
@@ -7601,7 +8325,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # --- Início do Processamento Integrado ---
         
         # Renomeia colunas para um padrão consistente
-        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
         df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
 
         # Cria o dataframe principal mesclando abastecimentos e frotas
@@ -7619,7 +8343,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
         
         # Limpa e converte colunas numéricas
-        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+        for col in ["Qtde Litros", "Media", "Hod_Hor_Atual"]:
             if col in df_merged.columns:
                 series = df_merged[col].astype(str)
                 series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
@@ -7647,13 +8371,9 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-        
-        # Garantir que a coluna existe e tem valores válidos
-        if 'tipo_combustivel' in df_frotas.columns:
-            # Preencher valores nulos com padrão
-            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
         else:
-            df_frotas['tipo_combustivel'] = 'Diesel S500'
+            # Se a coluna existe, apenas preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -7726,7 +8446,6 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao excluir dados do banco de dados: {e}")
         return False
-
 
 def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
     """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
@@ -7828,7 +8547,6 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
         if 'conn' in locals():
             conn.close()
 
-
 def excluir_manutencao(db_path: str, rowid: int) -> bool:
     """Exclui um registro de manutenção do banco de dados usando seu rowid."""
     try:
@@ -7925,7 +8643,6 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
         return False
-
 
 def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
     """Edita um registro de manutenção de componente existente."""
@@ -8249,7 +8966,6 @@ def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=N
     except Exception as e:
         return False, f"Erro ao atualizar componente: {e}"
 
-
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
     try:
@@ -8262,7 +8978,6 @@ def get_frota_combustivel(cod_equip):
         st.error(f"Erro ao obter tipo de combustível: {e}")
         return None
 
-
 def update_frota_combustivel(cod_equip, tipo_combustivel):
     """Atualiza o tipo de combustível de uma frota específica."""
     try:
@@ -8273,7 +8988,6 @@ def update_frota_combustivel(cod_equip, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível: {e}"
-
 
 def update_classe_combustivel(classe_operacional, tipo_combustivel):
     """Atualiza o tipo de combustível de todas as frotas de uma classe."""
@@ -8286,7 +9000,6 @@ def update_classe_combustivel(classe_operacional, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
-
 
 def add_tipo_combustivel_column():
     """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
@@ -8305,7 +9018,6 @@ def add_tipo_combustivel_column():
                 return True, "Coluna tipo_combustivel já existe"
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
-
 
 def ensure_motoristas_schema():
     """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
@@ -8337,7 +9049,6 @@ def ensure_motoristas_schema():
     except Exception as e:
         return False, f"Erro ao verificar esquema de motoristas: {e}"
 
-
 def get_all_motoristas() -> pd.DataFrame:
     """Retorna o DataFrame de motoristas."""
     try:
@@ -8345,7 +9056,6 @@ def get_all_motoristas() -> pd.DataFrame:
             return pd.read_sql_query("SELECT * FROM motoristas", conn)
     except Exception:
         return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
-
 
 def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
     """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
@@ -8542,7 +9252,6 @@ def ensure_precos_combustivel_schema():
     except Exception as e:
         return False, f"Erro ao verificar tabela de preços: {e}"
 
-
 def get_precos_combustivel_map() -> dict:
     """Retorna um dicionário {tipo_combustivel: preco}."""
     try:
@@ -8551,7 +9260,6 @@ def get_precos_combustivel_map() -> dict:
         return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
     except Exception:
         return {}
-
 
 def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
     """Cria/atualiza preço para um tipo de combustível."""
@@ -9040,7 +9748,6 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
 
     return pd.DataFrame(plan_data)
 
-
 def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
     """Estima as datas das próximas manutenções com base no uso médio."""
     if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
@@ -9081,7 +9788,6 @@ def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFram
     df_previsoes = pd.DataFrame(previsoes)
     return df_previsoes.sort_values('Dias Restantes')
 
-
 # ---------------------------
 # Funções para Checklists
 # ---------------------------
@@ -9110,7 +9816,6 @@ def get_checklist_items(id_regra):
         st.error(f"Erro ao buscar itens de checklist: {e}")
         return pd.DataFrame()
 
-
 # ---------------------------
 # CRUD para Checklists
 # ---------------------------
@@ -9131,7 +9836,6 @@ def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
         return True, "Regra de checklist adicionada com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar regra de checklist: {e}"
-
 
 def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
     """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
@@ -9155,7 +9859,6 @@ def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, f
         st.error(f"Erro ao adicionar regra de checklist: {e}")
         return None
 
-
 def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
     """Edita uma regra de checklist existente."""
     try:
@@ -9174,7 +9877,6 @@ def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, f
     except Exception as e:
         return False, f"Erro ao editar regra de checklist: {e}"
 
-
 def delete_checklist_rule(id_regra):
     """Remove uma regra de checklist e seus itens associados."""
     try:
@@ -9186,7 +9888,6 @@ def delete_checklist_rule(id_regra):
         return True, "Regra de checklist removida com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover regra de checklist: {e}"
-
 
 def add_checklist_item(id_regra, nome_item):
     """Adiciona um novo item de checklist a uma regra existente."""
@@ -9204,7 +9905,6 @@ def add_checklist_item(id_regra, nome_item):
         return True, "Item de checklist adicionado com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar item de checklist: {e}"
-
 
 def edit_checklist_item(id_item, nome_item):
     """Edita um item de checklist existente."""
@@ -9224,7 +9924,6 @@ def edit_checklist_item(id_item, nome_item):
     except Exception as e:
         return False, f"Erro ao editar item de checklist: {e}"
 
-
 def delete_checklist_item(id_item):
     """Remove um item de checklist."""
     try:
@@ -9235,7 +9934,6 @@ def delete_checklist_item(id_item):
         return True, "Item de checklist removido com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover item de checklist: {e}"
-
 
 def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
     """Salva um checklist preenchido no histórico."""
@@ -9253,7 +9951,6 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
             conn.commit()
     except Exception as e:
         st.error(f"Erro ao salvar histórico de checklist: {e}")
-
 
 def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
     """Remove um registro do histórico de checklists usando uma combinação única de campos."""
@@ -9375,7 +10072,6 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             conn.close()
         return False, f"Erro ao excluir checklist: {e}"
 
-
 def force_cache_clear():
     """Força a limpeza completa de todos os caches."""
     try:
@@ -9389,7 +10085,6 @@ def force_cache_clear():
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao limpar cache: {e}")
-
 
 def force_database_sync():
     """Força a sincronização do banco de dados com o disco."""
@@ -9417,7 +10112,6 @@ def force_database_sync():
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
-
 
 def export_database_backup():
     """Exporta todos os dados do banco para um arquivo de backup."""
@@ -9451,7 +10145,6 @@ def export_database_backup():
         
     except Exception as e:
         return None, f"Erro ao exportar backup: {e}"
-
 
 def import_database_backup(backup_data):
     """Importa dados de backup para o banco."""
@@ -9499,7 +10192,6 @@ def import_database_backup(backup_data):
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
 
-
 def save_backup_to_session_state():
     """Salva backup dos dados na sessão do Streamlit."""
     try:
@@ -9512,7 +10204,6 @@ def save_backup_to_session_state():
             return False, "Erro ao criar backup"
     except Exception as e:
         return False, f"Erro ao salvar backup: {e}"
-
 
 def restore_backup_from_session_state():
     """Restaura backup dos dados da sessão do Streamlit."""
@@ -9534,7 +10225,6 @@ def restore_backup_from_session_state():
             return False, "Nenhum backup encontrado na sessão"
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
-
 
 def auto_restore_backup_on_startup():
     """Tenta restaurar backup automaticamente na inicialização da aplicação."""
@@ -9561,9 +10251,8 @@ def auto_restore_backup_on_startup():
         st.warning(f"⚠️ Erro na restauração automática: {e}")
         return False
 
-
 def main():
-    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    
     # Garante tema dark coerente mesmo sem config.toml
     st.markdown(
         """
@@ -9663,7 +10352,6 @@ def main():
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
         
 
-
         if 'intervalos_por_classe' not in st.session_state:
             st.session_state.intervalos_por_classe = {}
         classes_operacionais = [c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()]
@@ -9757,7 +10445,6 @@ def main():
         # df_f será calculado apenas para a aba Análise Geral
         df_f = None
         plan_df = build_component_maintenance_plan(df_frotas, df, df_comp_regras, df_comp_historico)
-
 
         # CSS para barra de rolagem horizontal nas abas com design moderno
         st.markdown("""
@@ -9990,7 +10677,7 @@ def main():
                         df_gastos_total['tipo_combustivel'] = 'Diesel S500'
                     
                     df_gastos_total['preco_unit'] = df_gastos_total['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_gastos_total['custo'] = df_gastos_total['Qtde_Litros'].fillna(0.0) * df_gastos_total['preco_unit']
+                    df_gastos_total['custo'] = df_gastos_total['Qtde Litros'].fillna(0.0) * df_gastos_total['preco_unit']
                     gasto_total_combustivel = df_gastos_total['custo'].sum()
                 
                 # KPIs principais
@@ -10039,12 +10726,148 @@ def main():
                 df_f = filtrar_dados(df, opts) if opts else df.copy()
 
                 if not df_f.empty:
-                    if 'Media' in df_f.columns:
-                        k1, k2 = st.columns(2)
-                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
-                        k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                    # KPIs melhorados com análise por tipo de combustível
+                    st.subheader("📊 Indicadores de Consumo por Combustível")
+                    
+                    # Obter tipos de combustível das frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        # Filtrar apenas registros que realmente têm consumo (Qtde Litros > 0)
+                        df_f_com_consumo = df_f[df_f['Qtde Litros'] > 0].copy()
+                        
+                        if not df_f_com_consumo.empty:
+                            # Pegar apenas os equipamentos que têm histórico de abastecimento
+                            equipamentos_com_consumo = df_f_com_consumo['Cod_Equip'].unique()
+                            
+                            # Filtrar df_frotas para incluir apenas equipamentos com consumo
+                            frotas_com_consumo = df_frotas[df_frotas['Cod_Equip'].isin(equipamentos_com_consumo)].copy()
+                            
+                            # Verificar se há valores duplicados em Cod_Equip e tratar adequadamente
+                            if frotas_com_consumo['Cod_Equip'].duplicated().any():
+                                # Se há duplicatas, pegar o primeiro valor de cada equipamento
+                                frotas_com_consumo = frotas_com_consumo.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                            
+                            # Criar mapeamento de tipo de combustível apenas para equipamentos com consumo
+                            combustivel_map = frotas_com_consumo.set_index('Cod_Equip')['tipo_combustivel'].fillna('Diesel S500')
+                            
+                            # Aplicar o mapeamento apenas aos registros com consumo
+                            df_f_com_consumo['tipo_combustivel'] = df_f_com_consumo['Cod_Equip'].map(combustivel_map).fillna('Diesel S500')
+                            
+                            # Calcular consumo por tipo de combustível
+                            consumo_por_combustivel = df_f_com_consumo.groupby('tipo_combustivel')['Qtde Litros'].sum().sort_values(ascending=False)
+                        else:
+                            # Se não há registros com consumo, criar um DataFrame vazio
+                            consumo_por_combustivel = pd.Series(dtype='float64')
+                        
+                        # Criar colunas dinâmicas baseadas no número de tipos de combustível
+                        num_tipos = len(consumo_por_combustivel)
+                        if num_tipos <= 2:
+                            cols = st.columns(2)
+                        elif num_tipos <= 3:
+                            cols = st.columns(3)
+                        elif num_tipos <= 4:
+                            cols = st.columns(4)
+                        else:
+                            cols = st.columns(5)
+                        
+                        # Exibir KPIs por tipo de combustível
+                        for i, (tipo, litros) in enumerate(consumo_por_combustivel.items()):
+                            if i < len(cols):
+                                with cols[i]:
+                                    # Calcular percentual do total
+                                    percentual = (litros / df_f["Qtde Litros"].sum()) * 100
+                                    
+                                    # Definir cor baseada no tipo de combustível
+                                    if 'Diesel S500' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🚛"
+                                    elif 'Diesel S10' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🚛"
+                                    elif 'Gasolina' in tipo:
+                                        delta_color = "normal"
+                                        icon = "⛽"
+                                    elif 'Etanol' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🌱"
+                                    elif 'Biodiesel' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🌿"
+                                    else:
+                                        delta_color = "normal"
+                                        icon = "⛽"
+                                    
+                                    cols[i].metric(
+                                        f"{icon} {tipo}",
+                                        f"{formatar_brasileiro_int(litros)} L",
+                                        f"{percentual:.1f}% do total",
+                                        delta_color=delta_color
+                                    )
+                        
+                        # Adicionar linha separadora
+                        st.markdown("---")
+                        
+                        # KPI adicional: Total geral e média por equipamento
+                        k1, k2, k3 = st.columns(3)
+                        
+                        with k1:
+                            total_litros = df_f["Qtde Litros"].sum()
+                            k1.metric(
+                                "🛢️ Total Geral",
+                                f"{formatar_brasileiro_int(total_litros)} L",
+                                f"{len(consumo_por_combustivel)} tipos de combustível"
+                            )
+                        
+                        with k2:
+                            if 'Media' in df_f.columns:
+                                media_geral = df_f['Media'].mean()
+                                k2.metric(
+                                    "📈 Média Geral",
+                                    f"{formatar_brasileiro(media_geral)}",
+                                    "Média de consumo por equipamento"
+                                )
+                            else:
+                                # Calcular média manual se não existir coluna Media
+                                equipamentos_unicos = df_f['Cod_Equip'].nunique()
+                                if equipamentos_unicos > 0:
+                                    media_manual = total_litros / equipamentos_unicos
+                                    k2.metric(
+                                        "📈 Média por Equipamento",
+                                        f"{formatar_brasileiro(media_manual)} L",
+                                        f"{equipamentos_unicos} equipamentos"
+                                    )
+                                else:
+                                    k2.metric("📈 Média por Equipamento", "N/A")
+                        
+                        with k3:
+                            # Calcular eficiência (litros por dia se houver dados de data)
+                            if 'Data' in df_f.columns:
+                                try:
+                                    df_f['Data'] = pd.to_datetime(df_f['Data'])
+                                    dias_periodo = (df_f['Data'].max() - df_f['Data'].min()).days + 1
+                                    if dias_periodo > 0:
+                                        litros_por_dia = total_litros / dias_periodo
+                                        k3.metric(
+                                            "📅 Consumo Diário",
+                                            f"{formatar_brasileiro(litros_por_dia)} L/dia",
+                                            f"{dias_periodo} dias analisados"
+                                        )
+                                    else:
+                                        k3.metric("📅 Consumo Diário", "N/A")
+                                except:
+                                    k3.metric("📅 Consumo Diário", "N/A")
+                            else:
+                                k3.metric("📅 Consumo Diário", "N/A")
                     else:
-                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                        # Fallback se não houver coluna tipo_combustivel
+                        k1, k2 = st.columns(2)
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde Litros"].sum()))
+                        if 'Media' in df_f.columns:
+                            k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                        else:
+                            equipamentos_unicos = df_f['Cod_Equip'].nunique()
+                            if equipamentos_unicos > 0:
+                                media_manual = df_f["Qtde Litros"].sum() / equipamentos_unicos
+                                k2.metric("Média por Equipamento", f"{formatar_brasileiro(media_manual)} L")
                     st.markdown("---")
                     st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
                     c1, c2 = st.columns(2)
@@ -10057,21 +10880,33 @@ def main():
                             df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
                         else:
                             df_consumo_classe = df_f
-                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
 
                         if not consumo_por_classe.empty:
-                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
-                            fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
-                            fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
-                            fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
+                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde Litros'].apply(formatar_brasileiro_int)
+                            fig_classe = px.bar(consumo_por_classe, x='Qtde Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
+                            fig_classe.update_traces(
+                                texttemplate='%{text} L', 
+                                textposition='outside',
+                                textfont=dict(size=11, color='black'),
+                                cliponaxis=False
+                            )
+                            fig_classe.update_layout(
+                                yaxis={'categoryorder':'total ascending'}, 
+                                xaxis_title="Total Consumido (Litros)", 
+                                yaxis_title="Classe Operacional",
+                                height=500,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(size=12)
+                            )
                             st.plotly_chart(fig_classe, use_container_width=True)
 
                     with c2:
                         st.subheader("Top 10 Equipamentos com Maior Consumo")
                         # Melhorar o gráfico com informações mais claras
-                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
+                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde Litros': 'sum'}).dropna()
                         consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
-                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
+                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde Litros", ascending=False).head(10)
 
                         if not consumo_por_equip.empty:
                             # Adicionar informações da frota para melhor identificação
@@ -10084,31 +10919,35 @@ def main():
                             
                             # Criar label mais informativo: Código - Descrição (Placa)
                             consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
-                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:30]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 30 else ''} ({row['PLACA']})", 
                                 axis=1
                             )
                             
-                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde Litros'].apply(formatar_brasileiro_int)
                             
                             fig_top10 = px.bar(
                                 consumo_por_equip, 
-                                x='Qtde_Litros', 
+                                x='Qtde Litros', 
                                 y='label_grafico', 
                                 orientation='h', 
                                 text='texto_formatado', 
-                                labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
+                                labels={"Qtde Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
                                 title="Top 10 Equipamentos com Maior Consumo"
                             )
                             fig_top10.update_traces(
                                 texttemplate='%{text} L', 
                                 textposition='outside',
-                                marker_color='#ff7f0e'
+                                marker_color='#ff7f0e',
+                                textfont=dict(size=11, color='black'),
+                                cliponaxis=False
                             )
                             fig_top10.update_layout(
                                 yaxis={'categoryorder':'total ascending'}, 
                                 xaxis_title="Total Consumido (Litros)", 
                                 yaxis_title="Equipamento",
-                                height=400
+                                height=600,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(size=11)
                             )
                             st.plotly_chart(fig_top10, use_container_width=True)
 
@@ -10139,7 +10978,7 @@ def main():
                             df_gastos['tipo_combustivel'] = 'Diesel S500'
                         
                         df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
+                        df_gastos['custo'] = df_gastos['Qtde Litros'].fillna(0.0) * df_gastos['preco_unit']
                         
                         # Adicionar informações da frota para filtro
                         df_gastos_com_info = df_gastos.merge(
@@ -10164,7 +11003,7 @@ def main():
                         # Top 10 gastos por frota individual (após filtro)
                         gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
                             'custo': 'sum',
-                            'Qtde_Litros': 'sum'
+                            'Qtde Litros': 'sum'
                         }).sort_values('custo', ascending=False).head(10).reset_index()
                         
                         # Adicionar informações da frota
@@ -10173,16 +11012,13 @@ def main():
                             on='Cod_Equip', 
                             how='left'
                         )
-                        gastos_por_frota['label_frota'] = gastos_por_frota.apply(
-                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
-                            axis=1
-                        )
+                        gastos_por_frota['label_frota'] = gastos_por_frota['Cod_Equip'].astype(str)
                         gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
                         # Top 10 gastos por classe operacional
                         gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
                             'custo': 'sum',
-                            'Qtde_Litros': 'sum'
+                            'Qtde Litros': 'sum'
                         }).sort_values('custo', ascending=False).head(10).reset_index()
                         gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
@@ -10196,29 +11032,56 @@ def main():
                             # Comentário removido para manter proporção dos gráficos
                             
                             if not gastos_por_frota.empty:
-                                fig_gastos_frota = px.bar(
-                                    gastos_por_frota,
-                                    x='custo',
-                                    y='label_frota',
-                                    orientation='h',
-                                    text='custo_formatado',
-                                    title="Gastos por Frota Individual",
-                                    labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
-                                    color='custo',
-                                    color_continuous_scale='Reds'
-                                )
-                                fig_gastos_frota.update_traces(
-                                    textposition='outside',
-                                    texttemplate='%{text}'
-                                )
-                                fig_gastos_frota.update_layout(
-                                    yaxis={'categoryorder':'total ascending'},
-                                    xaxis_title="Custo Total (R$)",
-                                    yaxis_title="Frota",
-                                    height=400,
-                                    showlegend=False
-                                )
-                                st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                                # Garantir que os dados estão corretos
+                                gastos_por_frota['custo'] = gastos_por_frota['custo'].fillna(0)
+                                gastos_por_frota = gastos_por_frota[gastos_por_frota['custo'] > 0]
+                                
+                                if not gastos_por_frota.empty:
+                                    # Dados já validados e prontos para o gráfico
+                                    
+                                    # Garantir que label_frota é string e único
+                                    gastos_por_frota['label_frota'] = gastos_por_frota['label_frota'].astype(str)
+                                    
+                                    # Criar gráfico de barras horizontais com dados limpos
+                                    fig_gastos_frota = px.bar(
+                                        gastos_por_frota,
+                                        x='custo',
+                                        y='label_frota',
+                                        orientation='h',
+                                        text='custo_formatado',
+                                        title="Gastos por Frota Individual",
+                                        labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
+                                        color='custo',
+                                        color_continuous_scale='Reds'
+                                    )
+                                    fig_gastos_frota.update_traces(
+                                        textposition='outside',
+                                        texttemplate='%{text}',
+                                        textfont=dict(size=11, color='white'),
+                                        cliponaxis=False,
+                                        marker=dict(line=dict(width=1, color='black'))
+                                    )
+                                    fig_gastos_frota.update_layout(
+                                        yaxis={'categoryorder':'total ascending'},
+                                        xaxis_title="Custo Total (R$)",
+                                        yaxis_title="Frota",
+                                        height=600,
+                                        showlegend=False,
+                                        margin=dict(l=20, r=20, t=40, b=20),
+                                        font=dict(size=12),
+                                        bargap=0.3,
+                                        bargroupgap=0.1
+                                    )
+                                    # Configurar eixo Y para mostrar todas as categorias
+                                    fig_gastos_frota.update_yaxes(
+                                        type='category',
+                                        categoryorder='total ascending'
+                                    )
+                                    st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                                    
+                                    # Gráfico criado com sucesso
+                                else:
+                                    st.warning("Não há frotas com gastos maiores que zero.")
                             else:
                                 st.info("Não há dados de gastos por frota.")
                         
@@ -10238,14 +11101,26 @@ def main():
                                 )
                                 fig_gastos_classe.update_traces(
                                     textposition='outside',
-                                    texttemplate='%{text}'
+                                    texttemplate='%{text}',
+                                    textfont=dict(size=11, color='white'),
+                                    cliponaxis=False,
+                                    marker=dict(line=dict(width=1, color='black'))
                                 )
                                 fig_gastos_classe.update_layout(
                                     yaxis={'categoryorder':'total ascending'},
                                     xaxis_title="Custo Total (R$)",
                                     yaxis_title="Classe Operacional",
-                                    height=400,
-                                    showlegend=False
+                                    height=600,
+                                    showlegend=False,
+                                    margin=dict(l=20, r=20, t=40, b=20),
+                                    font=dict(size=12),
+                                    bargap=0.3,
+                                    bargroupgap=0.1
+                                )
+                                # Configurar eixo Y para mostrar todas as categorias
+                                fig_gastos_classe.update_yaxes(
+                                    type='category',
+                                    categoryorder='total ascending'
                                 )
                                 st.plotly_chart(fig_gastos_classe, use_container_width=True)
                             else:
@@ -10341,15 +11216,15 @@ def main():
                             df_tmp['tipo_combustivel'] = 'Diesel S500'
                         
                         df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                        df_tmp['custo'] = df_tmp['Qtde Litros'].fillna(0.0) * df_tmp['preco_unit']
                         # Agrupar por matrícula
                         if 'Matricula' in df_tmp.columns:
-                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde Litros':'sum'}).sort_values('custo', ascending=False)
                             gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
                             if not gasto_motorista.empty:
                                 gasto_motorista = gasto_motorista.reset_index()
                                 gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                                gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                                gasto_motorista['Litros'] = gasto_motorista['Qtde Litros'].apply(formatar_brasileiro_int)
                                 st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
                                 try:
                                     fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
@@ -10367,13 +11242,21 @@ def main():
                     st.subheader("🔄 Análise de Proporções por Classe e Combustível")
                 
                 # Criar DataFrame com informações de combustível
-                df_consumo_combustivel = df_f.copy()
+                df_consumo_combustivel = df.copy()
                 
                 # Verificar se a coluna tipo_combustivel existe em df_frotas
                 if 'tipo_combustivel' in df_frotas.columns:
                     try:
-                        frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
+                        # Renomear a coluna COD_EQUIPAMENTO para Cod_Equip em df_frotas
+                        df_frotas_temp = df_frotas.copy()
+                        df_frotas_temp = df_frotas_temp.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip"}, errors='ignore')
+                        
+                        frotas_combustivel = df_frotas_temp[['Cod_Equip', 'tipo_combustivel']].copy()
                         frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
+                        
+                        # Renomear a coluna "Cód. Equip." para "Cod_Equip" em df_consumo_combustivel
+                        df_consumo_combustivel = df_consumo_combustivel.rename(columns={"Cód. Equip.": "Cod_Equip"}, errors='ignore')
+                        
                         df_consumo_combustivel = df_consumo_combustivel.merge(
                             frotas_combustivel, 
                             on='Cod_Equip', 
@@ -10408,12 +11291,12 @@ def main():
                     
                     if not df_consumo_classe_macro.empty:
                         try:
-                            consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
                             
                             # Criar gráfico de pizza
                             fig_pizza_classe = px.pie(
                                 consumo_por_classe_macro, 
-                                values='Qtde_Litros', 
+                                values='Qtde Litros', 
                                 names='Classe_Operacional',
                                 title="Proporção de Consumo por Classe",
                                 hole=0.3
@@ -10424,7 +11307,7 @@ def main():
                             
                             # Mostrar totais
                             st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde Litros'].sum())} L")
                         except Exception as e:
                             st.error(f"Erro ao criar gráfico de classe: {e}")
                     else:
@@ -10432,162 +11315,255 @@ def main():
                 
                 with col_grafico2:
                     st.subheader("⛽ Consumo por Tipo de Combustível")
-                    if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
+                    if not df_consumo_combustivel.empty:
                         try:
-                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            # Filtrar apenas registros que realmente têm consumo (Qtde Litros > 0)
+                            df_consumo_real = df_consumo_combustivel[df_consumo_combustivel['Qtde Litros'] > 0].copy()
                             
-                            # Criar gráfico de pizza
-                            fig_pizza_combustivel = px.pie(
-                                consumo_por_combustivel, 
-                                values='Qtde_Litros', 
-                                names='tipo_combustivel',
-                                title="Proporção de Consumo por Combustível",
-                                hole=0.3
-                            )
-                            fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
-                            fig_pizza_combustivel.update_layout(height=400)
-                            st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
-                            
-                            # Mostrar totais
-                            st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
-                        except Exception:
-                            df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                            if not df_consumo_real.empty:
+                                # Obter tipos de combustível apenas das frotas que realmente abasteceram
+                                if 'tipo_combustivel' in df_frotas.columns:
+                                    # Pegar apenas os equipamentos que têm histórico de abastecimento
+                                    equipamentos_com_consumo = df_consumo_real['Cod_Equip'].unique()
+                                    
+                                    # Filtrar df_frotas para incluir apenas equipamentos com consumo
+                                    frotas_com_consumo = df_frotas[df_frotas['Cod_Equip'].isin(equipamentos_com_consumo)].copy()
+                                    
+                                    # Verificar se há valores duplicados em Cod_Equip e tratar adequadamente
+                                    if frotas_com_consumo['Cod_Equip'].duplicated().any():
+                                        # Se há duplicatas, pegar o primeiro valor de cada equipamento
+                                        frotas_com_consumo = frotas_com_consumo.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                                    
+                                    # Criar mapeamento de tipo de combustível apenas para equipamentos com consumo
+                                    combustivel_map = frotas_com_consumo.set_index('Cod_Equip')['tipo_combustivel'].fillna('Diesel S500')
+                                    
+                                    # Aplicar o mapeamento apenas aos registros com consumo
+                                    df_consumo_real['tipo_combustivel'] = df_consumo_real['Cod_Equip'].map(combustivel_map).fillna('Diesel S500')
+                                else:
+                                    df_consumo_real['tipo_combustivel'] = 'Diesel S500'
+                                
+                                # Agrupar por tipo de combustível
+                                consumo_por_combustivel = df_consumo_real.groupby("tipo_combustivel")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
+                                
+                                if not consumo_por_combustivel.empty:
+                                    # Criar gráfico de pizza
+                                    fig_pizza_combustivel = px.pie(
+                                        consumo_por_combustivel, 
+                                        values='Qtde Litros', 
+                                        names='tipo_combustivel',
+                                        title="Proporção de Consumo por Combustível (Apenas Frotas com Histórico)",
+                                        hole=0.3
+                                    )
+                                    fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                                    fig_pizza_combustivel.update_layout(height=400)
+                                    st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                                    
+                                    # Mostrar totais
+                                    st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde Litros'].sum())} L")
+                                    st.info(f"**Frotas com histórico de abastecimento:** {len(equipamentos_com_consumo)}")
+                                else:
+                                    st.warning("Não há dados de consumo para análise por combustível.")
+                            else:
+                                st.warning("Não há registros com consumo de combustível.")
+                        except Exception as e:
+                            st.error(f"Erro ao criar gráfico de combustível: {e}")
+                            st.info("Verificando dados disponíveis...")
+                            if 'tipo_combustivel' in df_consumo_combustivel.columns:
+                                consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde Litros"].sum().reset_index()
+                                st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde Litros'].sum())} L")
+                            else:
+                                st.error("Coluna tipo_combustivel não encontrada")
                     else:
                         st.warning("Não há dados suficientes para análise por combustível.")
-                        
+                
+                # Fechar as colunas anteriores e criar nova seção com largura total
+                st.markdown("---")
+                st.subheader("📊 Demonstrativos Detalhados dos Pneus")
 
+                df_pneus_all = get_pneus_historico()
+                if not df_pneus_all.empty:
+                    # Adicione colunas de status e vida se não existirem
+                    if 'status' not in df_pneus_all.columns:
+                        df_pneus_all['status'] = 'Ativo'
+                    if 'vida_atual' not in df_pneus_all.columns:
+                        df_pneus_all['vida_atual'] = 1
+
+                    total_pneus = len(df_pneus_all)
+                    ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
+                    sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
+                    reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
+                    vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
+                    marcas = df_pneus_all['marca'].value_counts()
+                    modelos = df_pneus_all['modelo'].value_counts()
+                    posicoes = df_pneus_all['posicao'].value_counts()
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total de Pneus", total_pneus)
+                    col2.metric("Ativos", ativos)
+                    col3.metric("Sucateados", sucateados)
+                    col4.metric("Reformados", reformados)
+
+                    # Gráficos melhorados com rótulos de dados
+                    st.markdown("#### 📊 Gráficos de Distribuição")
+                    
+                    # Criar DataFrame de status para o gráfico
+                    status_df = df_pneus_all['status'].value_counts().reset_index()
+                    status_df.columns = ["Status", "Quantidade"]
+                    
+                    # Gráfico de Status (Pizza)
+                    fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
+                    fig_status.update_traces(
+                        textposition='inside',
+                        textinfo='percent+label',
+                        textfont=dict(size=12, color='white')
+                    )
+                    fig_status.update_layout(
+                        height=400,
+                        showlegend=True,
+                        font=dict(size=12)
+                    )
+                    st.plotly_chart(fig_status, use_container_width=True)
+
+                    # Gráfico de Marcas (Barras)
+                    fig_marcas = px.bar(
+                        marcas.reset_index(), 
+                        x='marca', 
+                        y='count', 
+                        title='Quantidade por Marca',
+                        text='count'
+                    )
+                    fig_marcas.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(size=11, color='white'),
+                        marker=dict(line=dict(width=1, color='black'))
+                    )
+                    fig_marcas.update_layout(
+                        xaxis_title="Marca",
+                        yaxis_title="Quantidade",
+                        height=400,
+                        bargap=0.3,
+                        bargroupgap=0.1
+                    )
+                    st.plotly_chart(fig_marcas, use_container_width=True)
+
+                    # Gráfico de Modelos (Barras)
+                    fig_modelos = px.bar(
+                        modelos.reset_index(), 
+                        x='modelo', 
+                        y='count', 
+                        title='Quantidade por Medida',
+                        text='count'
+                    )
+                    fig_modelos.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(size=11, color='white'),
+                        marker=dict(line=dict(width=1, color='black'))
+                    )
+                    fig_modelos.update_layout(
+                        xaxis_title="Modelo",
+                        yaxis_title="Quantidade",
+                        height=400,
+                        bargap=0.3,
+                        bargroupgap=0.1
+                    )
+                    st.plotly_chart(fig_modelos, use_container_width=True)
+
+
+
+                    # Botões de exportação
+                    st.markdown("#### 📊 Exportar Dados")
+                    col_export1, col_export2, col_export3 = st.columns(3)
+                    
+                    with col_export1:
+                        export_dataframe(status_df, "status_pneus", "csv")
+                    
+                    with col_export2:
+                        export_dataframe(marcas.reset_index(), "marcas_pneus", "csv")
+                    
+                    with col_export3:
+                        export_dataframe(modelos.reset_index(), "modelos_pneus", "csv")
+                    
+                    # Informações adicionais
                     st.markdown("---")
-                    st.subheader("📊 Demonstrativos Detalhados dos Pneus")
+                    st.markdown("""
+                    <div class="info-box">
+                        <strong>💡 Dicas:</strong><br>
+                        • Use os filtros para analisar períodos específicos<br>
+                        • Exporte os dados para análises externas<br>
+                        • Os gráficos são interativos - clique para mais detalhes
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("Nenhum pneu cadastrado para demonstrativo.")
 
-                    df_pneus_all = get_pneus_historico()
-                    if not df_pneus_all.empty:
-                        # Adicione colunas de status e vida se não existirem
-                        if 'status' not in df_pneus_all.columns:
-                            df_pneus_all['status'] = 'Ativo'
-                        if 'vida_atual' not in df_pneus_all.columns:
-                            df_pneus_all['vida_atual'] = 1
+                st.markdown("---")
+                st.subheader("🛢️ Demonstrativos de Lubrificantes")
 
-                        total_pneus = len(df_pneus_all)
-                        ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
-                        sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
-                        reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
-                        vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
-                        marcas = df_pneus_all['marca'].value_counts()
-                        modelos = df_pneus_all['modelo'].value_counts()
-                        posicoes = df_pneus_all['posicao'].value_counts()
+                ensure_lubrificantes_schema()
+                conn = sqlite3.connect(DB_PATH)
+                df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
 
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Total de Pneus", total_pneus)
-                        col2.metric("Ativos", ativos)
-                        col3.metric("Sucateados", sucateados)
-                        col4.metric("Reformados", reformados)
+                st.write("**Estoque Atual de Lubrificantes:**")
+                if not df_lub.empty:
+                    # Separar por tipo
+                    df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                    df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
 
-                        st.markdown("#### Distribuição por Vida Atual")
-                        vidas_df = vidas.reset_index()
-                        vidas_df.columns = ["Vida", "Quantidade"]
-                        st.dataframe(vidas_df)
-
-                        st.markdown("#### Distribuição por Status")
-                        status_df = df_pneus_all['status'].value_counts().reset_index()
-                        status_df.columns = ["Status", "Quantidade"]
-                        st.dataframe(status_df)
-
-                        st.markdown("#### Distribuição por Marca")
-                        st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
-
-                        st.markdown("#### Distribuição por Modelo")
-                        st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
-
-                        st.markdown("#### Distribuição por Posição")
-                        st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
-
-                        # Gráficos
-                        fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
-                        st.plotly_chart(fig_status, use_container_width=True)
-
-                        fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
-                        st.plotly_chart(fig_vidas, use_container_width=True)
-
-                        fig_marcas = px.bar(marcas.reset_index(), x='marca', y='count', title='Quantidade por Marca')
-                        st.plotly_chart(fig_marcas, use_container_width=True)
-
-                        fig_modelos = px.bar(modelos.reset_index(), x='modelo', y='count', title='Quantidade por Modelo')
-                        st.plotly_chart(fig_modelos, use_container_width=True)
-
-                        fig_posicoes = px.bar(posicoes.reset_index(), x='posicao', y='count', title='Quantidade por Posição')
-                        st.plotly_chart(fig_posicoes, use_container_width=True)
-
-                    else:
-                        st.info("Nenhum pneu cadastrado para demonstrativo.")
-
-                    st.markdown("---")
-                    st.subheader("🛢️ Demonstrativos de Lubrificantes")
-
-                    ensure_lubrificantes_schema()
-                    conn = sqlite3.connect(DB_PATH)
-                    df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
-                    df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
-
-                    st.write("**Estoque Atual de Lubrificantes:**")
-                    if not df_lub.empty:
-                            # Separar por tipo
-                            df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
-                            df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
-
-                            col_o, col_g = st.columns(2)
-                            with col_o:
-                                st.markdown("#### Estoque de Óleos")
-                                if not df_oleos.empty:
-                                    fig_oleos = px.bar(
-                                        df_oleos,
-                                        x='nome',
-                                        y='quantidade_estoque',
-                                        color='viscosidade',
-                                        text='quantidade_estoque',
-                                        title="Óleos - Estoque Atual",
-                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
-                                    )
-                                    st.plotly_chart(fig_oleos, use_container_width=True)
-                                else:
-                                    st.info("Nenhum óleo cadastrado.")
-
-                            with col_g:
-                                st.markdown("#### Estoque de Graxas")
-                                if not df_graxas.empty:
-                                    fig_graxas = px.bar(
-                                        df_graxas,
-                                        x='nome',
-                                        y='quantidade_estoque',
-                                        color='viscosidade',
-                                        text='quantidade_estoque',
-                                        title="Graxas - Estoque Atual",
-                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
-                                    )
-                                    st.plotly_chart(fig_graxas, use_container_width=True)
-                                else:
-                                    st.info("Nenhuma graxa cadastrada.")
-
-                            # Pizza geral
-                            df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
-                            fig_pizza = px.pie(
-                                df_lub,
-                                names='tipo',
-                                values='quantidade_estoque',
-                                title="Proporção de Estoque: Óleos vs Graxas"
+                    col_o, col_g = st.columns(2)
+                    with col_o:
+                        st.markdown("#### Estoque de Óleos")
+                        if not df_oleos.empty:
+                            fig_oleos = px.bar(
+                                df_oleos,
+                                x='nome',
+                                y='quantidade_estoque',
+                                color='viscosidade',
+                                text='quantidade_estoque',
+                                title="Óleos - Estoque Atual",
+                                labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
                             )
-                            st.plotly_chart(fig_pizza, use_container_width=True)
+                            st.plotly_chart(fig_oleos, use_container_width=True)
+                        else:
+                            st.info("Nenhum óleo cadastrado.")
 
-                            st.write("**Movimentações Recentes:**")
-                            df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
-                            df_mov = df_mov.sort_values('data', ascending=False)
-                            st.dataframe(df_mov.head(20))
-                    else:
-                            st.info("Nenhum lubrificante cadastrado.")
+                    with col_g:
+                        st.markdown("#### Estoque de Graxas")
+                        if not df_graxas.empty:
+                            fig_graxas = px.bar(
+                                df_graxas,
+                                x='nome',
+                                y='quantidade_estoque',
+                                color='viscosidade',
+                                text='quantidade_estoque',
+                                title="Graxas - Estoque Atual",
+                                labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                            )
+                            st.plotly_chart(fig_graxas, use_container_width=True)
+                        else:
+                            st.info("Nenhuma graxa cadastrada.")
 
-                    conn.close()
+                    # Pizza geral
+                    df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                    fig_pizza = px.pie(
+                        df_lub,
+                        names='tipo',
+                        values='quantidade_estoque',
+                        title="Proporção de Estoque: Óleos vs Graxas"
+                    )
+                    st.plotly_chart(fig_pizza, use_container_width=True)
+
+                    st.write("**Movimentações Recentes:**")
+                    df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                    df_mov = df_mov.sort_values('data', ascending=False)
+                    st.dataframe(df_mov.head(20))
+                else:
+                    st.info("Nenhum lubrificante cadastrado.")
+
+                conn.close()
             
 import streamlit as st
 import pandas as pd
@@ -10600,6 +11576,144 @@ import hashlib
 import json
 import base64
 import io
+# Configuração da página (deve ser o primeiro comando Streamlit)
+st.set_page_config(
+    page_title="Dashboard de Frotas - Açúcar Alegre",
+    page_icon="🚜",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/seu-usuario/projeto-uma',
+        'Report a bug': "https://github.com/seu-usuario/projeto-uma/issues",
+        'About': "# Dashboard de Frotas\n\nSistema de gestão de frotas da Açúcar Alegre\n\nDesenvolvido por André Luis"
+    }
+)
+
+# Configuração de tema
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
+
+# CSS personalizado para tema claro/escuro
+def get_theme_css():
+    if st.session_state.theme == 'dark':
+        return """
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+    else:
+        return """
+        <style>
+        .stApp {
+            background-color: #ffffff;
+            color: #262730;
+        }
+        .stButton > button {
+            background-color: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 16px;
+            font-weight: 600;
+        }
+        .stButton > button:hover {
+            background-color: #00cc6a;
+            color: #000;
+        }
+        .metric-container {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info-box {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 4px solid #00ff88;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        </style>
+        """
+
+# Aplicar CSS do tema
+st.markdown(get_theme_css(), unsafe_allow_html=True)
+
+# Função para alternar tema
+def toggle_theme():
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+
+# Função para exportar dados
+def export_dataframe(df, filename, file_type='csv'):
+    """Exporta DataFrame em diferentes formatos"""
+    if file_type == 'csv':
+        csv = df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig')
+        st.download_button(
+            label=f"📥 Download {filename}.csv",
+            data=csv,
+            file_name=f"{filename}.csv",
+            mime="text/csv",
+            help=f"Baixar {filename} em formato CSV"
+        )
+    elif file_type == 'excel':
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Dados')
+        buffer.seek(0)
+        st.download_button(
+            label=f"📥 Download {filename}.xlsx",
+            data=buffer,
+            file_name=f"{filename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help=f"Baixar {filename} em formato Excel"
+        )
+
+# Função para mostrar loading
+def show_loading(message="Carregando dados..."):
+    """Mostra indicador de carregamento"""
+    with st.spinner(message):
+        st.info(f"⏳ {message}")
+        return True
+
+# Função para tooltip informativo
+def info_tooltip(text, help_text):
+    """Cria um elemento com tooltip informativo"""
+    col1, col2 = st.columns([20, 1])
+    with col1:
+        st.write(text)
+    with col2:
+        st.info("ℹ️", help=help_text)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "frotas_data.db")
@@ -10731,7 +11845,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # --- Início do Processamento Integrado ---
         
         # Renomeia colunas para um padrão consistente
-        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde_Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
+        df_abast = df_abast.rename(columns={"Cód. Equip.": "Cod_Equip", "Qtde Litros": "Qtde Litros", "Mês": "Mes", "Média": "Media"}, errors='ignore')
         df_frotas = df_frotas.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip", "Classe Operacional": "Classe_Operacional"}, errors='ignore')
 
         # Cria o dataframe principal mesclando abastecimentos e frotas
@@ -10749,7 +11863,7 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         df_merged["AnoMes"] = df_merged["Data"].dt.to_period("M").astype(str)
         
         # Limpa e converte colunas numéricas
-        for col in ["Qtde_Litros", "Media", "Hod_Hor_Atual"]:
+        for col in ["Qtde Litros", "Media", "Hod_Hor_Atual"]:
             if col in df_merged.columns:
                 series = df_merged[col].astype(str)
                 series = series.str.replace(',', '.', regex=False).str.replace('-', '', regex=False).str.strip()
@@ -10777,13 +11891,9 @@ def load_data_from_db(db_path: str, ver_frotas: int=None, ver_abast: int=None, v
         # Adiciona coluna de tipo de combustível se não existir
         if 'tipo_combustivel' not in df_frotas.columns:
             df_frotas['tipo_combustivel'] = 'Diesel S500'  # Valor padrão
-        
-        # Garantir que a coluna existe e tem valores válidos
-        if 'tipo_combustivel' in df_frotas.columns:
-            # Preencher valores nulos com padrão
-            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
         else:
-            df_frotas['tipo_combustivel'] = 'Diesel S500'
+            # Se a coluna existe, apenas preencher valores nulos com padrão
+            df_frotas['tipo_combustivel'] = df_frotas['tipo_combustivel'].fillna('Diesel S500')
 
         # Determina o tipo de controle (Horas ou Quilômetros) para cada equipamento
         def determinar_tipo_controle(row):
@@ -10856,7 +11966,6 @@ def excluir_abastecimento(db_path: str, rowid: int) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao excluir dados do banco de dados: {e}")
         return False
-
 
 def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente: str, data: str, hod_hor: float) -> bool:
     """Exclui um registro de manutenção de componente do banco de dados usando uma combinação única de campos."""
@@ -10958,7 +12067,6 @@ def excluir_manutencao_componente(db_path: str, cod_equip: int, nome_componente:
         if 'conn' in locals():
             conn.close()
 
-
 def excluir_manutencao(db_path: str, rowid: int) -> bool:
     """Exclui um registro de manutenção do banco de dados usando seu rowid."""
     try:
@@ -11055,7 +12163,6 @@ def editar_manutencao(db_path: str, rowid: int, dados: dict) -> bool:
     except sqlite3.Error as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
         return False
-
 
 def editar_manutencao_componente(db_path: str, rowid: int, dados: dict) -> bool:
     """Edita um registro de manutenção de componente existente."""
@@ -11379,7 +12486,6 @@ def update_component_rule(rule_id, nome_componente, intervalo, lubrificante_id=N
     except Exception as e:
         return False, f"Erro ao atualizar componente: {e}"
 
-
 def get_frota_combustivel(cod_equip):
     """Obtém o tipo de combustível de uma frota específica."""
     try:
@@ -11392,7 +12498,6 @@ def get_frota_combustivel(cod_equip):
         st.error(f"Erro ao obter tipo de combustível: {e}")
         return None
 
-
 def update_frota_combustivel(cod_equip, tipo_combustivel):
     """Atualiza o tipo de combustível de uma frota específica."""
     try:
@@ -11403,7 +12508,6 @@ def update_frota_combustivel(cod_equip, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível: {e}"
-
 
 def update_classe_combustivel(classe_operacional, tipo_combustivel):
     """Atualiza o tipo de combustível de todas as frotas de uma classe."""
@@ -11416,7 +12520,6 @@ def update_classe_combustivel(classe_operacional, tipo_combustivel):
         return True, f"Tipo de combustível atualizado para {tipo_combustivel} em {rows_updated} frotas da classe {classe_operacional}"
     except Exception as e:
         return False, f"Erro ao atualizar tipo de combustível da classe: {e}"
-
 
 def add_tipo_combustivel_column():
     """Adiciona a coluna tipo_combustivel à tabela frotas se ela não existir."""
@@ -11435,7 +12538,6 @@ def add_tipo_combustivel_column():
                 return True, "Coluna tipo_combustivel já existe"
     except Exception as e:
         return False, f"Erro ao adicionar coluna tipo_combustivel: {e}"
-
 
 def ensure_motoristas_schema():
     """Garante a existência da tabela de motoristas e das colunas de vínculo em abastecimentos."""
@@ -11467,7 +12569,6 @@ def ensure_motoristas_schema():
     except Exception as e:
         return False, f"Erro ao verificar esquema de motoristas: {e}"
 
-
 def get_all_motoristas() -> pd.DataFrame:
     """Retorna o DataFrame de motoristas."""
     try:
@@ -11475,7 +12576,6 @@ def get_all_motoristas() -> pd.DataFrame:
             return pd.read_sql_query("SELECT * FROM motoristas", conn)
     except Exception:
         return pd.DataFrame(columns=['id', 'codigo_pessoa', 'matricula', 'nome', 'ativo'])
-
 
 def importar_motoristas_de_planilha(db_path: str, arquivo_carregado):
     """Importa motoristas a partir de planilha Excel. Espera colunas: Matricula, Nome e opcional Cod_Pessoa/Código Pessoa."""
@@ -11675,7 +12775,6 @@ def ensure_precos_combustivel_schema():
     except Exception as e:
         return False, f"Erro ao verificar tabela de preços: {e}"
 
-
 def get_precos_combustivel_map() -> dict:
     """Retorna um dicionário {tipo_combustivel: preco}."""
     try:
@@ -11684,7 +12783,6 @@ def get_precos_combustivel_map() -> dict:
         return {row['tipo_combustivel']: row['preco'] for _, row in dfp.iterrows()}
     except Exception:
         return {}
-
 
 def upsert_preco_combustivel(tipo: str, preco: float) -> tuple[bool, str]:
     """Cria/atualiza preço para um tipo de combustível."""
@@ -12173,7 +13271,6 @@ def build_component_maintenance_plan(_df_frotas: pd.DataFrame, _df_abastecimento
 
     return pd.DataFrame(plan_data)
 
-
 def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFrame, plan_df: pd.DataFrame) -> pd.DataFrame:
     """Estima as datas das próximas manutenções com base no uso médio."""
     if plan_df.empty or 'Leitura_Atual' not in plan_df.columns:
@@ -12214,7 +13311,6 @@ def prever_manutencoes(df_veiculos: pd.DataFrame, df_abastecimentos: pd.DataFram
     df_previsoes = pd.DataFrame(previsoes)
     return df_previsoes.sort_values('Dias Restantes')
 
-
 # ---------------------------
 # Funções para Checklists
 # ---------------------------
@@ -12243,7 +13339,6 @@ def get_checklist_items(id_regra):
         st.error(f"Erro ao buscar itens de checklist: {e}")
         return pd.DataFrame()
 
-
 # ---------------------------
 # CRUD para Checklists
 # ---------------------------
@@ -12264,7 +13359,6 @@ def add_checklist_rule(classe_operacional, titulo_checklist, turno, frequencia):
         return True, "Regra de checklist adicionada com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar regra de checklist: {e}"
-
 
 def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, frequencia):
     """Adiciona uma nova regra e devolve o ID criado (ou None em erro).
@@ -12288,7 +13382,6 @@ def add_checklist_rule_and_get_id(classe_operacional, titulo_checklist, turno, f
         st.error(f"Erro ao adicionar regra de checklist: {e}")
         return None
 
-
 def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, frequencia):
     """Edita uma regra de checklist existente."""
     try:
@@ -12307,7 +13400,6 @@ def edit_checklist_rule(id_regra, classe_operacional, titulo_checklist, turno, f
     except Exception as e:
         return False, f"Erro ao editar regra de checklist: {e}"
 
-
 def delete_checklist_rule(id_regra):
     """Remove uma regra de checklist e seus itens associados."""
     try:
@@ -12319,7 +13411,6 @@ def delete_checklist_rule(id_regra):
         return True, "Regra de checklist removida com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover regra de checklist: {e}"
-
 
 def add_checklist_item(id_regra, nome_item):
     """Adiciona um novo item de checklist a uma regra existente."""
@@ -12337,7 +13428,6 @@ def add_checklist_item(id_regra, nome_item):
         return True, "Item de checklist adicionado com sucesso!"
     except Exception as e:
         return False, f"Erro ao adicionar item de checklist: {e}"
-
 
 def edit_checklist_item(id_item, nome_item):
     """Edita um item de checklist existente."""
@@ -12357,7 +13447,6 @@ def edit_checklist_item(id_item, nome_item):
     except Exception as e:
         return False, f"Erro ao editar item de checklist: {e}"
 
-
 def delete_checklist_item(id_item):
     """Remove um item de checklist."""
     try:
@@ -12368,7 +13457,6 @@ def delete_checklist_item(id_item):
         return True, "Item de checklist removido com sucesso!"
     except Exception as e:
         return False, f"Erro ao remover item de checklist: {e}"
-
 
 def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno, status_geral):
     """Salva um checklist preenchido no histórico."""
@@ -12386,7 +13474,6 @@ def save_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turn
             conn.commit()
     except Exception as e:
         st.error(f"Erro ao salvar histórico de checklist: {e}")
-
 
 def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, turno):
     """Remove um registro do histórico de checklists usando uma combinação única de campos."""
@@ -12508,7 +13595,6 @@ def delete_checklist_history(cod_equip, titulo_checklist, data_preenchimento, tu
             conn.close()
         return False, f"Erro ao excluir checklist: {e}"
 
-
 def force_cache_clear():
     """Força a limpeza completa de todos os caches."""
     try:
@@ -12522,7 +13608,6 @@ def force_cache_clear():
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao limpar cache: {e}")
-
 
 def force_database_sync():
     """Força a sincronização do banco de dados com o disco."""
@@ -12550,7 +13635,6 @@ def force_database_sync():
         return True, f"Banco sincronizado. Modo journal: {journal_mode}"
     except Exception as e:
         return False, f"Erro ao sincronizar banco: {e}"
-
 
 def export_database_backup():
     """Exporta todos os dados do banco para um arquivo de backup."""
@@ -12584,7 +13668,6 @@ def export_database_backup():
         
     except Exception as e:
         return None, f"Erro ao exportar backup: {e}"
-
 
 def import_database_backup(backup_data):
     """Importa dados de backup para o banco."""
@@ -12632,7 +13715,6 @@ def import_database_backup(backup_data):
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
 
-
 def save_backup_to_session_state():
     """Salva backup dos dados na sessão do Streamlit."""
     try:
@@ -12645,7 +13727,6 @@ def save_backup_to_session_state():
             return False, "Erro ao criar backup"
     except Exception as e:
         return False, f"Erro ao salvar backup: {e}"
-
 
 def restore_backup_from_session_state():
     """Restaura backup dos dados da sessão do Streamlit."""
@@ -12667,7 +13748,6 @@ def restore_backup_from_session_state():
             return False, "Nenhum backup encontrado na sessão"
     except Exception as e:
         return False, f"Erro ao restaurar backup: {e}"
-
 
 def auto_restore_backup_on_startup():
     """Tenta restaurar backup automaticamente na inicialização da aplicação."""
@@ -12694,9 +13774,8 @@ def auto_restore_backup_on_startup():
         st.warning(f"⚠️ Erro na restauração automática: {e}")
         return False
 
-
 def main():
-    st.set_page_config(page_title="Dashboard de Frotas", layout="wide")
+    
     # Garante tema dark coerente mesmo sem config.toml
     st.markdown(
         """
@@ -12796,7 +13875,6 @@ def main():
         df, df_frotas, df_manutencoes, df_comp_regras, df_comp_historico, df_checklist_regras, df_checklist_itens, df_checklist_historico = load_data_from_db(DB_PATH, ver_frotas, ver_frotas, ver_frotas, ver_frotas, ver_frotas)
         
 
-
         if 'intervalos_por_classe' not in st.session_state:
             st.session_state.intervalos_por_classe = {}
         classes_operacionais = [c for c in df_frotas['Classe_Operacional'].unique() if pd.notna(c) and str(c).strip()]
@@ -12890,7 +13968,6 @@ def main():
         # df_f será calculado apenas para a aba Análise Geral
         df_f = None
         plan_df = build_component_maintenance_plan(df_frotas, df, df_comp_regras, df_comp_historico)
-
 
         # CSS para barra de rolagem horizontal nas abas com design moderno
         st.markdown("""
@@ -13109,12 +14186,148 @@ def main():
                 df_f = filtrar_dados(df, opts) if opts else df.copy()
 
                 if not df_f.empty:
-                    if 'Media' in df_f.columns:
-                        k1, k2 = st.columns(2)
-                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
-                        k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                    # KPIs melhorados com análise por tipo de combustível
+                    st.subheader("📊 Indicadores de Consumo por Combustível")
+                    
+                    # Obter tipos de combustível das frotas
+                    if 'tipo_combustivel' in df_frotas.columns:
+                        # Filtrar apenas registros que realmente têm consumo (Qtde Litros > 0)
+                        df_f_com_consumo = df_f[df_f['Qtde Litros'] > 0].copy()
+                        
+                        if not df_f_com_consumo.empty:
+                            # Pegar apenas os equipamentos que têm histórico de abastecimento
+                            equipamentos_com_consumo = df_f_com_consumo['Cod_Equip'].unique()
+                            
+                            # Filtrar df_frotas para incluir apenas equipamentos com consumo
+                            frotas_com_consumo = df_frotas[df_frotas['Cod_Equip'].isin(equipamentos_com_consumo)].copy()
+                            
+                            # Verificar se há valores duplicados em Cod_Equip e tratar adequadamente
+                            if frotas_com_consumo['Cod_Equip'].duplicated().any():
+                                # Se há duplicatas, pegar o primeiro valor de cada equipamento
+                                frotas_com_consumo = frotas_com_consumo.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                            
+                            # Criar mapeamento de tipo de combustível apenas para equipamentos com consumo
+                            combustivel_map = frotas_com_consumo.set_index('Cod_Equip')['tipo_combustivel'].fillna('Diesel S500')
+                            
+                            # Aplicar o mapeamento apenas aos registros com consumo
+                            df_f_com_consumo['tipo_combustivel'] = df_f_com_consumo['Cod_Equip'].map(combustivel_map).fillna('Diesel S500')
+                            
+                            # Calcular consumo por tipo de combustível
+                            consumo_por_combustivel = df_f_com_consumo.groupby('tipo_combustivel')['Qtde Litros'].sum().sort_values(ascending=False)
+                        else:
+                            # Se não há registros com consumo, criar um DataFrame vazio
+                            consumo_por_combustivel = pd.Series(dtype='float64')
+                        
+                        # Criar colunas dinâmicas baseadas no número de tipos de combustível
+                        num_tipos = len(consumo_por_combustivel)
+                        if num_tipos <= 2:
+                            cols = st.columns(2)
+                        elif num_tipos <= 3:
+                            cols = st.columns(3)
+                        elif num_tipos <= 4:
+                            cols = st.columns(4)
+                        else:
+                            cols = st.columns(5)
+                        
+                        # Exibir KPIs por tipo de combustível
+                        for i, (tipo, litros) in enumerate(consumo_por_combustivel.items()):
+                            if i < len(cols):
+                                with cols[i]:
+                                    # Calcular percentual do total
+                                    percentual = (litros / df_f["Qtde Litros"].sum()) * 100
+                                    
+                                    # Definir cor baseada no tipo de combustível
+                                    if 'Diesel S500' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🚛"
+                                    elif 'Diesel S10' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🚛"
+                                    elif 'Gasolina' in tipo:
+                                        delta_color = "normal"
+                                        icon = "⛽"
+                                    elif 'Etanol' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🌱"
+                                    elif 'Biodiesel' in tipo:
+                                        delta_color = "normal"
+                                        icon = "🌿"
+                                    else:
+                                        delta_color = "normal"
+                                        icon = "⛽"
+                                    
+                                    cols[i].metric(
+                                        f"{icon} {tipo}",
+                                        f"{formatar_brasileiro_int(litros)} L",
+                                        f"{percentual:.1f}% do total",
+                                        delta_color=delta_color
+                                    )
+                        
+                        # Adicionar linha separadora
+                        st.markdown("---")
+                        
+                        # KPI adicional: Total geral e média por equipamento
+                        k1, k2, k3 = st.columns(3)
+                        
+                        with k1:
+                            total_litros = df_f["Qtde Litros"].sum()
+                            k1.metric(
+                                "🛢️ Total Geral",
+                                f"{formatar_brasileiro_int(total_litros)} L",
+                                f"{len(consumo_por_combustivel)} tipos de combustível"
+                            )
+                        
+                        with k2:
+                            if 'Media' in df_f.columns:
+                                media_geral = df_f['Media'].mean()
+                                k2.metric(
+                                    "📈 Média Geral",
+                                    f"{formatar_brasileiro(media_geral)}",
+                                    "Média de consumo por equipamento"
+                                )
+                            else:
+                                # Calcular média manual se não existir coluna Media
+                                equipamentos_unicos = df_f['Cod_Equip'].nunique()
+                                if equipamentos_unicos > 0:
+                                    media_manual = total_litros / equipamentos_unicos
+                                    k2.metric(
+                                        "📈 Média por Equipamento",
+                                        f"{formatar_brasileiro(media_manual)} L",
+                                        f"{equipamentos_unicos} equipamentos"
+                                    )
+                                else:
+                                    k2.metric("📈 Média por Equipamento", "N/A")
+                        
+                        with k3:
+                            # Calcular eficiência (litros por dia se houver dados de data)
+                            if 'Data' in df_f.columns:
+                                try:
+                                    df_f['Data'] = pd.to_datetime(df_f['Data'])
+                                    dias_periodo = (df_f['Data'].max() - df_f['Data'].min()).days + 1
+                                    if dias_periodo > 0:
+                                        litros_por_dia = total_litros / dias_periodo
+                                        k3.metric(
+                                            "📅 Consumo Diário",
+                                            f"{formatar_brasileiro(litros_por_dia)} L/dia",
+                                            f"{dias_periodo} dias analisados"
+                                        )
+                                    else:
+                                        k3.metric("📅 Consumo Diário", "N/A")
+                                except:
+                                    k3.metric("📅 Consumo Diário", "N/A")
+                            else:
+                                k3.metric("📅 Consumo Diário", "N/A")
                     else:
-                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde_Litros"].sum()))
+                        # Fallback se não houver coluna tipo_combustivel
+                        k1, k2 = st.columns(2)
+                        k1.metric("Litros Consumidos (período)", formatar_brasileiro_int(df_f["Qtde Litros"].sum()))
+                        if 'Media' in df_f.columns:
+                            k2.metric("Média Consumo (período)", f"{formatar_brasileiro(df_f['Media'].mean())}")
+                        else:
+                            equipamentos_unicos = df_f['Cod_Equip'].nunique()
+                            if equipamentos_unicos > 0:
+                                media_manual = df_f["Qtde Litros"].sum() / equipamentos_unicos
+                                k2.metric("Média por Equipamento", f"{formatar_brasileiro(media_manual)} L")
                     st.markdown("---")
                     st.subheader("📊 Análise de Consumo por Classe e Equipamentos")
                     c1, c2 = st.columns(2)
@@ -13127,21 +14340,33 @@ def main():
                             df_consumo_classe = df_f[~df_f['Classe_Operacional'].str.upper().isin(classes_a_excluir)]
                         else:
                             df_consumo_classe = df_f
-                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                        consumo_por_classe = df_consumo_classe.groupby("Classe_Operacional")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
 
                         if not consumo_por_classe.empty:
-                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde_Litros'].apply(formatar_brasileiro_int)
-                            fig_classe = px.bar(consumo_por_classe, x='Qtde_Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
-                            fig_classe.update_traces(texttemplate='%{text} L', textposition='outside')
-                            fig_classe.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Total Consumido (Litros)", yaxis_title="Classe Operacional")
+                            consumo_por_classe['texto_formatado'] = consumo_por_classe['Qtde Litros'].apply(formatar_brasileiro_int)
+                            fig_classe = px.bar(consumo_por_classe, x='Qtde Litros', y='Classe_Operacional', orientation='h', text='texto_formatado', labels={"x": "Litros Consumidos", "y": "Classe Operacional"})
+                            fig_classe.update_traces(
+                                texttemplate='%{text} L', 
+                                textposition='outside',
+                                textfont=dict(size=11, color='black'),
+                                cliponaxis=False
+                            )
+                            fig_classe.update_layout(
+                                yaxis={'categoryorder':'total ascending'}, 
+                                xaxis_title="Total Consumido (Litros)", 
+                                yaxis_title="Classe Operacional",
+                                height=500,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(size=12)
+                            )
                             st.plotly_chart(fig_classe, use_container_width=True)
 
                     with c2:
                         st.subheader("Top 10 Equipamentos com Maior Consumo")
                         # Melhorar o gráfico com informações mais claras
-                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde_Litros': 'sum'}).dropna()
+                        consumo_por_equip = df_f.groupby("Cod_Equip").agg({'Qtde Litros': 'sum'}).dropna()
                         consumo_por_equip = consumo_por_equip[consumo_por_equip.index != 550]
-                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde_Litros", ascending=False).head(10)
+                        consumo_por_equip = consumo_por_equip.sort_values(by="Qtde Litros", ascending=False).head(10)
 
                         if not consumo_por_equip.empty:
                             # Adicionar informações da frota para melhor identificação
@@ -13154,31 +14379,35 @@ def main():
                             
                             # Criar label mais informativo: Código - Descrição (Placa)
                             consumo_por_equip['label_grafico'] = consumo_por_equip.apply(
-                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:20]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 20 else ''} ({row['PLACA']})", 
+                                lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:30]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 30 else ''} ({row['PLACA']})", 
                                 axis=1
                             )
                             
-                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            consumo_por_equip['texto_formatado'] = consumo_por_equip['Qtde Litros'].apply(formatar_brasileiro_int)
                             
                             fig_top10 = px.bar(
                                 consumo_por_equip, 
-                                x='Qtde_Litros', 
+                                x='Qtde Litros', 
                                 y='label_grafico', 
                                 orientation='h', 
                                 text='texto_formatado', 
-                                labels={"Qtde_Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
+                                labels={"Qtde Litros": "Total Consumido (Litros)", "label_grafico": "Equipamento"},
                                 title="Top 10 Equipamentos com Maior Consumo"
                             )
                             fig_top10.update_traces(
                                 texttemplate='%{text} L', 
                                 textposition='outside',
-                                marker_color='#ff7f0e'
+                                marker_color='#ff7f0e',
+                                textfont=dict(size=11, color='black'),
+                                cliponaxis=False
                             )
                             fig_top10.update_layout(
                                 yaxis={'categoryorder':'total ascending'}, 
                                 xaxis_title="Total Consumido (Litros)", 
                                 yaxis_title="Equipamento",
-                                height=400
+                                height=600,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(size=11)
                             )
                             st.plotly_chart(fig_top10, use_container_width=True)
 
@@ -13209,7 +14438,7 @@ def main():
                             df_gastos['tipo_combustivel'] = 'Diesel S500'
                         
                         df_gastos['preco_unit'] = df_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_gastos['custo'] = df_gastos['Qtde_Litros'].fillna(0.0) * df_gastos['preco_unit']
+                        df_gastos['custo'] = df_gastos['Qtde Litros'].fillna(0.0) * df_gastos['preco_unit']
                         
                         # Adicionar informações da frota para filtro
                         df_gastos_com_info = df_gastos.merge(
@@ -13234,7 +14463,7 @@ def main():
                         # Top 10 gastos por frota individual (após filtro)
                         gastos_por_frota = df_gastos_filtrado.groupby('Cod_Equip').agg({
                             'custo': 'sum',
-                            'Qtde_Litros': 'sum'
+                            'Qtde Litros': 'sum'
                         }).sort_values('custo', ascending=False).head(10).reset_index()
                         
                         # Adicionar informações da frota
@@ -13243,16 +14472,13 @@ def main():
                             on='Cod_Equip', 
                             how='left'
                         )
-                        gastos_por_frota['label_frota'] = gastos_por_frota.apply(
-                            lambda row: f"{row['Cod_Equip']} - {row['DESCRICAO_EQUIPAMENTO'][:15]}{'...' if len(str(row['DESCRICAO_EQUIPAMENTO'])) > 15 else ''}", 
-                            axis=1
-                        )
+                        gastos_por_frota['label_frota'] = gastos_por_frota['Cod_Equip'].astype(str)
                         gastos_por_frota['custo_formatado'] = gastos_por_frota['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
                         # Top 10 gastos por classe operacional
                         gastos_por_classe = df_gastos.groupby('Classe_Operacional').agg({
                             'custo': 'sum',
-                            'Qtde_Litros': 'sum'
+                            'Qtde Litros': 'sum'
                         }).sort_values('custo', ascending=False).head(10).reset_index()
                         gastos_por_classe['custo_formatado'] = gastos_por_classe['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
                         
@@ -13266,29 +14492,56 @@ def main():
                             # Comentário removido para manter proporção dos gráficos
                             
                             if not gastos_por_frota.empty:
-                                fig_gastos_frota = px.bar(
-                                    gastos_por_frota,
-                                    x='custo',
-                                    y='label_frota',
-                                    orientation='h',
-                                    text='custo_formatado',
-                                    title="Gastos por Frota Individual",
-                                    labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
-                                    color='custo',
-                                    color_continuous_scale='Reds'
-                                )
-                                fig_gastos_frota.update_traces(
-                                    textposition='outside',
-                                    texttemplate='%{text}'
-                                )
-                                fig_gastos_frota.update_layout(
-                                    yaxis={'categoryorder':'total ascending'},
-                                    xaxis_title="Custo Total (R$)",
-                                    yaxis_title="Frota",
-                                    height=400,
-                                    showlegend=False
-                                )
-                                st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                                # Garantir que os dados estão corretos
+                                gastos_por_frota['custo'] = gastos_por_frota['custo'].fillna(0)
+                                gastos_por_frota = gastos_por_frota[gastos_por_frota['custo'] > 0]
+                                
+                                if not gastos_por_frota.empty:
+                                    # Dados já validados e prontos para o gráfico
+                                    
+                                    # Garantir que label_frota é string e único
+                                    gastos_por_frota['label_frota'] = gastos_por_frota['label_frota'].astype(str)
+                                    
+                                    # Criar gráfico de barras horizontais com dados limpos
+                                    fig_gastos_frota = px.bar(
+                                        gastos_por_frota,
+                                        x='custo',
+                                        y='label_frota',
+                                        orientation='h',
+                                        text='custo_formatado',
+                                        title="Gastos por Frota Individual",
+                                        labels={'custo': 'Custo (R$)', 'label_frota': 'Frota'},
+                                        color='custo',
+                                        color_continuous_scale='Reds'
+                                    )
+                                    fig_gastos_frota.update_traces(
+                                        textposition='outside',
+                                        texttemplate='%{text}',
+                                        textfont=dict(size=11, color='white'),
+                                        cliponaxis=False,
+                                        marker=dict(line=dict(width=1, color='black'))
+                                    )
+                                    fig_gastos_frota.update_layout(
+                                        yaxis={'categoryorder':'total ascending'},
+                                        xaxis_title="Custo Total (R$)",
+                                        yaxis_title="Frota",
+                                        height=600,
+                                        showlegend=False,
+                                        margin=dict(l=20, r=20, t=40, b=20),
+                                        font=dict(size=12),
+                                        bargap=0.3,
+                                        bargroupgap=0.1
+                                    )
+                                    # Configurar eixo Y para mostrar todas as categorias
+                                    fig_gastos_frota.update_yaxes(
+                                        type='category',
+                                        categoryorder='total ascending'
+                                    )
+                                    st.plotly_chart(fig_gastos_frota, use_container_width=True)
+                                    
+                                    # Gráfico criado com sucesso
+                                else:
+                                    st.warning("Não há frotas com gastos maiores que zero.")
                             else:
                                 st.info("Não há dados de gastos por frota.")
                         
@@ -13308,14 +14561,26 @@ def main():
                                 )
                                 fig_gastos_classe.update_traces(
                                     textposition='outside',
-                                    texttemplate='%{text}'
+                                    texttemplate='%{text}',
+                                    textfont=dict(size=11, color='white'),
+                                    cliponaxis=False,
+                                    marker=dict(line=dict(width=1, color='black'))
                                 )
                                 fig_gastos_classe.update_layout(
                                     yaxis={'categoryorder':'total ascending'},
                                     xaxis_title="Custo Total (R$)",
                                     yaxis_title="Classe Operacional",
-                                    height=400,
-                                    showlegend=False
+                                    height=600,
+                                    showlegend=False,
+                                    margin=dict(l=20, r=20, t=40, b=20),
+                                    font=dict(size=12),
+                                    bargap=0.3,
+                                    bargroupgap=0.1
+                                )
+                                # Configurar eixo Y para mostrar todas as categorias
+                                fig_gastos_classe.update_yaxes(
+                                    type='category',
+                                    categoryorder='total ascending'
                                 )
                                 st.plotly_chart(fig_gastos_classe, use_container_width=True)
                             else:
@@ -13589,14 +14854,14 @@ def main():
                 # ===== SEÇÃO: TENDÊNCIA DE CONSUMO MENSAAL MELHORADA =====
                 st.markdown("**📊 Tendência de Consumo Mensal**")
                 
-                if not df.empty and 'Qtde_Litros' in df.columns:
+                if not df.empty and 'Qtde Litros' in df.columns:
                     # Agrupa os dados por Ano/Mês e soma o consumo
-                    consumo_mensal = df.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                    consumo_mensal = df.groupby('AnoMes')['Qtde Litros'].sum().reset_index().sort_values('AnoMes')
                     
                     if not consumo_mensal.empty:
                         # Calcular estatísticas da tendência
-                        consumo_atual = consumo_mensal['Qtde_Litros'].iloc[-1] if len(consumo_mensal) > 0 else 0
-                        consumo_anterior = consumo_mensal['Qtde_Litros'].iloc[-2] if len(consumo_mensal) > 1 else 0
+                        consumo_atual = consumo_mensal['Qtde Litros'].iloc[-1] if len(consumo_mensal) > 0 else 0
+                        consumo_anterior = consumo_mensal['Qtde Litros'].iloc[-2] if len(consumo_mensal) > 1 else 0
                         variacao = ((consumo_atual - consumo_anterior) / consumo_anterior * 100) if consumo_anterior > 0 else 0
                         
                         # Mostrar métricas de tendência
@@ -13612,9 +14877,9 @@ def main():
                         fig_tendencia = px.line(
                             consumo_mensal,
                             x='AnoMes',
-                            y='Qtde_Litros',
+                            y='Qtde Litros',
                             title="📈 Evolução do Consumo de Combustível",
-                            labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
+                            labels={"AnoMes": "Mês/Ano", "Qtde Litros": "Litros Consumidos"},
                             markers=True,
                             line_shape='linear'
                         )
@@ -13635,7 +14900,7 @@ def main():
                             st.markdown("**📅 Análise de Sazonalidade:**")
                             # Calcular média por mês
                             consumo_mensal['Mes'] = consumo_mensal['AnoMes'].str[-2:] if 'AnoMes' in consumo_mensal.columns else '01'
-                            sazonalidade = consumo_mensal.groupby('Mes')['Qtde_Litros'].mean().reset_index()
+                            sazonalidade = consumo_mensal.groupby('Mes')['Qtde Litros'].mean().reset_index()
                             sazonalidade['Mes_Nome'] = sazonalidade['Mes'].map({
                                 '01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr',
                                 '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago',
@@ -13645,10 +14910,10 @@ def main():
                             fig_sazonalidade = px.bar(
                                 sazonalidade,
                                 x='Mes_Nome',
-                                y='Qtde_Litros',
+                                y='Qtde Litros',
                                 title="📅 Consumo Médio por Mês (Sazonalidade)",
-                                labels={'Mes_Nome': 'Mês', 'Qtde_Litros': 'Litros Médios'},
-                                color='Qtde_Litros',
+                                labels={'Mes_Nome': 'Mês', 'Qtde Litros': 'Litros Médios'},
+                                color='Qtde Litros',
                                 color_continuous_scale='Blues'
                             )
                             fig_sazonalidade.update_layout(height=300)
@@ -13723,15 +14988,15 @@ def main():
                             df_tmp['tipo_combustivel'] = 'Diesel S500'
                         
                         df_tmp['preco_unit'] = df_tmp['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_tmp['custo'] = df_tmp['Qtde_Litros'].fillna(0.0) * df_tmp['preco_unit']
+                        df_tmp['custo'] = df_tmp['Qtde Litros'].fillna(0.0) * df_tmp['preco_unit']
                         # Agrupar por matrícula
                         if 'Matricula' in df_tmp.columns:
-                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde_Litros':'sum'}).sort_values('custo', ascending=False)
+                            gasto_motorista = df_tmp.groupby('Matricula').agg({'custo':'sum', 'Qtde Litros':'sum'}).sort_values('custo', ascending=False)
                             gasto_motorista = gasto_motorista[gasto_motorista['custo']>0]
                             if not gasto_motorista.empty:
                                 gasto_motorista = gasto_motorista.reset_index()
                                 gasto_motorista['Custo (R$)'] = gasto_motorista['custo'].apply(lambda x: formatar_brasileiro(x, 'R$ '))
-                                gasto_motorista['Litros'] = gasto_motorista['Qtde_Litros'].apply(formatar_brasileiro_int)
+                                gasto_motorista['Litros'] = gasto_motorista['Qtde Litros'].apply(formatar_brasileiro_int)
                                 st.dataframe(gasto_motorista[['Matricula','Litros','Custo (R$)']])
                                 try:
                                     fig_gasto = px.bar(gasto_motorista.head(10), x='custo', y='Matricula', orientation='h', text='Custo (R$)', labels={'custo':'Custo (R$)','Matricula':'Matrícula'})
@@ -13749,13 +15014,21 @@ def main():
                     st.subheader("🔄 Análise de Proporções por Classe e Combustível")
                 
                 # Criar DataFrame com informações de combustível
-                df_consumo_combustivel = df_f.copy()
+                df_consumo_combustivel = df.copy()
                 
                 # Verificar se a coluna tipo_combustivel existe em df_frotas
                 if 'tipo_combustivel' in df_frotas.columns:
                     try:
-                        frotas_combustivel = df_frotas[['Cod_Equip', 'tipo_combustivel']].copy()
+                        # Renomear a coluna COD_EQUIPAMENTO para Cod_Equip em df_frotas
+                        df_frotas_temp = df_frotas.copy()
+                        df_frotas_temp = df_frotas_temp.rename(columns={"COD_EQUIPAMENTO": "Cod_Equip"}, errors='ignore')
+                        
+                        frotas_combustivel = df_frotas_temp[['Cod_Equip', 'tipo_combustivel']].copy()
                         frotas_combustivel['tipo_combustivel'] = frotas_combustivel['tipo_combustivel'].fillna('Diesel S500')
+                        
+                        # Renomear a coluna "Cód. Equip." para "Cod_Equip" em df_consumo_combustivel
+                        df_consumo_combustivel = df_consumo_combustivel.rename(columns={"Cód. Equip.": "Cod_Equip"}, errors='ignore')
+                        
                         df_consumo_combustivel = df_consumo_combustivel.merge(
                             frotas_combustivel, 
                             on='Cod_Equip', 
@@ -13790,12 +15063,12 @@ def main():
                     
                     if not df_consumo_classe_macro.empty:
                         try:
-                            consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            consumo_por_classe_macro = df_consumo_classe_macro.groupby("Classe_Operacional")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
                             
                             # Criar gráfico de pizza
                             fig_pizza_classe = px.pie(
                                 consumo_por_classe_macro, 
-                                values='Qtde_Litros', 
+                                values='Qtde Litros', 
                                 names='Classe_Operacional',
                                 title="Proporção de Consumo por Classe",
                                 hole=0.3
@@ -13806,7 +15079,7 @@ def main():
                             
                             # Mostrar totais
                             st.info(f"**Total de classes analisadas:** {len(consumo_por_classe_macro)}")
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde_Litros'].sum())} L")
+                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_classe_macro['Qtde Litros'].sum())} L")
                         except Exception as e:
                             st.error(f"Erro ao criar gráfico de classe: {e}")
                     else:
@@ -13814,162 +15087,255 @@ def main():
                 
                 with col_grafico2:
                     st.subheader("⛽ Consumo por Tipo de Combustível")
-                    if not df_consumo_combustivel.empty and 'tipo_combustivel' in df_consumo_combustivel.columns:
+                    if not df_consumo_combustivel.empty:
                         try:
-                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().sort_values(ascending=False).reset_index()
+                            # Filtrar apenas registros que realmente têm consumo (Qtde Litros > 0)
+                            df_consumo_real = df_consumo_combustivel[df_consumo_combustivel['Qtde Litros'] > 0].copy()
                             
-                            # Criar gráfico de pizza
-                            fig_pizza_combustivel = px.pie(
-                                consumo_por_combustivel, 
-                                values='Qtde_Litros', 
-                                names='tipo_combustivel',
-                                title="Proporção de Consumo por Combustível",
-                                hole=0.3
-                            )
-                            fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
-                            fig_pizza_combustivel.update_layout(height=400)
-                            st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
-                            
-                            # Mostrar totais
-                            st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
-                        except Exception:
-                            df_consumo_combustivel['tipo_combustivel'] = 'Diesel S500'
-                            consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde_Litros"].sum().reset_index()
-                            st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde_Litros'].sum())} L")
+                            if not df_consumo_real.empty:
+                                # Obter tipos de combustível apenas das frotas que realmente abasteceram
+                                if 'tipo_combustivel' in df_frotas.columns:
+                                    # Pegar apenas os equipamentos que têm histórico de abastecimento
+                                    equipamentos_com_consumo = df_consumo_real['Cod_Equip'].unique()
+                                    
+                                    # Filtrar df_frotas para incluir apenas equipamentos com consumo
+                                    frotas_com_consumo = df_frotas[df_frotas['Cod_Equip'].isin(equipamentos_com_consumo)].copy()
+                                    
+                                    # Verificar se há valores duplicados em Cod_Equip e tratar adequadamente
+                                    if frotas_com_consumo['Cod_Equip'].duplicated().any():
+                                        # Se há duplicatas, pegar o primeiro valor de cada equipamento
+                                        frotas_com_consumo = frotas_com_consumo.drop_duplicates(subset=['Cod_Equip'], keep='first')
+                                    
+                                    # Criar mapeamento de tipo de combustível apenas para equipamentos com consumo
+                                    combustivel_map = frotas_com_consumo.set_index('Cod_Equip')['tipo_combustivel'].fillna('Diesel S500')
+                                    
+                                    # Aplicar o mapeamento apenas aos registros com consumo
+                                    df_consumo_real['tipo_combustivel'] = df_consumo_real['Cod_Equip'].map(combustivel_map).fillna('Diesel S500')
+                                else:
+                                    df_consumo_real['tipo_combustivel'] = 'Diesel S500'
+                                
+                                # Agrupar por tipo de combustível
+                                consumo_por_combustivel = df_consumo_real.groupby("tipo_combustivel")["Qtde Litros"].sum().sort_values(ascending=False).reset_index()
+                                
+                                if not consumo_por_combustivel.empty:
+                                    # Criar gráfico de pizza
+                                    fig_pizza_combustivel = px.pie(
+                                        consumo_por_combustivel, 
+                                        values='Qtde Litros', 
+                                        names='tipo_combustivel',
+                                        title="Proporção de Consumo por Combustível (Apenas Frotas com Histórico)",
+                                        hole=0.3
+                                    )
+                                    fig_pizza_combustivel.update_traces(textposition='inside', textinfo='percent+label')
+                                    fig_pizza_combustivel.update_layout(height=400)
+                                    st.plotly_chart(fig_pizza_combustivel, use_container_width=True)
+                                    
+                                    # Mostrar totais
+                                    st.info(f"**Total de tipos de combustível:** {len(consumo_por_combustivel)}")
+                                    st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde Litros'].sum())} L")
+                                    st.info(f"**Frotas com histórico de abastecimento:** {len(equipamentos_com_consumo)}")
+                                else:
+                                    st.warning("Não há dados de consumo para análise por combustível.")
+                            else:
+                                st.warning("Não há registros com consumo de combustível.")
+                        except Exception as e:
+                            st.error(f"Erro ao criar gráfico de combustível: {e}")
+                            st.info("Verificando dados disponíveis...")
+                            if 'tipo_combustivel' in df_consumo_combustivel.columns:
+                                consumo_por_combustivel = df_consumo_combustivel.groupby("tipo_combustivel")["Qtde Litros"].sum().reset_index()
+                                st.info(f"**Total de litros consumidos:** {formatar_brasileiro_int(consumo_por_combustivel['Qtde Litros'].sum())} L")
+                            else:
+                                st.error("Coluna tipo_combustivel não encontrada")
                     else:
                         st.warning("Não há dados suficientes para análise por combustível.")
-                        
+                
+                # Fechar as colunas anteriores e criar nova seção com largura total
+                st.markdown("---")
+                st.subheader("📊 Demonstrativos Detalhados dos Pneus")
 
+                df_pneus_all = get_pneus_historico()
+                if not df_pneus_all.empty:
+                    # Adicione colunas de status e vida se não existirem
+                    if 'status' not in df_pneus_all.columns:
+                        df_pneus_all['status'] = 'Ativo'
+                    if 'vida_atual' not in df_pneus_all.columns:
+                        df_pneus_all['vida_atual'] = 1
+
+                    total_pneus = len(df_pneus_all)
+                    ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
+                    sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
+                    reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
+                    vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
+                    marcas = df_pneus_all['marca'].value_counts()
+                    modelos = df_pneus_all['modelo'].value_counts()
+                    posicoes = df_pneus_all['posicao'].value_counts()
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total de Pneus", total_pneus)
+                    col2.metric("Ativos", ativos)
+                    col3.metric("Sucateados", sucateados)
+                    col4.metric("Reformados", reformados)
+
+                    # Gráficos melhorados com rótulos de dados
+                    st.markdown("#### 📊 Gráficos de Distribuição")
+                    
+                    # Criar DataFrame de status para o gráfico
+                    status_df = df_pneus_all['status'].value_counts().reset_index()
+                    status_df.columns = ["Status", "Quantidade"]
+                    
+                    # Gráfico de Status (Pizza)
+                    fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
+                    fig_status.update_traces(
+                        textposition='inside',
+                        textinfo='percent+label',
+                        textfont=dict(size=12, color='white')
+                    )
+                    fig_status.update_layout(
+                        height=400,
+                        showlegend=True,
+                        font=dict(size=12)
+                    )
+                    st.plotly_chart(fig_status, use_container_width=True)
+
+                    # Gráfico de Marcas (Barras)
+                    fig_marcas = px.bar(
+                        marcas.reset_index(), 
+                        x='marca', 
+                        y='count', 
+                        title='Quantidade por Marca',
+                        text='count'
+                    )
+                    fig_marcas.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(size=11, color='white'),
+                        marker=dict(line=dict(width=1, color='black'))
+                    )
+                    fig_marcas.update_layout(
+                        xaxis_title="Marca",
+                        yaxis_title="Quantidade",
+                        height=400,
+                        bargap=0.3,
+                        bargroupgap=0.1
+                    )
+                    st.plotly_chart(fig_marcas, use_container_width=True)
+
+                    # Gráfico de Modelos (Barras)
+                    fig_modelos = px.bar(
+                        modelos.reset_index(), 
+                        x='modelo', 
+                        y='count', 
+                        title='Quantidade por Medida',
+                        text='count'
+                    )
+                    fig_modelos.update_traces(
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        textfont=dict(size=11, color='white'),
+                        marker=dict(line=dict(width=1, color='black'))
+                    )
+                    fig_modelos.update_layout(
+                        xaxis_title="Modelo",
+                        yaxis_title="Quantidade",
+                        height=400,
+                        bargap=0.3,
+                        bargroupgap=0.1
+                    )
+                    st.plotly_chart(fig_modelos, use_container_width=True)
+
+
+
+                    # Botões de exportação
+                    st.markdown("#### 📊 Exportar Dados")
+                    col_export1, col_export2, col_export3 = st.columns(3)
+                    
+                    with col_export1:
+                        export_dataframe(status_df, "status_pneus", "csv")
+                    
+                    with col_export2:
+                        export_dataframe(marcas.reset_index(), "marcas_pneus", "csv")
+                    
+                    with col_export3:
+                        export_dataframe(modelos.reset_index(), "modelos_pneus", "csv")
+                    
+                    # Informações adicionais
                     st.markdown("---")
-                    st.subheader("📊 Demonstrativos Detalhados dos Pneus")
+                    st.markdown("""
+                    <div class="info-box">
+                        <strong>💡 Dicas:</strong><br>
+                        • Use os filtros para analisar períodos específicos<br>
+                        • Exporte os dados para análises externas<br>
+                        • Os gráficos são interativos - clique para mais detalhes
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("Nenhum pneu cadastrado para demonstrativo.")
 
-                    df_pneus_all = get_pneus_historico()
-                    if not df_pneus_all.empty:
-                        # Adicione colunas de status e vida se não existirem
-                        if 'status' not in df_pneus_all.columns:
-                            df_pneus_all['status'] = 'Ativo'
-                        if 'vida_atual' not in df_pneus_all.columns:
-                            df_pneus_all['vida_atual'] = 1
+                st.markdown("---")
+                st.subheader("🛢️ Demonstrativos de Lubrificantes")
 
-                        total_pneus = len(df_pneus_all)
-                        ativos = df_pneus_all[df_pneus_all['status'].str.lower() == 'ativo'].shape[0]
-                        sucateados = df_pneus_all[df_pneus_all['status'].str.lower() == 'sucateado'].shape[0]
-                        reformados = df_pneus_all[df_pneus_all['status'].str.lower() == 'reformado'].shape[0]
-                        vidas = df_pneus_all['vida_atual'].value_counts().sort_index()
-                        marcas = df_pneus_all['marca'].value_counts()
-                        modelos = df_pneus_all['modelo'].value_counts()
-                        posicoes = df_pneus_all['posicao'].value_counts()
+                ensure_lubrificantes_schema()
+                conn = sqlite3.connect(DB_PATH)
+                df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
+                df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
 
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Total de Pneus", total_pneus)
-                        col2.metric("Ativos", ativos)
-                        col3.metric("Sucateados", sucateados)
-                        col4.metric("Reformados", reformados)
+                st.write("**Estoque Atual de Lubrificantes:**")
+                if not df_lub.empty:
+                    # Separar por tipo
+                    df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
+                    df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
 
-                        st.markdown("#### Distribuição por Vida Atual")
-                        vidas_df = vidas.reset_index()
-                        vidas_df.columns = ["Vida", "Quantidade"]
-                        st.dataframe(vidas_df)
-
-                        st.markdown("#### Distribuição por Status")
-                        status_df = df_pneus_all['status'].value_counts().reset_index()
-                        status_df.columns = ["Status", "Quantidade"]
-                        st.dataframe(status_df)
-
-                        st.markdown("#### Distribuição por Marca")
-                        st.dataframe(marcas.reset_index().rename(columns={'index': 'Marca', 'marca': 'Quantidade'}))
-
-                        st.markdown("#### Distribuição por Modelo")
-                        st.dataframe(modelos.reset_index().rename(columns={'index': 'Modelo', 'modelo': 'Quantidade'}))
-
-                        st.markdown("#### Distribuição por Posição")
-                        st.dataframe(posicoes.reset_index().rename(columns={'index': 'Posição', 'posicao': 'Quantidade'}))
-
-                        # Gráficos
-                        fig_status = px.pie(status_df, names='Status', values='Quantidade', title='Status dos Pneus')
-                        st.plotly_chart(fig_status, use_container_width=True)
-
-                        fig_vidas = px.bar(vidas_df, x='Vida', y='Quantidade', title='Quantidade de Pneus por Vida')
-                        st.plotly_chart(fig_vidas, use_container_width=True)
-
-                        fig_marcas = px.bar(marcas.reset_index(), x='marca', y='count', title='Quantidade por Marca')
-                        st.plotly_chart(fig_marcas, use_container_width=True)
-
-                        fig_modelos = px.bar(modelos.reset_index(), x='modelo', y='count', title='Quantidade por Modelo')
-                        st.plotly_chart(fig_modelos, use_container_width=True)
-
-                        fig_posicoes = px.bar(posicoes.reset_index(), x='posicao', y='count', title='Quantidade por Posição')
-                        st.plotly_chart(fig_posicoes, use_container_width=True)
-
-                    else:
-                        st.info("Nenhum pneu cadastrado para demonstrativo.")
-
-                    st.markdown("---")
-                    st.subheader("🛢️ Demonstrativos de Lubrificantes")
-
-                    ensure_lubrificantes_schema()
-                    conn = sqlite3.connect(DB_PATH)
-                    df_lub = pd.read_sql("SELECT * FROM lubrificantes", conn)
-                    df_mov = pd.read_sql("SELECT * FROM lubrificantes_movimentacoes", conn)
-
-                    st.write("**Estoque Atual de Lubrificantes:**")
-                    if not df_lub.empty:
-                            # Separar por tipo
-                            df_oleos = df_lub[df_lub['tipo'].str.lower() == 'óleo']
-                            df_graxas = df_lub[df_lub['tipo'].str.lower() == 'graxa']
-
-                            col_o, col_g = st.columns(2)
-                            with col_o:
-                                st.markdown("#### Estoque de Óleos")
-                                if not df_oleos.empty:
-                                    fig_oleos = px.bar(
-                                        df_oleos,
-                                        x='nome',
-                                        y='quantidade_estoque',
-                                        color='viscosidade',
-                                        text='quantidade_estoque',
-                                        title="Óleos - Estoque Atual",
-                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
-                                    )
-                                    st.plotly_chart(fig_oleos, use_container_width=True)
-                                else:
-                                    st.info("Nenhum óleo cadastrado.")
-
-                            with col_g:
-                                st.markdown("#### Estoque de Graxas")
-                                if not df_graxas.empty:
-                                    fig_graxas = px.bar(
-                                        df_graxas,
-                                        x='nome',
-                                        y='quantidade_estoque',
-                                        color='viscosidade',
-                                        text='quantidade_estoque',
-                                        title="Graxas - Estoque Atual",
-                                        labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
-                                    )
-                                    st.plotly_chart(fig_graxas, use_container_width=True)
-                                else:
-                                    st.info("Nenhuma graxa cadastrada.")
-
-                            # Pizza geral
-                            df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
-                            fig_pizza = px.pie(
-                                df_lub,
-                                names='tipo',
-                                values='quantidade_estoque',
-                                title="Proporção de Estoque: Óleos vs Graxas"
+                    col_o, col_g = st.columns(2)
+                    with col_o:
+                        st.markdown("#### Estoque de Óleos")
+                        if not df_oleos.empty:
+                            fig_oleos = px.bar(
+                                df_oleos,
+                                x='nome',
+                                y='quantidade_estoque',
+                                color='viscosidade',
+                                text='quantidade_estoque',
+                                title="Óleos - Estoque Atual",
+                                labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Óleo'}
                             )
-                            st.plotly_chart(fig_pizza, use_container_width=True)
+                            st.plotly_chart(fig_oleos, use_container_width=True)
+                        else:
+                            st.info("Nenhum óleo cadastrado.")
 
-                            st.write("**Movimentações Recentes:**")
-                            df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
-                            df_mov = df_mov.sort_values('data', ascending=False)
-                            st.dataframe(df_mov.head(20))
-                    else:
-                            st.info("Nenhum lubrificante cadastrado.")
+                    with col_g:
+                        st.markdown("#### Estoque de Graxas")
+                        if not df_graxas.empty:
+                            fig_graxas = px.bar(
+                                df_graxas,
+                                x='nome',
+                                y='quantidade_estoque',
+                                color='viscosidade',
+                                text='quantidade_estoque',
+                                title="Graxas - Estoque Atual",
+                                labels={'quantidade_estoque': 'Qtd. Estoque', 'nome': 'Graxa'}
+                            )
+                            st.plotly_chart(fig_graxas, use_container_width=True)
+                        else:
+                            st.info("Nenhuma graxa cadastrada.")
 
-                    conn.close()
+                    # Pizza geral
+                    df_lub['tipo'] = df_lub['tipo'].fillna('óleo')
+                    fig_pizza = px.pie(
+                        df_lub,
+                        names='tipo',
+                        values='quantidade_estoque',
+                        title="Proporção de Estoque: Óleos vs Graxas"
+                    )
+                    st.plotly_chart(fig_pizza, use_container_width=True)
+
+                    st.write("**Movimentações Recentes:**")
+                    df_mov['data'] = pd.to_datetime(df_mov['data'], errors='coerce')
+                    df_mov = df_mov.sort_values('data', ascending=False)
+                    st.dataframe(df_mov.head(20))
+                else:
+                    st.info("Nenhum lubrificante cadastrado.")
+
+                conn.close()
             
         if tab_consulta is not None:
             with tab_consulta:
@@ -14003,14 +15369,14 @@ def main():
                     if not consumo_eq.empty and 'Matricula' in consumo_eq.columns:
                         # Análise por motorista (matrícula)
                         uso_por_motorista = consumo_eq.groupby('Matricula').agg({
-                            'Qtde_Litros': 'sum',
+                            'Qtde Litros': 'sum',
                             'Data': 'count'
-                        }).rename(columns={'Data': 'Abastecimentos'}).sort_values('Qtde_Litros', ascending=False)
+                        }).rename(columns={'Data': 'Abastecimentos'}).sort_values('Qtde Litros', ascending=False)
                         
                         if not uso_por_motorista.empty:
                             # Top 5 motoristas com maior consumo
                             top_motoristas = uso_por_motorista.head(5).reset_index()
-                            top_motoristas['Consumo (L)'] = top_motoristas['Qtde_Litros'].apply(formatar_brasileiro_int)
+                            top_motoristas['Consumo (L)'] = top_motoristas['Qtde Litros'].apply(formatar_brasileiro_int)
                             top_motoristas['Abastecimentos'] = top_motoristas['Abastecimentos'].astype(int)
                             
                             col_motorista1, col_motorista2 = st.columns(2)
@@ -14036,19 +15402,19 @@ def main():
                                 )
                                 st.metric(
                                     "Percentual do Total", 
-                                    f"{(motorista_mais_frequente['Qtde_Litros'] / uso_por_motorista['Qtde_Litros'].sum() * 100):.1f}%"
+                                    f"{(motorista_mais_frequente['Qtde Litros'] / uso_por_motorista['Qtde Litros'].sum() * 100):.1f}%"
                                 )
                             
                             # Gráfico de consumo por motorista
                             st.subheader("📈 Consumo por Motorista")
                             fig_motoristas = px.bar(
                                 top_motoristas,
-                                x='Qtde_Litros',
+                                x='Qtde Litros',
                                 y='Matricula',
                                 orientation='h',
                                 text='Consumo (L)',
                                 title="Consumo de Combustível por Motorista",
-                                labels={'Qtde_Litros': 'Litros Consumidos', 'Matricula': 'Matrícula'}
+                                labels={'Qtde Litros': 'Litros Consumidos', 'Matricula': 'Matrícula'}
                             )
                             fig_motoristas.update_traces(
                                 textposition='outside',
@@ -14138,7 +15504,7 @@ def main():
                             # Se não existir, criar a coluna com valor padrão
                             df_frota_gastos['tipo_combustivel'] = 'Diesel S500'
                         df_frota_gastos['preco_unit'] = df_frota_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                        df_frota_gastos['custo'] = df_frota_gastos['Qtde_Litros'].fillna(0.0) * df_frota_gastos['preco_unit']
+                        df_frota_gastos['custo'] = df_frota_gastos['Qtde Litros'].fillna(0.0) * df_frota_gastos['preco_unit']
                         
                         gasto_frota = df_frota_gastos['custo'].sum()
                         
@@ -14164,7 +15530,7 @@ def main():
                                 df_classe_gastos['tipo_combustivel'] = 'Diesel S500'
                             
                             df_classe_gastos['preco_unit'] = df_classe_gastos['tipo_combustivel'].map(precos_map).fillna(0.0)
-                            df_classe_gastos['custo'] = df_classe_gastos['Qtde_Litros'].fillna(0.0) * df_classe_gastos['preco_unit']
+                            df_classe_gastos['custo'] = df_classe_gastos['Qtde Litros'].fillna(0.0) * df_classe_gastos['preco_unit']
                             gasto_classe_total = df_classe_gastos['custo'].sum()
                         
                         # Calcular porcentagem
@@ -14233,7 +15599,7 @@ def main():
 
                     if not consumo_eq.empty:
                         # Calcular consumo total em litros
-                        consumo_total_litros = consumo_eq['Qtde_Litros'].sum()
+                        consumo_total_litros = consumo_eq['Qtde Litros'].sum()
 
                         # Calcular consumo por período (últimos 30, 90, 365 dias)
                         hoje = pd.Timestamp.now()
@@ -14246,7 +15612,7 @@ def main():
                         consumos_periodo = {}
                         for nome_periodo, dias in periodos.items():
                             data_limite = hoje - pd.Timedelta(days=dias)
-                            consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde_Litros'].sum()
+                            consumo_periodo = consumo_eq[consumo_eq['Data'] >= data_limite]['Qtde Litros'].sum()
                             consumos_periodo[nome_periodo] = consumo_periodo
 
                         # Calcular consumo da classe para comparação
@@ -14254,7 +15620,7 @@ def main():
                         consumo_classe_total = 0
                         if classe_selecionada:
                             df_classe_consumo = df[df['Classe_Operacional'] == classe_selecionada]
-                            consumo_classe_total = df_classe_consumo['Qtde_Litros'].sum()
+                            consumo_classe_total = df_classe_consumo['Qtde Litros'].sum()
 
                         # Calcular porcentagem do consumo da classe
                         porcentagem_consumo_classe = (consumo_total_litros / consumo_classe_total * 100) if consumo_classe_total > 0 else 0
@@ -14404,20 +15770,20 @@ def main():
 
                         # Gráfico de evolução mensal do consumo
                         if len(consumo_eq) > 1:
-                            consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde_Litros'].sum().reset_index().sort_values('AnoMes')
+                            consumo_mensal_frota = consumo_eq.groupby('AnoMes')['Qtde Litros'].sum().reset_index().sort_values('AnoMes')
 
                             if not consumo_mensal_frota.empty:
                                 # Melhorar formatação dos dados para o gráfico
-                                consumo_mensal_frota['Consumo_Formatado'] = consumo_mensal_frota['Qtde_Litros'].apply(
+                                consumo_mensal_frota['Consumo_Formatado'] = consumo_mensal_frota['Qtde Litros'].apply(
                                     lambda x: f"{formatar_brasileiro_int(x)} L"
                                 )
                                 
                                 fig_evolucao = px.line(
                                     consumo_mensal_frota,
                                     x='AnoMes',
-                                    y='Qtde_Litros',
+                                    y='Qtde Litros',
                                     title=f"Evolução Mensal do Consumo - Frota {cod_sel}",
-                                    labels={"AnoMes": "Mês/Ano", "Qtde_Litros": "Litros Consumidos"},
+                                    labels={"AnoMes": "Mês/Ano", "Qtde Litros": "Litros Consumidos"},
                                     markers=True,
                                     text='Consumo_Formatado'
                                 )
@@ -14466,7 +15832,7 @@ def main():
                         st.info(f"""
                         **📈 Resumo do Consumo:**
                         - **Total histórico:** {formatar_brasileiro_int(consumo_total_litros)} litros
-                        - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde_Litros'].mean())} litros
+                        - **Média por abastecimento:** {formatar_brasileiro_int(consumo_eq['Qtde Litros'].mean())} litros
                         - **Total de abastecimentos:** {len(consumo_eq)} registros
                         - **Período de operação:** {consumo_eq['Data'].min().strftime('%d/%m/%Y')} a {consumo_eq['Data'].max().strftime('%d/%m/%Y')}
                         - **Comparação com classe:** Esta frota representa **{porcentagem_consumo_classe:.1f}%** do consumo total da classe **{classe_selecionada}**
@@ -14753,7 +16119,7 @@ def main():
                     historico_abast_display = consumo_eq.sort_values("Data", ascending=False)
                     if not historico_abast_display.empty:
                         # Mostra matrícula (Cod_Equip) e nome do motorista quando disponível
-                        colunas_abast = ["Data", "Qtde_Litros", "Media", "Hod_Hor_Atual", "Matricula", "Nome_Motorista"]
+                        colunas_abast = ["Data", "Qtde Litros", "Media", "Hod_Hor_Atual", "Matricula", "Nome_Motorista"]
                         st.dataframe(historico_abast_display[[c for c in colunas_abast if c in historico_abast_display.columns]])
                     else:
                         st.info("Nenhum registo de abastecimento para este equipamento.")
@@ -14768,16 +16134,26 @@ def main():
                 
                 # Calcular gasto total para insights
                 gasto_total_combustivel_insights = 0
+                precos_map = get_precos_combustivel_map()
+                
+                # Definir consumo_eq se não estiver definida (para insights gerais)
+                if 'consumo_eq' not in locals():
+                    consumo_eq = df.copy()
+                
                 if precos_map:
-                    df_gastos_insights = df.copy()
+                    df_gastos_insights = consumo_eq.copy()
                     if 'tipo_combustivel' in df_frotas.columns:
                         df_gastos_insights = df_gastos_insights.merge(df_frotas[['Cod_Equip','tipo_combustivel']], on='Cod_Equip', how='left')
-                        df_gastos_insights['tipo_combustivel'] = df_gastos_insights['tipo_combustivel'].fillna('Diesel S500')
+                        # Verificar se a coluna foi criada após o merge
+                        if 'tipo_combustivel' in df_gastos_insights.columns:
+                            df_gastos_insights['tipo_combustivel'] = df_gastos_insights['tipo_combustivel'].fillna('Diesel S500')
+                        else:
+                            df_gastos_insights['tipo_combustivel'] = 'Diesel S500'
                     else:
                         df_gastos_insights['tipo_combustivel'] = 'Diesel S500'
                     
                     df_gastos_insights['preco_unit'] = df_gastos_insights['tipo_combustivel'].map(precos_map).fillna(0.0)
-                    df_gastos_insights['custo'] = df_gastos_insights['Qtde_Litros'].fillna(0.0) * df_gastos_insights['preco_unit']
+                    df_gastos_insights['custo'] = df_gastos_insights['Qtde Litros'].fillna(0.0) * df_gastos_insights['preco_unit']
                     gasto_total_combustivel_insights = df_gastos_insights['custo'].sum()
                 
                 # Gerar insights baseados nos dados
@@ -14785,9 +16161,9 @@ def main():
                 recomendacoes = []
                 
                 # Insight 1: Análise de eficiência
-                if 'Media' in df.columns and not df['Media'].dropna().empty:
-                    media_geral = df['Media'].mean()
-                    equipamentos_ineficientes = df[df['Media'] > media_geral * 1.2]['Cod_Equip'].nunique()
+                if 'Media' in consumo_eq.columns and not consumo_eq['Media'].dropna().empty:
+                    media_geral = consumo_eq['Media'].mean()
+                    equipamentos_ineficientes = consumo_eq[consumo_eq['Media'] > media_geral * 1.2]['Cod_Equip'].nunique()
                     if equipamentos_ineficientes > 0:
                         insights.append(f"🔍 **{equipamentos_ineficientes} equipamentos** estão consumindo mais de 20% acima da média")
                         recomendacoes.append("💡 Considere revisar a operação destes equipamentos ou agendar manutenção preventiva")
@@ -15284,7 +16660,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                             df_para_excluir['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
                                             df_para_excluir['Cod_Equip'].astype(str) + " - " +
                                             df_para_excluir['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                            df_para_excluir['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
+                                            df_para_excluir['Qtde Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
                                             df_para_excluir['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
                                         )
             
@@ -15303,7 +16679,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                             
                                             # Mostra os detalhes do registro selecionado
                                             registro_detalhes = df[df['rowid'] == rowid_para_excluir]
-                                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Qtde_Litros', 'Hod_Hor_Atual']])
+                                            st.dataframe(registro_detalhes[['Data', 'DESCRICAO_EQUIPAMENTO', 'Qtde Litros', 'Hod_Hor_Atual']])
             
                                             if st.button("Confirmar Exclusão", type="primary"):
                                                 if excluir_abastecimento(DB_PATH, rowid_para_excluir):
@@ -15432,7 +16808,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                             df_abast_edit['Data'].dt.strftime('%d/%m/%Y') + " | Frota: " +
                                             df_abast_edit['Cod_Equip'].astype(str) + " - " +
                                             df_abast_edit['DESCRICAO_EQUIPAMENTO'].fillna('N/A') + " | " +
-                                            df_abast_edit['Qtde_Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
+                                            df_abast_edit['Qtde Litros'].apply(lambda x: f"{x:.2f}".replace('.',',')) + " L | " +
                                             df_abast_edit['Hod_Hor_Atual'].apply(lambda x: formatar_brasileiro_int(x)) + " h/km"
                                         )
                                         map_label_to_rowid = pd.Series(df_abast_edit.rowid.values, index=df_abast_edit.label_edit).to_dict()
@@ -15465,7 +16841,7 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                                 )
                                                 nova_qtde = st.number_input(
                                                     "Qtde Litros", 
-                                                    value=float(dados_atuais['Qtde_Litros']), 
+                                                    value=float(dados_atuais['Qtde Litros']), 
                                                     format="%.2f"
                                                 )
                                                 novo_hod = st.number_input(
@@ -18018,21 +19394,21 @@ Relatório gerado automaticamente pelo sistema de gestão de frotas.
                                                     <p style="
                                                         margin: 8px 0; 
                                                         font-size: 14px; 
-                                                        color: #2c3e50; 
+                                                        color: #E8E8E8; 
                                                         line-height: 1.4;
                                                     ">
-                                                        <strong style="color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}">Nº Fogo:</strong> {pneu.get('numero_fogo', 'N/A')} | 
-                                                        <strong style="color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}">Status:</strong> {pneu['status']} | 
-                                                        <strong style="color: {'#00cc6a' if pneu['status'] == 'Ativo' else '#ff4757'}">Vida Atual:</strong> {pneu['vida_atual']}ª
+                                                        <strong style="color: {'#00ff88' if pneu['status'] == 'Ativo' else '#ff6b6b'}">Nº Fogo:</strong> {pneu.get('numero_fogo', 'N/A')} | 
+                                                        <strong style="color: {'#00ff88' if pneu['status'] == 'Ativo' else '#ff6b6b'}">Status:</strong> {pneu['status']} | 
+                                                        <strong style="color: {'#00ff88' if pneu['status'] == 'Ativo' else '#ff6b6b'}">Vida Atual:</strong> {pneu['vida_atual']}ª
                                                     </p>
                                                     <p style="
                                                         margin: 8px 0; 
                                                         font-size: 13px; 
-                                                        color: #7f8c8d; 
-                        line-height: 1.3;
+                                                        color: #B8B8B8; 
+                                                        line-height: 1.3;
                                                     ">
-                                                        <strong style="color: #34495e">Instalado:</strong> {pneu['data_instalacao']} | 
-                                                        <strong style="color: #34495e">Hodômetro:</strong> {pneu['hodometro_instalacao']:,.0f}
+                                                        <strong style="color: #E8E8E8">Instalado:</strong> {pneu['data_instalacao']} | 
+                                                        <strong style="color: #E8E8E8">Hodômetro:</strong> {pneu['hodometro_instalacao']:,.0f}
                                                     </p>
                                                 </div>
                                                 ''', unsafe_allow_html=True)
